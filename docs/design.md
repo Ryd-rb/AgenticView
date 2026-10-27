@@ -11,6 +11,10 @@ Dragging resolves free positions around obstacles; locks hold positions fixed.
 Cards grow with content or use manually resized fixed viewports. A locked card
 that cannot grow safely scrolls internally. Native displays are titled subcards
 inside the agent: Markdown plans, diffs, modified-file trees, metrics, and evidence.
+Task lists and current plans always lead each agent card, including nested cards,
+before context, children and supporting evidence. Markdown checklists are detected
+from their task syntax; Markdown or tree components named `plan`, `tasks` or `todo`
+in their ID or title also receive this priority. Other components keep arrival order.
 
 All unlocked world cards participate in automatic bin packing, including legacy
 and manually sized cards. Arrivals favor older valid positions and fill available
@@ -23,7 +27,10 @@ Mouse, keyboard, and touchscreen input share the same camera transforms. Pinch
 zoom preserves the world anchor under the fingers while midpoint motion pans.
 Fit all has no fixed zoom floor. Visible cards retain their content at every zoom
 level; double-click or double-tap focuses a card. Editing controls retain their
-normal key and tap behavior. Embedded documents own their internal pointer events.
+normal key and tap behavior. Embedded documents start behind a navigation surface;
+choose **Interact with view** in an active card to use their own controls. Return to
+card navigation with the same button. Deactivation or canvas navigation resets this
+mode. The document remains isolated and never receives dashboard credentials.
 Fit all follows arriving cards and layout changes until you pan, zoom, or move a
 card. In a custom viewport, an offscreen arrival offers a persistent Show card action.
 
@@ -34,6 +41,10 @@ canvas navigation. Space-drag, middle-drag and Alt gestures force the canvas.
 Main zoom, Fit all, Arrange all and settings remain authoritative in a viewport
 HUD outside the transformed world. Larger system text uses the existing card
 dimensions and component spacing, with internal panning where needed.
+Wheel and drag gestures consume nested grid, log, code and child-card scroll ranges
+first, then continue with the remaining movement in the containing card. Reversing
+direction scrolls the nearest region first. Ctrl/Command-wheel and two-finger pinch
+zoom the active card before component handlers can consume them.
 
 The optional C# Windows desktop host opens the monitor in a dedicated fullscreen
 WebView2 window with no system title bar. Custom top-right controls minimize,

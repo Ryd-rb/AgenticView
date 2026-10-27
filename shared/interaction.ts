@@ -12,6 +12,12 @@ export function contentPoint(client: { x: number; y: number }, bounds: { left: n
 }
 
 type Size = { width: number; height: number };
+/** Consume only the available scroll distance and carry residual movement outward. */
+export function consumeScrollDelta(scroll: { left: number; top: number; maxLeft: number; maxTop: number }, dx: number, dy: number) {
+  const left = Math.max(0, Math.min(scroll.maxLeft, scroll.left + dx));
+  const top = Math.max(0, Math.min(scroll.maxTop, scroll.top + dy));
+  return { left, top, remainingX: dx - (left - scroll.left), remainingY: dy - (top - scroll.top) };
+}
 export function minimumContentZoom(view: Size, content: Size): number {
   if (![view.width, view.height, content.width, content.height].every(value => Number.isFinite(value) && value > 0)) throw new RangeError('Invalid content extent');
   return Math.min(1, Math.max(view.width / content.width, view.height / content.height));

@@ -1,9 +1,10 @@
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useContext, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { diffLines } from 'diff';
 import { Activity, Code2, ExternalLink, FileText, Pause, ShieldCheck } from 'lucide-react';
 import type { Component } from '../shared/protocol.js';
+import { CardInteraction } from './CardInteraction.js';
 
 const colors = ['#b4a2ff', '#70d6c3', '#e8be79', '#8bbbf5', '#e891b1'];
 const stringify = (v: unknown) => typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v ?? '—');
@@ -35,19 +36,23 @@ function Logs({ entries }: { entries: Extract<Component, { kind: 'logs' }>['data
 }
 function Embed({ data, enabled, runId, componentId }: { data: Extract<Component, { kind: 'embed' }>['data']; enabled: boolean; runId: string; componentId: string }) {
   const frame = useRef<HTMLIFrameElement>(null), port = useRef<MessagePort | null>(null), loads = useRef(0);
-  const [navigated, setNavigated] = useState(false);
+  const [navigated, setNavigated] = useState(false), [interacting, setInteracting] = useState(false);
+  const active = useContext(CardInteraction), input = active && interacting;
   const src = `/api/embeds/${encodeURIComponent(runId)}/${encodeURIComponent(componentId)}`;
   useEffect(() => { port.current?.postMessage(data.state ?? null); }, [data.state]);
   useEffect(() => { loads.current = 0; setNavigated(false); return () => { port.current?.close(); port.current = null; }; }, [src, enabled]);
+  useEffect(() => { if (!active) setInteracting(false); }, [active]);
+  useEffect(() => { const reset = () => setInteracting(false); window.addEventListener('agenticview:canvas-navigation', reset); return () => window.removeEventListener('agenticview:canvas-navigation', reset); }, []);
+  useEffect(() => { setInteracting(false); }, [src, enabled]);
   if (!enabled || navigated) return <div className="embed-paused"><Pause size={18} /><span>{navigated ? 'View navigated. Reload the component to reconnect.' : 'Embedded views are paused in settings.'}</span></div>;
-  return <><div className="embed-label"><ShieldCheck size={12} /> Trusted view <span>isolated document · network enabled</span></div><iframe ref={frame} title="Agent generated view" sandbox="allow-scripts allow-forms allow-popups allow-downloads" referrerPolicy="no-referrer" src={src} style={{ height: data.height }} onLoad={() => {
+  return <><div className="embed-label"><ShieldCheck size={12} /> Trusted view <span>isolated document · network enabled</span><button className="embed-interact" disabled={!active} aria-pressed={input} onClick={() => setInteracting(!input)}>{input ? 'Return to card navigation' : 'Interact with view'}</button></div><div className={`embed-frame ${input ? 'embed-interacting' : ''}`}><iframe ref={frame} title="Agent generated view" inert={!input} tabIndex={input ? 0 : -1} sandbox="allow-scripts allow-forms allow-popups allow-downloads" referrerPolicy="no-referrer" src={src} style={{ height: data.height, pointerEvents: input ? 'auto' : 'none' }} onLoad={() => {
     loads.current++;
     port.current?.close(); port.current = null;
-    if (loads.current > 1) { setNavigated(true); return; }
+    if (loads.current > 1) { setInteracting(false); setNavigated(true); return; }
     const channel = new MessageChannel(); port.current = channel.port1;
     frame.current?.contentWindow?.postMessage({ type: 'agenticview:init' }, '*', [channel.port2]);
     channel.port1.postMessage(data.state ?? null);
-  }} /></>;
+  }} />{!input && <div className="embed-navigation-shield" aria-hidden="true" />}</div></>;
 }
 function Tree({ nodes }: { nodes: Extract<Component, { kind: 'tree' }>['data']['nodes'] }) {
   const ids = new Set(nodes.map(n => n.id));

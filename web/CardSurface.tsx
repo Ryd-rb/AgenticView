@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Check, Minus, Plus, RotateCcw } from 'lucide-react';
 import { ContentNavigation, clampContentCamera, contentPoint, minimumContentZoom } from '../shared/interaction.js';
 import { TouchViewport, zoomAt, type Camera } from '../shared/viewport.js';
+import { CardInteraction } from './CardInteraction.js';
+import { scrollAncestors, scrollThrough } from './scrollChain.js';
 
 const initial: Camera = { x: 0, y: 0, zoom: 1 };
 export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCanvas, store, children }: {
@@ -11,7 +13,9 @@ export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCa
   const [commitRevision, setCommitRevision] = useState(0);
   const element = useRef<HTMLDivElement>(null), scroller = useRef<HTMLDivElement>(null), plane = useRef<HTMLDivElement>(null), current = useRef(camera), enabled = useRef(active);
   const navigation = useRef(new ContentNavigation(camera));
-  const touch = useRef(new TouchViewport(1, 4)), drag = useRef<{ pointer: number; x: number; y: number; camera: Camera; native?: HTMLElement; left?: number; top?: number } | null>(null);
+  type Drag = { pointer: number; x: number; y: number; origin: { x: number; y: number }; regions: HTMLElement[]; moved: boolean; editable: boolean };
+  const touch = useRef(new TouchViewport(1, 4)), drag = useRef<Drag | null>(null), contacts = useRef(new Map<number, Drag>());
+  const captured = useRef(new Set<number>()), suppressClickUntil = useRef(0);
   enabled.current = active;
   function geometry() {
     const viewport = scroller.current!, content = plane.current!;
@@ -25,9 +29,17 @@ export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCa
     else if (!navigation.current.pending && scroller.current) { scroller.current.scrollLeft = -next.x; scroller.current.scrollTop = -next.y; navigation.current.scrolled(scroller.current.scrollLeft, scroller.current.scrollTop); current.current = navigation.current.camera; store?.set(id, current.current); }
   }
   function point(x: number, y: number) { const body = scroller.current!; return contentPoint({ x, y }, body.getBoundingClientRect(), body.offsetWidth); }
-  function nestedScroll(target: EventTarget | null) {
-    const node = target instanceof Element ? target.closest<HTMLElement>('.table-scroll,.logs,pre,.timeline,.child-body,.settings-content') : null;
-    return node && (node.scrollWidth > node.clientWidth || node.scrollHeight > node.clientHeight) ? node : undefined;
+  function panThrough(regions: HTMLElement[], dx: number, dy: number) {
+    const zoom = current.current.zoom;
+    const remaining = scrollThrough(regions, dx / zoom, dy / zoom);
+    apply({ ...current.current, x: current.current.x - remaining.x * zoom, y: current.current.y - remaining.y * zoom });
+  }
+  function capture(pointer: number) {
+    element.current!.setPointerCapture(pointer); captured.current.add(pointer);
+  }
+  function clear() {
+    for (const pointer of captured.current) if (element.current?.hasPointerCapture(pointer)) element.current.releasePointerCapture(pointer);
+    captured.current.clear(); touch.current.clear(); contacts.current.clear(); drag.current = null;
   }
   function zoom(factor: number, anchor?: { x: number; y: number }) {
     if (!scroller.current || !plane.current) return;
@@ -42,52 +54,60 @@ export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCa
   useLayoutEffect(() => { const viewport = scroller.current; if (viewport) { const target = navigation.current.pending ?? current.current; viewport.scrollLeft = -target.x; viewport.scrollTop = -target.y; navigation.current.committed(viewport.scrollLeft, viewport.scrollTop); current.current = navigation.current.camera; store?.set(id, current.current); } }, [commitRevision, extent]);
   useEffect(() => {
     const body = element.current; if (!body) return;
-    const clear = () => { touch.current.clear(); drag.current = null; };
     const wheel = (event: WheelEvent) => {
       if (!enabled.current || forceCanvas() || event.altKey) return;
-      if (!event.ctrlKey && !event.metaKey && nestedScroll(event.target)) { event.stopPropagation(); return; }
       event.preventDefault(); event.stopPropagation();
       const viewport = scroller.current!, scale = viewport.getBoundingClientRect().width / viewport.offsetWidth;
-      const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.clientHeight : 1);
+      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.clientHeight : 1;
+      const delta = event.deltaY * unit, horizontal = event.deltaX * unit;
       if (event.ctrlKey || event.metaKey) zoom(Math.exp(Math.max(-4, Math.min(4, -delta * .0015))), point(event.clientX, event.clientY));
-      else apply({ ...current.current, x: current.current.x - (event.shiftKey ? delta + event.deltaX : event.deltaX) / scale, y: current.current.y - (event.shiftKey ? 0 : delta) / scale });
+      else panThrough(scrollAncestors(event.target, viewport), (horizontal + (event.shiftKey ? delta : 0)) / scale, (event.shiftKey ? 0 : delta) / scale);
     };
-    body.addEventListener('wheel', wheel, { passive: false }); window.addEventListener('agenticview:canvas-navigation', clear); window.addEventListener('blur', clear);
-    return () => { body.removeEventListener('wheel', wheel); window.removeEventListener('agenticview:canvas-navigation', clear); window.removeEventListener('blur', clear); clear(); };
+    body.addEventListener('wheel', wheel, { passive: false, capture: true }); window.addEventListener('agenticview:canvas-navigation', clear); window.addEventListener('blur', clear);
+    return () => { body.removeEventListener('wheel', wheel, true); window.removeEventListener('agenticview:canvas-navigation', clear); window.removeEventListener('blur', clear); clear(); };
   }, []);
-  useEffect(() => { if (!active) { touch.current.clear(); drag.current = null; } }, [active]);
+  useEffect(() => { if (!active) clear(); }, [active]);
   function down(event: React.PointerEvent<HTMLDivElement>) {
-    if (!active || forceCanvas() || event.altKey || canvasOwnsPointer(event.pointerId) || (event.target as Element).closest('.card-local-controls,button,a,input,textarea,select,[contenteditable=true]')) return;
+    if (!active || forceCanvas() || event.altKey || canvasOwnsPointer(event.pointerId)) return;
     const viewport = scroller.current!, bounds = viewport.getBoundingClientRect(), scale = bounds.width / viewport.offsetWidth;
-    if (event.clientX >= bounds.left + viewport.clientWidth * scale || event.clientY >= bounds.top + viewport.clientHeight * scale) return;
+    const localControl = !!(event.target as Element).closest('.card-local-controls');
+    if (!localControl && (event.clientX >= bounds.left + viewport.clientWidth * scale || event.clientY >= bounds.top + viewport.clientHeight * scale)) return;
     const p = point(event.clientX, event.clientY);
-    if (event.pointerType === 'touch') { if (!touch.current.count) { const bounds = geometry(); touch.current = new TouchViewport(minimumContentZoom(bounds.view, bounds.content), 4); } touch.current.start(event.pointerId, p, current.current); }
-    else if (event.button !== 0 || event.shiftKey) return;
-    event.stopPropagation(); if (event.pointerType === 'touch') event.preventDefault();
-    const native = nestedScroll(event.target);
-    drag.current = { pointer: event.pointerId, ...p, camera: { ...current.current }, native, left: native?.scrollLeft, top: native?.scrollTop }; event.currentTarget.setPointerCapture(event.pointerId);
+    const target = event.target as Element, editable = localControl || !!target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"])');
+    const intent: Drag = { pointer: event.pointerId, ...p, origin: p, regions: scrollAncestors(event.target, viewport), moved: false, editable };
+    if (event.pointerType === 'touch') {
+      if (!touch.current.count) { const bounds = geometry(); touch.current = new TouchViewport(minimumContentZoom(bounds.view, bounds.content), 4); }
+      contacts.current.set(event.pointerId, intent); touch.current.start(event.pointerId, p, current.current);
+      if (touch.current.count >= 2) { event.preventDefault(); event.stopPropagation(); suppressClickUntil.current = performance.now() + 700; for (const pointer of contacts.current.keys()) capture(pointer); }
+    } else if (event.button !== 0 || event.shiftKey || editable) return;
+    drag.current ??= intent;
+    if (!target.closest('button,a,input,textarea,select,[contenteditable]:not([contenteditable="false"])')) { event.stopPropagation(); if (event.pointerType === 'touch') event.preventDefault(); capture(event.pointerId); }
   }
   function move(event: React.PointerEvent<HTMLDivElement>) {
-    if (!active || canvasOwnsPointer(event.pointerId)) return;
+    if (!active || canvasOwnsPointer(event.pointerId) || forceCanvas() || event.altKey) return;
     const p = point(event.clientX, event.clientY);
-    if (event.pointerType === 'touch' && touch.current.pointers.has(event.pointerId)) { const pinched = touch.current.move(event.pointerId, p); if (pinched) { event.preventDefault(); event.stopPropagation(); apply(pinched); return; } }
+    if (event.pointerType === 'touch' && touch.current.pointers.has(event.pointerId)) { const pinched = touch.current.move(event.pointerId, p); if (pinched) { event.preventDefault(); event.stopPropagation(); suppressClickUntil.current = performance.now() + 700; apply(pinched); return; } }
     const start = drag.current; if (!start || start.pointer !== event.pointerId) return;
-    const dx = p.x - start.x, dy = p.y - start.y; if (Math.hypot(dx, dy) < 4) return;
+    if (start.editable) return;
+    if (!start.moved && Math.hypot(p.x - start.origin.x, p.y - start.origin.y) < 4) return;
+    const dx = p.x - start.x, dy = p.y - start.y; start.moved = true; start.x = p.x; start.y = p.y;
     event.preventDefault(); event.stopPropagation();
-    if (start.native) { start.native.scrollLeft = start.left! - dx / start.camera.zoom; start.native.scrollTop = start.top! - dy / start.camera.zoom; }
-    else apply({ ...start.camera, x: start.camera.x + dx, y: start.camera.y + dy });
+    capture(event.pointerId); suppressClickUntil.current = performance.now() + 500; panThrough(start.regions, -dx, -dy);
   }
   function up(event: React.PointerEvent<HTMLDivElement>) {
-    if (event.pointerType === 'touch') touch.current.end(event.pointerId, current.current); drag.current = null;
-    const remaining = [...touch.current.pointers.entries()]; if (remaining.length === 1) drag.current = { pointer: remaining[0]![0], ...remaining[0]![1], camera: { ...current.current } };
+    const pinching = touch.current.count >= 2;
+    if (event.pointerType === 'touch') touch.current.end(event.pointerId, current.current);
+    contacts.current.delete(event.pointerId); if (drag.current?.pointer === event.pointerId) drag.current = null;
+    const remaining = [...touch.current.pointers.entries()]; if (pinching && remaining.length === 1) { const [pointer, p] = remaining[0]!; const contact = contacts.current.get(pointer)!; drag.current = { ...contact, ...p, origin: p, moved: true, editable: false }; }
+    captured.current.delete(event.pointerId);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   }
-  return <div ref={element} className={['card-body card-surface', active ? 'card-active' : ''].join(' ')} data-card-surface={id} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
+  return <CardInteraction value={active}><div ref={element} className={['card-body card-surface', active ? 'card-active' : ''].join(' ')} data-card-surface={id} onPointerDownCapture={down} onPointerMoveCapture={move} onPointerUpCapture={up} onPointerCancelCapture={up} onClickCapture={event => { if (performance.now() < suppressClickUntil.current) { event.preventDefault(); event.stopPropagation(); } }}>
     {active ? <div className="card-local-controls" role="toolbar" aria-label="Active card navigation"><span>Card</span><button title="Zoom card out" aria-label="Zoom card out" onClick={() => zoom(1 / 1.2)}><Minus size={12} /></button><span>{Math.round(camera.zoom * 100)}%</span><button title="Zoom card in" aria-label="Zoom card in" onClick={() => zoom(1.2)}><Plus size={12} /></button><button title="Reset card view" aria-label="Reset card view" onClick={() => apply(initial)}><RotateCcw size={12} /></button><button title="Return to canvas navigation (Escape)" aria-label="Deactivate card" onClick={deactivate}><Check size={13} /></button></div> : <span className="card-activation-hint">Click or tap to interact</span>}
     <div ref={scroller} className="card-content-scroll" inert={!active} tabIndex={active ? 0 : -1} onScroll={() => { if (!enabled.current || !scroller.current) return; if (navigation.current.scrolled(scroller.current.scrollLeft, scroller.current.scrollTop)) { current.current = navigation.current.camera; store?.set(id, current.current); } }}>
       <div className="card-scroll-extent" style={{ width: extent.width * camera.zoom || undefined, height: extent.height * camera.zoom || undefined }}>
         <div ref={plane} className="card-content-plane" inert={!active} style={{ transform: 'scale(' + camera.zoom + ')', transformOrigin: '0 0' }}>{children}</div>
       </div>
     </div>
-  </div>;
+  </div></CardInteraction>;
 }

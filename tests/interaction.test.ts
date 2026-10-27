@@ -2,9 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ContentNavigation, gestureOwner, contentPoint, minimumContentZoom, clampContentCamera } from '../shared/interaction.ts';
+import { ContentNavigation, gestureOwner, contentPoint, minimumContentZoom, clampContentCamera, consumeScrollDelta } from '../shared/interaction.ts';
 import { TouchViewport } from '../shared/viewport.ts';
 import { CardSurface } from '../web/CardSurface.tsx';
+
+test('nested scrolling conserves movement at partial and exhausted edges on both axes', () => {
+  const scroll = { left: 80, top: 190, maxLeft: 100, maxTop: 200 };
+  assert.deepEqual(consumeScrollDelta(scroll, 50, 40), { left: 100, top: 200, remainingX: 30, remainingY: 30 });
+  assert.deepEqual(consumeScrollDelta({ ...scroll, left: 100, top: 200 }, 50, 40), { left: 100, top: 200, remainingX: 50, remainingY: 40 });
+  assert.deepEqual(consumeScrollDelta({ ...scroll, left: 10, top: 20 }, -50, -40), { left: 0, top: 0, remainingX: -40, remainingY: -20 });
+  assert.deepEqual(consumeScrollDelta(scroll, -20, -30), { left: 60, top: 160, remainingX: 0, remainingY: 0 });
+  assert.deepEqual(consumeScrollDelta({ left: 0, top: 0, maxLeft: 0, maxTop: 0 }, 30, -40), { left: 0, top: 0, remainingX: 30, remainingY: -40 });
+});
 
 test('canvas owns inactive cards and global overrides always beat an active card', () => {
   assert.equal(gestureOwner(null, 'agent'), 'canvas'); assert.equal(gestureOwner('other', 'agent'), 'canvas');

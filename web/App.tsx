@@ -7,6 +7,7 @@ import { ComponentView } from './Components.js';
 import { TouchViewport, canvasKey, zoomAt, type Camera } from '../shared/viewport.js';
 import { applyLivePatch, rootAgents } from '../shared/live-state.js';
 import { gestureOwner } from '../shared/interaction.js';
+import { isTaskList } from '../shared/component-order.js';
 import { CardSurface } from './CardSurface.js';
 import { WindowControls, windowCommand } from './WindowControls.js';
 
@@ -43,7 +44,9 @@ function Login({ complete }: { complete: () => void }) {
 export function AgentContent({ agent, agents, settings, depth = 0 }: { agent: AgentView; agents: AgentView[]; settings: Settings; depth?: number }) {
   const [error, setError] = useState('');
   const children = depth < 12 ? agents.filter(a => a.parentId === agent.id && a.id !== agent.id) : [];
-  return <>{error && <div className="form-error" role="alert">{error}</div>}{agent.context && <p className="agent-context">{agent.context}</p>}{children.length > 0 && <div className="children"><div className="section-label">CHILD AGENTS <span>{children.length}</span></div>{children.map(child => <article className="child-card" key={child.id}><header><span className={`status-dot ${child.status}`} /><strong>{child.name}</strong><span>{child.role}</span><button className="icon-button" title="Archive child agent" onClick={() => api(`/api/agents/${encodeURIComponent(child.id)}/archive`, 'POST', {}).catch(e => setError(e.message))}><Archive size={13} /></button></header><div className="child-body"><AgentContent agent={child} agents={agents} settings={settings} depth={depth + 1} /></div></article>)}</div>}{Object.values(agent.components).map(c => <ComponentView key={c.id} component={c} embeds={settings.trustedEmbeds} runId={agent.id} />)}{!Object.keys(agent.components).length && !children.length && <div className="waiting"><Radio size={18} /><span>Waiting for agent updates</span><small>Components appear here as they arrive.</small></div>}</>;
+  const components = Object.values(agent.components), plans = components.filter(isTaskList), evidence = components.filter(c => !isTaskList(c));
+  const render = (c: typeof components[number]) => <ComponentView key={c.id} component={c} embeds={settings.trustedEmbeds} runId={agent.id} />;
+  return <>{plans.map(render)}{error && <div className="form-error" role="alert">{error}</div>}{agent.context && <p className="agent-context">{agent.context}</p>}{children.length > 0 && <div className="children"><div className="section-label">CHILD AGENTS <span>{children.length}</span></div>{children.map(child => <article className="child-card" key={child.id}><header><span className={`status-dot ${child.status}`} /><strong>{child.name}</strong><span>{child.role}</span><button className="icon-button" title="Archive child agent" onClick={() => api(`/api/agents/${encodeURIComponent(child.id)}/archive`, 'POST', {}).catch(e => setError(e.message))}><Archive size={13} /></button></header><div className="child-body"><AgentContent agent={child} agents={agents} settings={settings} depth={depth + 1} /></div></article>)}</div>}{evidence.map(render)}{!components.length && !children.length && <div className="waiting"><Radio size={18} /><span>Waiting for agent updates</span><small>Components appear here as they arrive.</small></div>}</>;
 }
 
 function SettingsBody({ settings, save, stats, report }: { settings: Settings; save: (s: Settings) => Promise<void>; stats: Snapshot['stats']; report: (s: string) => void }) {
@@ -187,9 +190,9 @@ function Monitor() {
     const element = e.currentTarget, origin = { x: e.clientX, y: e.clientY }, initial = cameraRef.current, overCard = !!(e.target as Element).closest('.world-card');
     if (!overCard) element.setPointerCapture(e.pointerId);
     const move = (event: PointerEvent) => { if (Math.hypot(event.clientX - origin.x, event.clientY - origin.y) < 4) return; element.setPointerCapture(e.pointerId); suppressClickUntil.current = performance.now() + 400; applyCamera({ ...initial, x: initial.x + event.clientX - origin.x, y: initial.y + event.clientY - origin.y }); };
-    const up = () => { mouseCleanup.current = null; element.removeEventListener('pointermove', move); element.removeEventListener('pointerup', up); element.removeEventListener('pointercancel', up); };
+    const up = () => { mouseCleanup.current = null; element.removeEventListener('pointermove', move, true); element.removeEventListener('pointerup', up, true); element.removeEventListener('pointercancel', up, true); };
     mouseCleanup.current = up;
-    element.addEventListener('pointermove', move); element.addEventListener('pointerup', up); element.addEventListener('pointercancel', up);
+    element.addEventListener('pointermove', move, true); element.addEventListener('pointerup', up, true); element.addEventListener('pointercancel', up, true);
   }
   function canvasPointerDown(e: React.PointerEvent<HTMLDivElement>) {
     if (e.pointerType === 'touch') { touchStart(e); return; }
@@ -296,14 +299,16 @@ function Monitor() {
   useEffect(() => {
     const element = canvasElement.current; if (!element) return;
     const wheel = (e: WheelEvent) => {
-      e.preventDefault(); const delta = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? size.height : 1);
+      const id = (e.target as Element).closest<HTMLElement>('[data-card-surface]')?.dataset.cardSurface ?? null;
+      if (gestureOwner(activeCardRef.current, id, spaceHeld.current || e.altKey) === 'card') return;
+      e.preventDefault(); e.stopPropagation(); const delta = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? size.height : 1);
       if (e.shiftKey && !e.ctrlKey && !e.metaKey) { const c = cameraRef.current; applyCamera({ ...c, x: c.x - delta - e.deltaX }); }
       else zoom(Math.exp(Math.max(-4, Math.min(4, -delta * .0015))), { x: e.clientX, y: e.clientY });
     };
     const clear = () => { const id = activeDrag.current; if (id && id !== 'settings' && layoutRef.current[id]) persist(id, layoutRef.current[id]!); touches.current.clear(); touchPoints.current.clear(); touchIntent.current = null; activeDrag.current = null; spaceHeld.current = false; mouseCleanup.current?.(); };
     const key = (event: KeyboardEvent) => { if (event.code === 'Space' && (event.type === 'keyup' || !(event.target instanceof Element) || !event.target.closest('input,textarea,select,button,[contenteditable=true]'))) { spaceHeld.current = event.type === 'keydown'; if (spaceHeld.current) { event.preventDefault(); dispatchEvent(new Event('agenticview:canvas-navigation')); } } };
-    const leaseTimer = setInterval(() => { const id = activeDrag.current; if (id && id !== 'settings') void api('/api/agents/' + encodeURIComponent(id) + '/layout/manual', 'POST', {}).catch(error => report(error.message)); }, 10_000); element.addEventListener('wheel', wheel, { passive: false }); window.addEventListener('blur', clear); window.addEventListener('keydown', key); window.addEventListener('keyup', key);
-    return () => { clearInterval(leaseTimer); element.removeEventListener('wheel', wheel); window.removeEventListener('blur', clear); window.removeEventListener('keydown', key); window.removeEventListener('keyup', key); clear(); };
+    const leaseTimer = setInterval(() => { const id = activeDrag.current; if (id && id !== 'settings') void api('/api/agents/' + encodeURIComponent(id) + '/layout/manual', 'POST', {}).catch(error => report(error.message)); }, 10_000); element.addEventListener('wheel', wheel, { passive: false, capture: true }); window.addEventListener('blur', clear); window.addEventListener('keydown', key); window.addEventListener('keyup', key);
+    return () => { clearInterval(leaseTimer); element.removeEventListener('wheel', wheel, true); window.removeEventListener('blur', clear); window.removeEventListener('keydown', key); window.removeEventListener('keyup', key); clear(); };
   }, [auth, size.width, size.height]);
   if (auth === null) return <div className="boot"><Radio size={22} /><span>Connecting to AgenticView</span></div>;
   if (!auth) return <Login complete={() => setAuth(true)} />;

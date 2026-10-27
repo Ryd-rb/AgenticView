@@ -6,13 +6,30 @@ import { ComponentView } from '../web/Components.tsx';
 import { AgentContent } from '../web/App.tsx';
 import type { AgentView } from '../shared/protocol.ts';
 import { componentSchema, type Component } from '../shared/protocol.ts';
+import { isTaskList } from '../shared/component-order.ts';
 
 const render = (component: Component) => renderToStaticMarkup(createElement(ComponentView, { component, embeds: false, runId: 'synthetic' }));
 test('declared worker cards appear before parent display content', () => {
-  const parent: AgentView = { id: 'parent', agentId: 'parent', name: 'Parent', role: 'Orchestrator', context: '', parentId: null, createdAt: 1, lastSeen: 1, status: 'active', sequence: 1, layout: { x: 0, y: 0, width: 480, height: 420, z: 1, locked: false }, components: { plan: { id: 'plan', title: 'Parent evidence', kind: 'markdown', data: { text: 'Parent plan' } } } };
+  const parent: AgentView = { id: 'parent', agentId: 'parent', name: 'Parent', role: 'Orchestrator', context: '', parentId: null, createdAt: 1, lastSeen: 1, status: 'active', sequence: 1, layout: { x: 0, y: 0, width: 480, height: 420, z: 1, locked: false }, components: { notes: { id: 'notes', title: 'Parent evidence', kind: 'markdown', data: { text: 'Investigation notes' } } } };
   const worker: AgentView = { ...parent, id: 'worker', name: 'Visible worker', parentId: parent.id, components: {} };
   const html = renderToStaticMarkup(createElement(AgentContent, { agent: parent, agents: [parent, worker], settings: { staleSeconds: 45, autoArchiveMinutes: null, archiveAfterCompletion: false, trustedEmbeds: false, reducedMotion: true } }));
   assert.ok(html.indexOf('Visible worker') >= 0 && html.indexOf('Visible worker') < html.indexOf('Parent evidence'));
+});
+test('task lists lead each agent card before context, workers and evidence regardless of arrival order', () => {
+  const parent: AgentView = { id: 'parent', agentId: 'parent', name: 'Parent', role: 'Orchestrator', context: 'Parent context', parentId: null, createdAt: 1, lastSeen: 1, status: 'active', sequence: 1,
+    layout: { x: 0, y: 0, width: 480, height: 420, z: 1, locked: false }, components: {
+      metric: { id: 'metric', title: 'Evidence metric', kind: 'metric', data: { value: 42 } },
+      checklist: { id: 'steps', title: 'Current work', kind: 'markdown', data: { text: '- [ ] Parent task' } },
+      plan: { id: 'plan', title: 'Plan', kind: 'markdown', data: { text: 'Parent next steps' } } } };
+  const child: AgentView = { ...parent, id: 'worker', name: 'Worker', parentId: parent.id, context: 'Worker context', components: {
+    code: { id: 'code', title: 'Worker evidence', kind: 'code', data: { code: 'synthetic' } },
+    tasks: { id: 'tasks', title: 'Task list', kind: 'tree', data: { nodes: [{ id: 'next', label: 'Worker task' }] } } } };
+  const html = renderToStaticMarkup(createElement(AgentContent, { agent: parent, agents: [parent, child], settings: { staleSeconds: 45, autoArchiveMinutes: null, archiveAfterCompletion: false, trustedEmbeds: false, reducedMotion: true } }));
+  for (const later of ['Parent context', 'Worker', 'Evidence metric']) assert.ok(html.indexOf('Parent task') < html.indexOf(later));
+  assert.ok(html.indexOf('Parent next steps') < html.indexOf('Parent context'));
+  assert.ok(html.indexOf('Worker task') < html.indexOf('Worker context')); assert.ok(html.indexOf('Worker task') < html.indexOf('Worker evidence'));
+  assert.equal(isTaskList({ id: 'query', title: 'Query plan', kind: 'code', data: { code: 'synthetic' } }), false);
+  assert.equal(isTaskList({ id: 'notes', title: 'Notes', kind: 'markdown', data: { text: 'Ordinary evidence' } }), false);
 });
 test('coding subcards render Markdown plans, escaped code, diffs and modified-file trees', () => {
   assert.match(render({ id: 'plan', kind: 'markdown', title: 'Plan', data: { text: '## Next steps\n- Implement the reader\n<script>unexpected()</script>' } }), /Next steps/);
