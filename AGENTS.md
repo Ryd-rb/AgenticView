@@ -22,6 +22,8 @@
 - Keep runtime state, local configuration, and task evidence outside tracked files.
 - Keep wheel and pinch zoom anchored under the pointer or finger midpoint across
   main-view/card handoffs; never recenter a card during a zoom gesture.
+- Chain nested scrolling at bounds. On reversal, reveal obscured children through
+  their parent viewports before scrolling them; apply independently on both axes.
 - Keep the page within the viewport, with the settings cog fixed at bottom left.
   Automatically bin pack all unlocked cards, favor older positions and close gaps.
   Preserve sizes and active gestures. Provide Arrange all beside zoom.

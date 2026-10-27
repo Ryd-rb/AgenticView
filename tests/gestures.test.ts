@@ -26,7 +26,7 @@ prototype.hasPointerCapture = pointer => captured.has(pointer);
 prototype.releasePointerCapture = pointer => { captured.delete(pointer); };
 after(() => { dom.happyDOM.abort(); dom.happyDOM.close(); });
 
-async function mount(children: React.ReactNode, active = true, panPastEdge?: (x: number, y: number) => void, zoomRouting: Pick<React.ComponentProps<typeof CardSurface>, 'zoomBeforeCard' | 'zoomPastCard' | 'canvasCamera' | 'getCanvasCamera'> = {}) {
+async function mount(children: React.ReactNode, active = true, panPastEdge?: (x: number, y: number) => void, zoomRouting: Pick<React.ComponentProps<typeof CardSurface>, 'zoomBeforeCard' | 'zoomPastCard' | 'canvasCamera' | 'getCanvasCamera' | 'getCanvasBounds'> = {}) {
   const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
   const store = new Map<string, { x: number; y: number; zoom: number }>();
   const render = (enabled: boolean) => createElement(CardSurface, { id: 'test', active: enabled, deactivate() {}, canvasOwnsPointer: () => false, forceCanvas: () => false, panPastEdge, ...zoomRouting, store, children });
@@ -110,6 +110,34 @@ test('native scroll rounding is compensated once after zoom commit without scrol
     const world = { ...view.world() }, inner = { ...view.store.get('test')! };
     await act(() => { for (let i = 0; i < 100; i++) view.viewport.dispatchEvent(new Event('scroll', { bubbles: true })); });
     assert.deepEqual(view.world(), world); assert.deepEqual(view.store.get('test'), inner);
+  } finally { await view.close(); }
+});
+
+test('reversing a nested drag restores parent visibility before scrolling its child on either axis', async () => {
+  const world = { x: 0, y: 0 };
+  const view = await mount(createElement('div', { className: 'outer-scroll', style: { overflowX: 'auto', overflowY: 'auto' } }, grid()), true,
+    (x, y) => { world.x -= x; world.y -= y; window.dispatchEvent(new CustomEvent('agenticview:canvas-navigation', { detail: { card: 'test' } })); },
+    { getCanvasBounds: () => ({ left: 0, top: 0, width: 400, height: 300 }) });
+  try {
+    const outer = view.host.querySelector<HTMLElement>('.outer-scroll')!, child = view.host.querySelector<HTMLElement>('.grid')!;
+    for (const [node, dimensions] of [[outer, { clientWidth: 240, offsetWidth: 240, clientHeight: 200, scrollWidth: 640, scrollHeight: 800 }], [child, { clientWidth: 160, offsetWidth: 160, clientHeight: 120, scrollWidth: 560, scrollHeight: 620 }]] as const) {
+      for (const [key, value] of Object.entries(dimensions)) Object.defineProperty(node, key, { configurable: true, get: () => value });
+    }
+    view.viewport.getBoundingClientRect = () => new DOMRect(world.x, world.y, 400, 300);
+    outer.getBoundingClientRect = () => new DOMRect(world.x + 100 - view.viewport.scrollLeft, world.y + 120 - view.viewport.scrollTop, 240, 200);
+    child.getBoundingClientRect = () => { const bounds = outer.getBoundingClientRect(); return new DOMRect(bounds.left + 40 - outer.scrollLeft, bounds.top + 60 - outer.scrollTop, 160, 120); };
+    await act(() => { view.viewport.scrollLeft = 100; view.viewport.scrollTop = 100; view.viewport.dispatchEvent(new Event('scroll', { bubbles: true })); });
+    outer.scrollLeft = 40; outer.scrollTop = 60;
+    await act(() => { pointer(child, 'pointerdown', 80, 80); pointer(child, 'pointermove', 480, 480); });
+    assert.deepEqual(world, { x: 260, y: 240 }); assert.equal(child.scrollTop, 0); assert.equal(child.scrollLeft, 0);
+    await act(() => { pointer(child, 'pointermove', 380, 380); });
+    assert.deepEqual(world, { x: 160, y: 140 }); assert.equal(child.scrollTop, 0); assert.equal(outer.scrollTop, 0);
+    await act(() => { pointer(child, 'pointermove', 80, 80); });
+    assert.deepEqual(world, { x: 0, y: 0 }); assert.equal(view.viewport.scrollTop, 20);
+    assert.equal(child.scrollTop, 140); assert.equal(child.scrollLeft, 140);
+    const parent = outer.getBoundingClientRect(), bounds = child.getBoundingClientRect();
+    assert.ok(bounds.left >= parent.left && bounds.right <= parent.right && bounds.top >= parent.top && bounds.bottom <= parent.bottom);
+    await act(() => { pointer(child, 'pointerup', 80, 80); });
   } finally { await view.close(); }
 });
 

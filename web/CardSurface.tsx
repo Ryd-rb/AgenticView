@@ -4,25 +4,28 @@ import { ContentNavigation, clampContentCamera, contentPoint, minimumContentZoom
 import { TouchViewport, zoomAt, type Camera } from '../shared/viewport.js';
 import { CardInteraction } from './CardInteraction.js';
 import { scrollAncestors, scrollThrough } from './scrollChain.js';
+import { ScrollJourney, revealScrollDelta, type ScrollStage } from '../shared/scroll-journey.js';
 
 const initial: Camera = { x: 0, y: 0, zoom: 1 };
-export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCanvas, panPastEdge, zoomBeforeCard, zoomPastCard, canvasCamera, getCanvasCamera, store, children }: {
+export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCanvas, panPastEdge, zoomBeforeCard, zoomPastCard, canvasCamera, getCanvasCamera, getCanvasBounds, store, children }: {
   id: string; active: boolean; deactivate: () => void; canvasOwnsPointer: (id: number) => boolean; forceCanvas: () => boolean;
   panPastEdge?: (x: number, y: number) => void; zoomBeforeCard?: (factor: number, anchor: { x: number; y: number }) => number; zoomPastCard?: (factor: number, anchor: { x: number; y: number }) => void;
   canvasCamera?: Camera; getCanvasCamera?: () => Camera;
+  getCanvasBounds?: () => { left: number; top: number; width: number; height: number };
   store?: Map<string, Camera>; children: React.ReactNode;
 }) {
   const [camera, setCamera] = useState<Camera>(() => store?.get(id) ?? initial), [extent, setExtent] = useState({ width: 0, height: 0 });
   const [commitRevision, setCommitRevision] = useState(0);
   const element = useRef<HTMLDivElement>(null), scroller = useRef<HTMLDivElement>(null), plane = useRef<HTMLDivElement>(null), current = useRef(camera), enabled = useRef(active);
   const navigation = useRef(new ContentNavigation(camera));
-  type Drag = { pointer: number; x: number; y: number; position: { x: number; y: number }; origin: { x: number; y: number }; regions: HTMLElement[]; moved: boolean; editable: boolean };
+  type Drag = { pointer: number; x: number; y: number; position: { x: number; y: number }; origin: { x: number; y: number }; regions: HTMLElement[]; journey: ScrollJourney; moved: boolean; editable: boolean };
   const touch = useRef(new TouchViewport(1e-9, 1e9)), drag = useRef<Drag | null>(null), contacts = useRef(new Map<number, Drag>());
   const captured = useRef(new Set<number>()), suppressClickUntil = useRef(0);
-  const callbacks = useRef({ panPastEdge, zoomBeforeCard, zoomPastCard, getCanvasCamera }); callbacks.current = { panPastEdge, zoomBeforeCard, zoomPastCard, getCanvasCamera };
-  const renderedCanvas = useRef(canvasCamera ?? initial), anchorCommit = useRef(false);
+  const callbacks = useRef({ panPastEdge, zoomBeforeCard, zoomPastCard, getCanvasCamera, getCanvasBounds }); callbacks.current = { panPastEdge, zoomBeforeCard, zoomPastCard, getCanvasCamera, getCanvasBounds };
+  const renderedCanvas = useRef(canvasCamera ?? initial), renderedZoom = useRef(camera.zoom), anchorCommit = useRef(false);
+  const scrollJourney = useRef<{ regions: HTMLElement[]; journey: ScrollJourney } | null>(null);
   enabled.current = active;
-  useLayoutEffect(() => { renderedCanvas.current = canvasCamera ?? initial; });
+  useLayoutEffect(() => { renderedCanvas.current = canvasCamera ?? initial; renderedZoom.current = camera.zoom; });
   function geometry() {
     const viewport = scroller.current!, content = plane.current!;
     return { view: { width: Math.max(1, viewport.clientWidth), height: Math.max(1, viewport.clientHeight) }, content: { width: Math.max(1, content.scrollWidth), height: Math.max(1, content.scrollHeight) } };
@@ -36,24 +39,57 @@ export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCa
   }
   function frame() { const body = scroller.current!, bounds = body.getBoundingClientRect(), currentCanvas = callbacks.current.getCanvasCamera?.(); return currentCanvas ? projectContentBounds(bounds, renderedCanvas.current, currentCanvas) : bounds; }
   function point(x: number, y: number) { const body = scroller.current!; return contentPoint({ x, y }, frame(), body.offsetWidth); }
-  function panThrough(regions: HTMLElement[], dx: number, dy: number) {
-    const zoom = current.current.zoom;
-    const remaining = scrollThrough(regions, dx / zoom, dy / zoom);
-    const before = current.current;
-    apply({ ...before, x: before.x - remaining.x * zoom, y: before.y - remaining.y * zoom });
-    const x = remaining.x * zoom - (before.x - current.current.x), y = remaining.y * zoom - (before.y - current.current.y);
-    const viewport = scroller.current!, scale = frame().width / viewport.offsetWidth;
-    if (x || y) callbacks.current.panPastEdge?.(x * scale, y * scale);
+  function visibleFrame(node: HTMLElement) {
+    const viewport = scroller.current!, outer = frame(), outerScale = outer.width / viewport.offsetWidth;
+    if (node === viewport) return { left: outer.left + viewport.clientLeft * outerScale, top: outer.top + viewport.clientTop * outerScale, width: viewport.clientWidth * outerScale, height: viewport.clientHeight * outerScale };
+    const body = viewport.getBoundingClientRect(), rect = node.getBoundingClientRect(), renderedScale = body.width / viewport.offsetWidth;
+    const localScale = current.current.zoom / renderedZoom.current, nodeScale = rect.width / node.offsetWidth * outerScale / renderedScale * localScale;
+    return { left: outer.left + outerScale * (current.current.x + ((rect.left - body.left) / renderedScale + viewport.scrollLeft) * localScale) + node.clientLeft * nodeScale,
+      top: outer.top + outerScale * (current.current.y + ((rect.top - body.top) / renderedScale + viewport.scrollTop) * localScale) + node.clientTop * nodeScale,
+      width: node.clientWidth * nodeScale, height: node.clientHeight * nodeScale };
+  }
+  function makeJourney(regions: HTMLElement[]) {
+    const stages: ScrollStage[] = [...regions.map(region => (x: number, y: number) => {
+      if (!region.isConnected) return { x, y };
+      const zoom = current.current.zoom, remaining = scrollThrough([region], x / zoom, y / zoom);
+      return { x: remaining.x * zoom, y: remaining.y * zoom };
+    }), (x, y) => {
+      const before = current.current; apply({ ...before, x: before.x - x, y: before.y - y });
+      return { x: x - (before.x - current.current.x), y: y - (before.y - current.current.y) };
+    }, (x, y) => {
+      if (!callbacks.current.panPastEdge) return { x, y };
+      const scale = frame().width / scroller.current!.offsetWidth;
+      callbacks.current.panPastEdge(x * scale, y * scale); return { x: 0, y: 0 };
+    }];
+    const reveal: (ScrollStage | undefined)[] = stages.map((_, i) => i === 0 ? undefined : (x, y) => {
+      const viewport = scroller.current!, child = regions[i - 1] ?? viewport, parent = regions[i] ?? viewport;
+      if (!child.isConnected || child.offsetWidth <= 0 || parent.offsetWidth <= 0) return { x: 0, y: 0 };
+      const clip = i === stages.length - 1 ? callbacks.current.getCanvasBounds?.() : visibleFrame(parent);
+      // The shell supplies the canvas viewport; standalone surfaces retain debt-based recovery.
+      if (!clip) return { x: 0, y: 0 };
+      return revealScrollDelta(visibleFrame(child), clip, x, y, frame().width / viewport.offsetWidth);
+    });
+    if (!callbacks.current.getCanvasBounds) reveal[stages.length - 1] = undefined;
+    return new ScrollJourney(stages, reveal);
+  }
+  function journeyFor(regions: HTMLElement[]) {
+    const previous = scrollJourney.current;
+    if (previous && previous.regions.length === regions.length && regions.every((region, i) => previous.regions[i] === region)) return previous.journey;
+    const journey = makeJourney(regions); scrollJourney.current = { regions, journey }; return journey;
+  }
+  function panThrough(regions: HTMLElement[], dx: number, dy: number, journey = makeJourney(regions)) {
+    journey.move(dx, dy);
   }
   function capture(pointer: number) {
     element.current!.setPointerCapture(pointer); captured.current.add(pointer);
   }
   function clear() {
     for (const pointer of captured.current) if (element.current?.hasPointerCapture(pointer)) element.current.releasePointerCapture(pointer);
-    captured.current.clear(); touch.current.clear(); contacts.current.clear(); drag.current = null;
+    captured.current.clear(); touch.current.clear(); contacts.current.clear(); drag.current = null; scrollJourney.current = null;
   }
   function zoom(factor: number, client?: { x: number; y: number }): boolean {
     if (!scroller.current || !plane.current) return false;
+    scrollJourney.current = null; if (drag.current) drag.current.journey = makeJourney(drag.current.regions);
     const bounds = geometry(), rect = frame();
     const screen = client ?? { x: rect.left + rect.width / 2, y: rect.top + bounds.view.height * rect.width / scroller.current.offsetWidth / 2 };
     // An outer zoom at this same screen point leaves its local coordinate invariant.
@@ -87,7 +123,7 @@ export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCa
       const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.clientHeight : 1;
       const delta = event.deltaY * unit, horizontal = event.deltaX * unit;
       if (event.ctrlKey || event.metaKey) zoom(Math.exp(Math.max(-4, Math.min(4, -delta * .0015))), { x: event.clientX, y: event.clientY });
-      else panThrough(scrollAncestors(event.target, viewport), (horizontal + (event.shiftKey ? delta : 0)) / scale, (event.shiftKey ? 0 : delta) / scale);
+      else { const regions = scrollAncestors(event.target, viewport); panThrough(regions, (horizontal + (event.shiftKey ? delta : 0)) / scale, (event.shiftKey ? 0 : delta) / scale, journeyFor(regions)); }
     };
     const canvasNavigation = (event: Event) => { if ((event as CustomEvent<{ card?: string }>).detail?.card !== id) clear(); };
     body.addEventListener('wheel', wheel, { passive: false, capture: true }); window.addEventListener('agenticview:canvas-navigation', canvasNavigation); window.addEventListener('blur', clear);
@@ -101,7 +137,8 @@ export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCa
     if (!localControl && (event.clientX >= bounds.left + viewport.clientWidth * scale || event.clientY >= bounds.top + viewport.clientHeight * scale)) return;
     const target = event.target as Element, editable = localControl || !!target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"])');
     const client = { x: event.clientX, y: event.clientY };
-    const intent: Drag = { pointer: event.pointerId, ...client, position: client, origin: client, regions: scrollAncestors(event.target, viewport), moved: false, editable };
+    const regions = scrollAncestors(event.target, viewport);
+    const intent: Drag = { pointer: event.pointerId, ...client, position: client, origin: client, regions, journey: journeyFor(regions), moved: false, editable };
     if (event.pointerType === 'touch') {
       if (!touch.current.count) touch.current = new TouchViewport(1e-9, 1e9);
       else for (const [pointer, contact] of contacts.current) touch.current.start(pointer, contact.position, current.current);
@@ -132,13 +169,13 @@ export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCa
     const viewport = scroller.current!, scale = frame().width / viewport.offsetWidth;
     const dx = (event.clientX - start.x) / scale, dy = (event.clientY - start.y) / scale; start.moved = true; start.x = event.clientX; start.y = event.clientY;
     event.preventDefault(); event.stopPropagation();
-    capture(event.pointerId); suppressClickUntil.current = performance.now() + 500; panThrough(start.regions, -dx, -dy);
+    capture(event.pointerId); suppressClickUntil.current = performance.now() + 500; panThrough(start.regions, -dx, -dy, start.journey);
   }
   function up(event: React.PointerEvent<HTMLDivElement>) {
     const pinching = touch.current.count >= 2;
     if (event.pointerType === 'touch') touch.current.end(event.pointerId, current.current);
     contacts.current.delete(event.pointerId); if (drag.current?.pointer === event.pointerId) drag.current = null;
-    const remaining = [...touch.current.pointers.entries()]; if (pinching && remaining.length === 1) { const [pointer] = remaining[0]!; const contact = contacts.current.get(pointer)!; drag.current = { ...contact, ...contact.position, origin: contact.position, moved: true, editable: false }; contacts.current.set(pointer, drag.current); }
+    const remaining = [...touch.current.pointers.entries()]; if (pinching && remaining.length === 1) { const [pointer] = remaining[0]!; const contact = contacts.current.get(pointer)!; drag.current = { ...contact, ...contact.position, origin: contact.position, journey: journeyFor(contact.regions), moved: true, editable: false }; contacts.current.set(pointer, drag.current); }
     captured.current.delete(event.pointerId);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   }

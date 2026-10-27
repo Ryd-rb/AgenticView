@@ -45,7 +45,11 @@ Wheel and drag gestures consume nested grid, log, code and child-card scroll ran
 first, then continue with the remaining movement in the containing card. Once the
 card reaches its own scroll boundary, residual movement pans the main canvas;
 the card content stays clamped, and the same drag continues without a jump. Reversing
-direction scrolls the nearest region first. Ctrl/Command-wheel and two-finger pinch
+direction first reveals obscured scroll regions within their parents, working from
+the outermost viewport inward, then resumes the child scroll. Recovery stops once
+the child fits instead of restoring unnecessary old offsets. A region larger than
+its viewport reveals the requested edge, since it cannot fit entirely.
+Ctrl/Command-wheel and two-finger pinch
 zoom the active card before component handlers can consume them.
 From an overview, zoom-in on a selected card first increases main-view scale to
 the card's fit threshold, then applies remaining zoom to its content. Zoom-out reverses the chain:
@@ -56,6 +60,8 @@ moving finger midpoint through both handoffs. The scale threshold never recenter
 the card. When native scroll bounds or offset rounding restrict inner movement,
 the main-view translation consumes the difference to preserve the anchor. Pending
 camera updates use geometry projected from the last committed DOM transform.
+Markdown task lists use compact static checks aligned with the first text line;
+task items omit bullets while ordinary list items retain them.
 
 The optional C# Windows desktop host opens the monitor in a dedicated fullscreen
 WebView2 window with no system title bar. Custom top-right controls minimize,

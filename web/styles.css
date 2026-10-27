@@ -72,3 +72,12 @@ table{font-size:12px;line-height:1.25}th{font-size:11px;line-height:1.25;color:#
 .embed-frame iframe{display:block}
 .embed-interact{font-size:10px;line-height:1.4;padding:3px 6px;border:1px solid #b5a2fa27;border-radius:5px;color:#c6b6eb;white-space:nowrap}
 .embed-interact[aria-pressed=true]{background:#b5a2fa14}
+
+/* Markdown task checks are static status marks, independent of settings switches. */
+.markdown .contains-task-list{padding-inline-start:0}
+.markdown .contains-task-list>li:not(.task-list-item){margin-inline-start:20px}
+.markdown .task-list-item{position:relative;list-style:none;padding-inline-start:22px}
+.markdown .task-list-item input[type=checkbox]{appearance:none;position:absolute;inset-inline-start:0;top:.25em;width:13px;min-width:13px;height:13px;margin:0;padding:0;border:1px solid #85809b;border-radius:3px;background:transparent;opacity:1;cursor:default}
+.markdown .task-list-item input[type=checkbox]::after{content:none}
+.markdown .task-list-item input[type=checkbox]:checked{background:#b5a2fa;border-color:#b5a2fa}
+.markdown .task-list-item input[type=checkbox]:checked::after{content:'';position:absolute;left:3px;top:1px;width:4px;height:7px;border:0;border-right:2px solid #201a32;border-bottom:2px solid #201a32;border-radius:0;background:transparent;transform:rotate(45deg)}
