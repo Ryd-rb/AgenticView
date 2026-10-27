@@ -5,10 +5,11 @@ import { act, createElement } from 'react';
 import { CardSurface } from '../web/CardSurface.tsx';
 import { ComponentView } from '../web/Components.tsx';
 import { scrollAncestors, scrollThrough } from '../web/scrollChain.ts';
+import { zoomTowardFocus } from '../shared/interaction.ts';
 
 // In-memory event contracts. No browser, external document, or visual capture runs here.
 const dom = new Window({ url: 'http://localhost/', settings: { disableIframePageLoading: true, enableJavaScriptEvaluation: false } });
-for (const key of ['window', 'document', 'HTMLElement', 'Element', 'Node', 'Event', 'MouseEvent', 'PointerEvent', 'WheelEvent', 'getComputedStyle'] as const) {
+for (const key of ['window', 'document', 'HTMLElement', 'Element', 'Node', 'DOMRect', 'Event', 'CustomEvent', 'MouseEvent', 'PointerEvent', 'WheelEvent', 'getComputedStyle'] as const) {
   Object.defineProperty(globalThis, key, { configurable: true, value: key === 'window' ? dom : key === 'getComputedStyle' ? dom.getComputedStyle.bind(dom) : dom[key] });
 }
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true, ResizeObserver: class { observe() {} disconnect() {} } });
@@ -24,10 +25,10 @@ prototype.hasPointerCapture = pointer => captured.has(pointer);
 prototype.releasePointerCapture = pointer => { captured.delete(pointer); };
 after(() => { dom.happyDOM.abort(); dom.happyDOM.close(); });
 
-async function mount(children: React.ReactNode, active = true) {
+async function mount(children: React.ReactNode, active = true, panPastEdge?: (x: number, y: number) => void, zoomRouting: Pick<React.ComponentProps<typeof CardSurface>, 'zoomBeforeCard' | 'zoomPastCard'> = {}) {
   const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
   const store = new Map<string, { x: number; y: number; zoom: number }>();
-  const render = (enabled: boolean) => createElement(CardSurface, { id: 'test', active: enabled, deactivate() {}, canvasOwnsPointer: () => false, forceCanvas: () => false, store, children });
+  const render = (enabled: boolean) => createElement(CardSurface, { id: 'test', active: enabled, deactivate() {}, canvasOwnsPointer: () => false, forceCanvas: () => false, panPastEdge, ...zoomRouting, store, children });
   await act(() => root.render(render(active)));
   return { host, store, viewport: host.querySelector<HTMLElement>('.card-content-scroll')!,
     async active(enabled: boolean) { await act(() => root.render(render(enabled))); },
@@ -84,6 +85,79 @@ test('zoom beats nested scroll handlers and wheel movement respects local zoom a
     await act(() => { wheel(region, { deltaY: 2, deltaMode: 1 }); }); assert.equal(view.viewport.scrollTop, 32);
     region.scrollLeft = 400;
     await act(() => { wheel(region, { deltaY: 3, shiftKey: true, deltaMode: 1 }); }); assert.equal(view.viewport.scrollLeft, 48);
+  } finally { await view.close(); }
+});
+
+test('card scroll residuals pan the world continuously without losing the originating drag', async () => {
+  const world = { x: 0, y: 0 }, residuals: number[] = [];
+  const view = await mount(grid(), true, (x, y) => { world.x -= x; world.y -= y; residuals.push(y); window.dispatchEvent(new CustomEvent('agenticview:canvas-navigation', { detail: { card: 'test' } })); });
+  try {
+    view.viewport.getBoundingClientRect = () => new DOMRect(world.x, world.y, 400, 300);
+    const region = view.host.querySelector<HTMLElement>('.grid')!; region.scrollTop = 700;
+    await act(() => { wheel(region, { deltaY: 680 }); }); assert.equal(view.viewport.scrollTop, 680); assert.equal(world.y, 0);
+    await act(() => { wheel(region, { deltaY: 100 }); }); assert.equal(view.viewport.scrollTop, 700); assert.equal(world.y, -80);
+    await act(() => { pointer(region, 'pointerdown', 100, 200); pointer(region, 'pointermove', 100, 100); pointer(region, 'pointermove', 100, 50); });
+    assert.deepEqual(residuals, [80, 100, 50]); assert.equal(world.y, -230); assert.equal(view.viewport.scrollTop, 700);
+    await act(() => { pointer(region, 'pointerup', 100, 50); }); assert.equal(captured.size, 0);
+  } finally { await view.close(); }
+});
+
+test('world handoff converts residuals back to screen pixels at overview scale on both axes', async () => {
+  const residuals: { x: number; y: number }[] = [];
+  const view = await mount(grid(), true, (x, y) => { residuals.push({ x, y }); });
+  try {
+    view.viewport.getBoundingClientRect = () => new DOMRect(0, 0, 200, 150);
+    const region = view.host.querySelector<HTMLElement>('.grid')!; region.scrollLeft = 400; region.scrollTop = 700;
+    await act(() => { wheel(region, { deltaX: 250, deltaY: 400 }); });
+    assert.equal(view.viewport.scrollLeft, 400); assert.equal(view.viewport.scrollTop, 700);
+    assert.deepEqual(residuals, [{ x: 50, y: 50 }]);
+    await act(() => { wheel(region, { deltaY: 25 }); }); assert.deepEqual(residuals[1], { x: 0, y: 25 });
+  } finally { await view.close(); }
+});
+
+test('wheel zoom focuses the world first and returns to the world after local zoom-out reaches fit', async () => {
+  let world = { x: 0, y: 0, zoom: .1 };
+  const view = await mount(grid(), true, undefined, {
+    zoomBeforeCard(factor) { const result = zoomTowardFocus(world, { x: 0, y: 0, zoom: 1 }, factor, { x: 200, y: 150 }); world = result.camera; return result.remaining; },
+    zoomPastCard(factor) { world = { ...world, zoom: world.zoom * factor }; }
+  });
+  try {
+    const target = view.host.querySelector('.grid')!;
+    await act(() => { wheel(target, { ctrlKey: true, deltaY: -Math.log(4) / .0015 }); });
+    assert.equal(world.zoom, .4); assert.equal(view.store.get('test')?.zoom ?? 1, 1);
+    await act(() => { wheel(target, { ctrlKey: true, deltaY: -Math.log(4) / .0015 }); });
+    assert.equal(world.zoom, 1); assert.equal(view.store.get('test')!.zoom, 1.6);
+    await act(() => { wheel(target, { ctrlKey: true, deltaY: -Math.log(.1) / .0015 }); });
+    assert.equal(view.store.get('test')!.zoom, .5); assert.ok(Math.abs(world.zoom - .32) < 1e-10);
+  } finally { await view.close(); }
+});
+
+test('one continuous pinch crosses overview, local zoom and local fit without resetting', async () => {
+  let world = { x: 0, y: 0, zoom: .25 };
+  const view = await mount(grid(), true, undefined, {
+    zoomBeforeCard(factor) { const result = zoomTowardFocus(world, { x: 0, y: 0, zoom: 1 }, factor, { x: 200, y: 150 }); world = result.camera; window.dispatchEvent(new CustomEvent('agenticview:canvas-navigation', { detail: { card: 'test' } })); return result.remaining; },
+    zoomPastCard(factor) { world = { ...world, zoom: world.zoom * factor }; }
+  });
+  try {
+    view.viewport.getBoundingClientRect = () => new DOMRect(0, 0, 400 * world.zoom, 300 * world.zoom);
+    const target = view.host.querySelector('.grid')!;
+    await act(() => { pointer(target, 'pointerdown', 10, 30, 1); pointer(target, 'pointerdown', 50, 30, 2); pointer(target, 'pointermove', 90, 30, 2); });
+    assert.equal(world.zoom, .5); assert.equal(view.store.get('test')?.zoom ?? 1, 1);
+    await act(() => { pointer(target, 'pointermove', 170, 30, 2); }); assert.equal(world.zoom, 1);
+    await act(() => { pointer(target, 'pointermove', 330, 30, 2); }); assert.equal(view.store.get('test')!.zoom, 2);
+    await act(() => { pointer(target, 'pointermove', 90, 30, 2); }); assert.equal(view.store.get('test')!.zoom, .5); assert.equal(world.zoom, 1);
+    await act(() => { pointer(target, 'pointermove', 50, 30, 2); }); assert.equal(world.zoom, .5);
+    await act(() => { pointer(target, 'pointerup', 50, 30, 2); pointer(target, 'pointerup', 10, 30, 1); }); assert.equal(captured.size, 0);
+  } finally { await view.close(); }
+});
+
+test('a moved editable contact is rebased from its live position when a pinch begins', async () => {
+  const view = await mount(createElement('input', { defaultValue: 'Synthetic control' }));
+  try {
+    const input = view.host.querySelector('input')!;
+    await act(() => { pointer(input, 'pointerdown', 50, 50, 1); pointer(input, 'pointermove', 100, 50, 1); pointer(input, 'pointerdown', 200, 50, 2); pointer(input, 'pointermove', 100, 50, 1); });
+    assert.equal(view.store.get('test')?.zoom ?? 1, 1);
+    await act(() => { pointer(input, 'pointermove', 300, 50, 2); }); assert.equal(view.store.get('test')!.zoom, 2);
   } finally { await view.close(); }
 });
 

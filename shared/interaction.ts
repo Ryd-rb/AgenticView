@@ -18,6 +18,16 @@ export function consumeScrollDelta(scroll: { left: number; top: number; maxLeft:
   const top = Math.max(0, Math.min(scroll.maxTop, scroll.top + dy));
   return { left, top, remainingX: dx - (left - scroll.left), remainingY: dy - (top - scroll.top) };
 }
+
+/** Consume overview zoom while bringing the selected card to its fitted position. */
+export function zoomTowardFocus(camera: { x: number; y: number; zoom: number }, focus: { x: number; y: number; zoom: number }, factor: number, center: { x: number; y: number }) {
+  if (factor <= 1 || camera.zoom >= focus.zoom) return { camera, remaining: factor };
+  const consumed = Math.min(factor, focus.zoom / camera.zoom), zoom = camera.zoom * consumed;
+  const progress = Math.log(consumed) / Math.log(focus.zoom / camera.zoom);
+  const x = center.x - (center.x - camera.x) * consumed, y = center.y - (center.y - camera.y) * consumed;
+  const targetX = center.x + (focus.x - center.x) * zoom / focus.zoom, targetY = center.y + (focus.y - center.y) * zoom / focus.zoom;
+  return { camera: { zoom, x: x + (targetX - x) * progress, y: y + (targetY - y) * progress }, remaining: factor / consumed };
+}
 export function minimumContentZoom(view: Size, content: Size): number {
   if (![view.width, view.height, content.width, content.height].every(value => Number.isFinite(value) && value > 0)) throw new RangeError('Invalid content extent');
   return Math.min(1, Math.max(view.width / content.width, view.height / content.height));

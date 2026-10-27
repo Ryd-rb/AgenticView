@@ -42,9 +42,15 @@ Main zoom, Fit all, Arrange all and settings remain authoritative in a viewport
 HUD outside the transformed world. Larger system text uses the existing card
 dimensions and component spacing, with internal panning where needed.
 Wheel and drag gestures consume nested grid, log, code and child-card scroll ranges
-first, then continue with the remaining movement in the containing card. Reversing
+first, then continue with the remaining movement in the containing card. Once the
+card reaches its own scroll boundary, residual movement pans the main canvas;
+the card content stays clamped, and the same drag continues without a jump. Reversing
 direction scrolls the nearest region first. Ctrl/Command-wheel and two-finger pinch
 zoom the active card before component handlers can consume them.
+From an overview, zoom-in on a selected card first focuses that card in the main
+view, then applies the remaining zoom to its content. Zoom-out reverses the chain:
+content reaches its fit boundary before remaining zoom returns to the main view.
+Wheel, card zoom buttons and continuous two-finger pinches share this routing.
 
 The optional C# Windows desktop host opens the monitor in a dedicated fullscreen
 WebView2 window with no system title bar. Custom top-right controls minimize,

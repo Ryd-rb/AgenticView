@@ -2,9 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ContentNavigation, gestureOwner, contentPoint, minimumContentZoom, clampContentCamera, consumeScrollDelta } from '../shared/interaction.ts';
+import { ContentNavigation, gestureOwner, contentPoint, minimumContentZoom, clampContentCamera, consumeScrollDelta, zoomTowardFocus } from '../shared/interaction.ts';
 import { TouchViewport } from '../shared/viewport.ts';
 import { CardSurface } from '../web/CardSurface.tsx';
+
+test('overview zoom reaches the selected card before handing the residual factor to content', () => {
+  const focus = { x: 100, y: 80, zoom: 1 }, center = { x: 500, y: 400 };
+  const first = zoomTowardFocus({ x: 0, y: 0, zoom: .1 }, focus, 4, center);
+  assert.equal(first.camera.zoom, .4); assert.equal(first.remaining, 1);
+  const next = zoomTowardFocus(first.camera, focus, 4, center);
+  assert.deepEqual(next.camera, focus); assert.equal(next.remaining, 1.6);
+  assert.equal(zoomTowardFocus(focus, focus, 2, center).remaining, 2);
+  assert.equal(zoomTowardFocus(first.camera, focus, .5, center).remaining, .5);
+});
 
 test('nested scrolling conserves movement at partial and exhausted edges on both axes', () => {
   const scroll = { left: 80, top: 190, maxLeft: 100, maxTop: 200 };

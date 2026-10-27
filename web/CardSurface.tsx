@@ -6,16 +6,19 @@ import { CardInteraction } from './CardInteraction.js';
 import { scrollAncestors, scrollThrough } from './scrollChain.js';
 
 const initial: Camera = { x: 0, y: 0, zoom: 1 };
-export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCanvas, store, children }: {
-  id: string; active: boolean; deactivate: () => void; canvasOwnsPointer: (id: number) => boolean; forceCanvas: () => boolean; store?: Map<string, Camera>; children: React.ReactNode;
+export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCanvas, panPastEdge, zoomBeforeCard, zoomPastCard, store, children }: {
+  id: string; active: boolean; deactivate: () => void; canvasOwnsPointer: (id: number) => boolean; forceCanvas: () => boolean;
+  panPastEdge?: (x: number, y: number) => void; zoomBeforeCard?: (factor: number) => number; zoomPastCard?: (factor: number, anchor: { x: number; y: number }) => void;
+  store?: Map<string, Camera>; children: React.ReactNode;
 }) {
   const [camera, setCamera] = useState<Camera>(() => store?.get(id) ?? initial), [extent, setExtent] = useState({ width: 0, height: 0 });
   const [commitRevision, setCommitRevision] = useState(0);
   const element = useRef<HTMLDivElement>(null), scroller = useRef<HTMLDivElement>(null), plane = useRef<HTMLDivElement>(null), current = useRef(camera), enabled = useRef(active);
   const navigation = useRef(new ContentNavigation(camera));
-  type Drag = { pointer: number; x: number; y: number; origin: { x: number; y: number }; regions: HTMLElement[]; moved: boolean; editable: boolean };
-  const touch = useRef(new TouchViewport(1, 4)), drag = useRef<Drag | null>(null), contacts = useRef(new Map<number, Drag>());
+  type Drag = { pointer: number; x: number; y: number; position: { x: number; y: number }; origin: { x: number; y: number }; regions: HTMLElement[]; moved: boolean; editable: boolean };
+  const touch = useRef(new TouchViewport(1e-9, 1e9)), drag = useRef<Drag | null>(null), contacts = useRef(new Map<number, Drag>());
   const captured = useRef(new Set<number>()), suppressClickUntil = useRef(0);
+  const callbacks = useRef({ panPastEdge, zoomBeforeCard, zoomPastCard }); callbacks.current = { panPastEdge, zoomBeforeCard, zoomPastCard };
   enabled.current = active;
   function geometry() {
     const viewport = scroller.current!, content = plane.current!;
@@ -32,7 +35,11 @@ export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCa
   function panThrough(regions: HTMLElement[], dx: number, dy: number) {
     const zoom = current.current.zoom;
     const remaining = scrollThrough(regions, dx / zoom, dy / zoom);
-    apply({ ...current.current, x: current.current.x - remaining.x * zoom, y: current.current.y - remaining.y * zoom });
+    const before = current.current;
+    apply({ ...before, x: before.x - remaining.x * zoom, y: before.y - remaining.y * zoom });
+    const x = remaining.x * zoom - (before.x - current.current.x), y = remaining.y * zoom - (before.y - current.current.y);
+    const viewport = scroller.current!, scale = viewport.getBoundingClientRect().width / viewport.offsetWidth;
+    if (x || y) callbacks.current.panPastEdge?.(x * scale, y * scale);
   }
   function capture(pointer: number) {
     element.current!.setPointerCapture(pointer); captured.current.add(pointer);
@@ -41,9 +48,17 @@ export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCa
     for (const pointer of captured.current) if (element.current?.hasPointerCapture(pointer)) element.current.releasePointerCapture(pointer);
     captured.current.clear(); touch.current.clear(); contacts.current.clear(); drag.current = null;
   }
-  function zoom(factor: number, anchor?: { x: number; y: number }) {
-    if (!scroller.current || !plane.current) return;
-    const bounds = geometry(); apply(zoomAt(current.current, factor, anchor ?? { x: bounds.view.width / 2, y: bounds.view.height / 2 }, minimumContentZoom(bounds.view, bounds.content), 4));
+  function zoom(factor: number, client?: { x: number; y: number }): boolean {
+    if (!scroller.current || !plane.current) return false;
+    const bounds = geometry(), rect = scroller.current.getBoundingClientRect();
+    const screen = client ?? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    const remaining = callbacks.current.zoomBeforeCard?.(factor) ?? factor, outer = remaining !== factor;
+    const anchor = outer ? { x: bounds.view.width / 2, y: bounds.view.height / 2 } : point(screen.x, screen.y);
+    const before = current.current.zoom;
+    apply(zoomAt(current.current, remaining, anchor, minimumContentZoom(bounds.view, bounds.content), 4));
+    const residual = remaining / (current.current.zoom / before);
+    if (residual < 1 - 1e-10) { callbacks.current.zoomPastCard?.(residual, screen); return true; }
+    return outer;
   }
   useLayoutEffect(() => {
     const viewport = scroller.current!, content = plane.current!;
@@ -60,11 +75,12 @@ export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCa
       const viewport = scroller.current!, scale = viewport.getBoundingClientRect().width / viewport.offsetWidth;
       const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.clientHeight : 1;
       const delta = event.deltaY * unit, horizontal = event.deltaX * unit;
-      if (event.ctrlKey || event.metaKey) zoom(Math.exp(Math.max(-4, Math.min(4, -delta * .0015))), point(event.clientX, event.clientY));
+      if (event.ctrlKey || event.metaKey) zoom(Math.exp(Math.max(-4, Math.min(4, -delta * .0015))), { x: event.clientX, y: event.clientY });
       else panThrough(scrollAncestors(event.target, viewport), (horizontal + (event.shiftKey ? delta : 0)) / scale, (event.shiftKey ? 0 : delta) / scale);
     };
-    body.addEventListener('wheel', wheel, { passive: false, capture: true }); window.addEventListener('agenticview:canvas-navigation', clear); window.addEventListener('blur', clear);
-    return () => { body.removeEventListener('wheel', wheel, true); window.removeEventListener('agenticview:canvas-navigation', clear); window.removeEventListener('blur', clear); clear(); };
+    const canvasNavigation = (event: Event) => { if ((event as CustomEvent<{ card?: string }>).detail?.card !== id) clear(); };
+    body.addEventListener('wheel', wheel, { passive: false, capture: true }); window.addEventListener('agenticview:canvas-navigation', canvasNavigation); window.addEventListener('blur', clear);
+    return () => { body.removeEventListener('wheel', wheel, true); window.removeEventListener('agenticview:canvas-navigation', canvasNavigation); window.removeEventListener('blur', clear); clear(); };
   }, []);
   useEffect(() => { if (!active) clear(); }, [active]);
   function down(event: React.PointerEvent<HTMLDivElement>) {
@@ -72,12 +88,13 @@ export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCa
     const viewport = scroller.current!, bounds = viewport.getBoundingClientRect(), scale = bounds.width / viewport.offsetWidth;
     const localControl = !!(event.target as Element).closest('.card-local-controls');
     if (!localControl && (event.clientX >= bounds.left + viewport.clientWidth * scale || event.clientY >= bounds.top + viewport.clientHeight * scale)) return;
-    const p = point(event.clientX, event.clientY);
     const target = event.target as Element, editable = localControl || !!target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"])');
-    const intent: Drag = { pointer: event.pointerId, ...p, origin: p, regions: scrollAncestors(event.target, viewport), moved: false, editable };
+    const client = { x: event.clientX, y: event.clientY };
+    const intent: Drag = { pointer: event.pointerId, ...client, position: client, origin: client, regions: scrollAncestors(event.target, viewport), moved: false, editable };
     if (event.pointerType === 'touch') {
-      if (!touch.current.count) { const bounds = geometry(); touch.current = new TouchViewport(minimumContentZoom(bounds.view, bounds.content), 4); }
-      contacts.current.set(event.pointerId, intent); touch.current.start(event.pointerId, p, current.current);
+      if (!touch.current.count) touch.current = new TouchViewport(1e-9, 1e9);
+      else for (const [pointer, contact] of contacts.current) touch.current.start(pointer, contact.position, current.current);
+      contacts.current.set(event.pointerId, intent); touch.current.start(event.pointerId, client, current.current);
       if (touch.current.count >= 2) { event.preventDefault(); event.stopPropagation(); suppressClickUntil.current = performance.now() + 700; for (const pointer of contacts.current.keys()) capture(pointer); }
     } else if (event.button !== 0 || event.shiftKey || editable) return;
     drag.current ??= intent;
@@ -85,12 +102,24 @@ export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCa
   }
   function move(event: React.PointerEvent<HTMLDivElement>) {
     if (!active || canvasOwnsPointer(event.pointerId) || forceCanvas() || event.altKey) return;
-    const p = point(event.clientX, event.clientY);
-    if (event.pointerType === 'touch' && touch.current.pointers.has(event.pointerId)) { const pinched = touch.current.move(event.pointerId, p); if (pinched) { event.preventDefault(); event.stopPropagation(); suppressClickUntil.current = performance.now() + 700; apply(pinched); return; } }
+    const contact = contacts.current.get(event.pointerId); if (contact) contact.position = { x: event.clientX, y: event.clientY };
+    if (event.pointerType === 'touch' && touch.current.pointers.has(event.pointerId)) {
+      const points = [...touch.current.pointers.values()].slice(0, 2), center = { x: points.reduce((sum, p) => sum + p.x, 0) / points.length, y: points.reduce((sum, p) => sum + p.y, 0) / points.length };
+      const pinched = touch.current.move(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (pinched) {
+        event.preventDefault(); event.stopPropagation(); suppressClickUntil.current = performance.now() + 700;
+        const outer = zoom(pinched.zoom / current.current.zoom, center), next = [...touch.current.pointers.values()].slice(0, 2);
+        const dx = (next[0]!.x + next[1]!.x) / 2 - center.x, dy = (next[0]!.y + next[1]!.y) / 2 - center.y;
+        if (outer) { if (dx || dy) callbacks.current.panPastEdge?.(-dx, -dy); }
+        else { const viewport = scroller.current!, scale = viewport.getBoundingClientRect().width / viewport.offsetWidth; panThrough([], -dx / scale, -dy / scale); }
+        touch.current.commit(current.current); return;
+      }
+    }
     const start = drag.current; if (!start || start.pointer !== event.pointerId) return;
     if (start.editable) return;
-    if (!start.moved && Math.hypot(p.x - start.origin.x, p.y - start.origin.y) < 4) return;
-    const dx = p.x - start.x, dy = p.y - start.y; start.moved = true; start.x = p.x; start.y = p.y;
+    if (!start.moved && Math.hypot(event.clientX - start.origin.x, event.clientY - start.origin.y) < 4) return;
+    const viewport = scroller.current!, scale = viewport.getBoundingClientRect().width / viewport.offsetWidth;
+    const dx = (event.clientX - start.x) / scale, dy = (event.clientY - start.y) / scale; start.moved = true; start.x = event.clientX; start.y = event.clientY;
     event.preventDefault(); event.stopPropagation();
     capture(event.pointerId); suppressClickUntil.current = performance.now() + 500; panThrough(start.regions, -dx, -dy);
   }
@@ -98,7 +127,7 @@ export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCa
     const pinching = touch.current.count >= 2;
     if (event.pointerType === 'touch') touch.current.end(event.pointerId, current.current);
     contacts.current.delete(event.pointerId); if (drag.current?.pointer === event.pointerId) drag.current = null;
-    const remaining = [...touch.current.pointers.entries()]; if (pinching && remaining.length === 1) { const [pointer, p] = remaining[0]!; const contact = contacts.current.get(pointer)!; drag.current = { ...contact, ...p, origin: p, moved: true, editable: false }; }
+    const remaining = [...touch.current.pointers.entries()]; if (pinching && remaining.length === 1) { const [pointer] = remaining[0]!; const contact = contacts.current.get(pointer)!; drag.current = { ...contact, ...contact.position, origin: contact.position, moved: true, editable: false }; contacts.current.set(pointer, drag.current); }
     captured.current.delete(event.pointerId);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   }

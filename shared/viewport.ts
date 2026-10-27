@@ -28,6 +28,8 @@ export class TouchViewport {
   }
   end(id: number, camera: Camera) { this.pointers.delete(id); this.rebase(camera); }
   cancel(id: number, camera: Camera) { this.end(id, camera); }
+  /** Commit an incremental gesture after another camera consumed part of its zoom. */
+  commit(camera: Camera) { this.rebase(camera); }
   clear() { this.pointers.clear(); this.baseline = undefined; }
 }
 export type CanvasAction = 'left' | 'right' | 'up' | 'down' | 'in' | 'out' | 'fit' | 'reset' | 'escape';
