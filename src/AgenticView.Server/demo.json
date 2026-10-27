@@ -1,0 +1,377 @@
+[
+  {
+    "key": "example-0",
+    "parent": null,
+    "name": "Investigation orchestrator",
+    "role": "Synthetic investigation",
+    "components": [
+      {
+        "id": "brief",
+        "title": "Investigation brief",
+        "kind": "markdown",
+        "data": {
+          "text": "### Following the evidence\nInvestigating a synthetic increase in request latency.\n\n- [x] Establish baseline\n- [x] Compare query timings\n- [ ] Validate the candidate change\n\nAll data in this workspace is generated for demonstration."
+        }
+      },
+      {
+        "id": "progress",
+        "title": "Investigation",
+        "kind": "progress",
+        "data": {
+          "value": 68,
+          "max": 100,
+          "label": "Evidence collection"
+        }
+      },
+      {
+        "id": "events",
+        "title": "Activity",
+        "kind": "timeline",
+        "data": {
+          "events": [
+            {
+              "time": "12:40:00",
+              "title": "Investigation opened",
+              "tone": "info"
+            },
+            {
+              "time": "12:40:03",
+              "title": "Baseline established",
+              "detail": "Synthetic request samples are available.",
+              "tone": "success"
+            },
+            {
+              "time": "12:40:08",
+              "title": "Candidate identified",
+              "tone": "warning"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "key": "example-1",
+    "parent": "example-0",
+    "name": "Query analyst",
+    "role": "Declared child · synthetic",
+    "components": [
+      {
+        "id": "query",
+        "title": "Current query",
+        "kind": "code",
+        "data": {
+          "code": "SELECT operation, COUNT(*) AS samples, AVG(duration_ms) AS mean_ms\nFROM synthetic_requests\nGROUP BY operation\nORDER BY mean_ms DESC;",
+          "language": "sql"
+        }
+      },
+      {
+        "id": "results",
+        "title": "Query results",
+        "kind": "table",
+        "data": {
+          "columns": [
+            {
+              "key": "operation",
+              "label": "Operation"
+            },
+            {
+              "key": "samples",
+              "label": "Samples"
+            },
+            {
+              "key": "mean",
+              "label": "Mean ms"
+            }
+          ],
+          "rows": [
+            {
+              "operation": "catalog.search",
+              "samples": 8240,
+              "mean": 184
+            },
+            {
+              "operation": "catalog.detail",
+              "samples": 12480,
+              "mean": 42
+            },
+            {
+              "operation": "session.read",
+              "samples": 31200,
+              "mean": 12
+            }
+          ]
+        }
+      },
+      {
+        "id": "explain",
+        "title": "Evidence",
+        "kind": "status",
+        "data": {
+          "label": "A candidate is ready for review",
+          "state": "warning",
+          "detail": "Synthetic query plan suggests a missing filter."
+        }
+      }
+    ]
+  },
+  {
+    "key": "example-2",
+    "parent": null,
+    "name": "Build observer",
+    "role": "Synthetic build pipeline",
+    "components": [
+      {
+        "id": "duration",
+        "title": "Build duration",
+        "kind": "metric",
+        "data": {
+          "value": 42.8,
+          "unit": "s",
+          "change": "−18.4% from baseline",
+          "history": [
+            61,
+            58,
+            59,
+            52,
+            48,
+            45,
+            43,
+            42.8
+          ],
+          "tone": "success"
+        }
+      },
+      {
+        "id": "series",
+        "title": "Request latency",
+        "kind": "chart",
+        "data": {
+          "type": "area",
+          "series": [
+            {
+              "name": "p95",
+              "points": [
+                {
+                  "x": 0,
+                  "y": 180
+                },
+                {
+                  "x": 1,
+                  "y": 192
+                },
+                {
+                  "x": 2,
+                  "y": 170
+                },
+                {
+                  "x": 3,
+                  "y": 145
+                },
+                {
+                  "x": 4,
+                  "y": 132
+                },
+                {
+                  "x": 5,
+                  "y": 96
+                },
+                {
+                  "x": 6,
+                  "y": 84
+                },
+                {
+                  "x": 7,
+                  "y": 76
+                },
+                {
+                  "x": 8,
+                  "y": 68
+                },
+                {
+                  "x": 9,
+                  "y": 61
+                },
+                {
+                  "x": 10,
+                  "y": 55
+                },
+                {
+                  "x": 11,
+                  "y": 49
+                }
+              ]
+            },
+            {
+              "name": "p50",
+              "points": [
+                {
+                  "x": 0,
+                  "y": 60
+                },
+                {
+                  "x": 1,
+                  "y": 65
+                },
+                {
+                  "x": 2,
+                  "y": 55
+                },
+                {
+                  "x": 3,
+                  "y": 48
+                },
+                {
+                  "x": 4,
+                  "y": 42
+                },
+                {
+                  "x": 5,
+                  "y": 37
+                },
+                {
+                  "x": 6,
+                  "y": 33
+                },
+                {
+                  "x": 7,
+                  "y": 30
+                },
+                {
+                  "x": 8,
+                  "y": 28
+                },
+                {
+                  "x": 9,
+                  "y": 24
+                },
+                {
+                  "x": 10,
+                  "y": 22
+                },
+                {
+                  "x": 11,
+                  "y": 21
+                }
+              ]
+            }
+          ],
+          "yLabel": "ms"
+        }
+      },
+      {
+        "id": "build",
+        "title": "Build context",
+        "kind": "keyvalue",
+        "data": {
+          "items": [
+            {
+              "key": "Branch",
+              "value": "feature/evidence-stream"
+            },
+            {
+              "key": "Build",
+              "value": "#128 · synthetic"
+            },
+            {
+              "key": "Checks",
+              "value": "12 passed"
+            }
+          ]
+        }
+      },
+      {
+        "id": "diff",
+        "title": "Proposed change",
+        "kind": "diff",
+        "data": {
+          "before": "var records = source.ToList();\nreturn records.Where(IsRelevant);",
+          "after": "return source.Where(IsRelevant).ToList();",
+          "language": "csharp"
+        }
+      }
+    ]
+  },
+  {
+    "key": "example-3",
+    "parent": null,
+    "name": "Connection observer",
+    "role": "Synthetic staging activity",
+    "components": [
+      {
+        "id": "status",
+        "title": "Connection",
+        "kind": "status",
+        "data": {
+          "label": "Evidence stream connected",
+          "state": "active",
+          "detail": "staging.example.invalid · synthetic only"
+        }
+      },
+      {
+        "id": "logs",
+        "title": "Activity log",
+        "kind": "logs",
+        "data": {
+          "entries": [
+            {
+              "time": "12:40:01",
+              "level": "info",
+              "message": "Synthetic session opened",
+              "source": "observer"
+            },
+            {
+              "time": "12:40:04",
+              "level": "info",
+              "message": "Listed 24 synthetic log files",
+              "source": "evidence"
+            },
+            {
+              "time": "12:40:07",
+              "level": "warn",
+              "message": "3 synthetic events exceed the baseline",
+              "source": "analysis"
+            }
+          ]
+        }
+      },
+      {
+        "id": "files",
+        "title": "Evidence tree",
+        "kind": "tree",
+        "data": {
+          "nodes": [
+            {
+              "id": "root",
+              "label": "Synthetic evidence"
+            },
+            {
+              "id": "logs",
+              "label": "logs",
+              "parentId": "root",
+              "detail": "24 generated entries"
+            },
+            {
+              "id": "traces",
+              "label": "traces",
+              "parentId": "root",
+              "detail": "8 generated entries"
+            }
+          ]
+        }
+      },
+      {
+        "id": "json",
+        "title": "Context",
+        "kind": "json",
+        "data": {
+          "value": {
+            "environment": "synthetic",
+            "connections": 1,
+            "readonly": true
+          }
+        }
+      }
+    ]
+  }
+]

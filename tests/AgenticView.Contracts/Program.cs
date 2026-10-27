@@ -1,0 +1,92 @@
+using System.IO.Compression;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json.Nodes;
+using AgenticView.Server;
+using Microsoft.Data.Sqlite;
+using System.Diagnostics;
+
+if (args.Contains("--layout-probe"))
+{
+    Run((hub, _) => { var watch=Stopwatch.StartNew(); for(var i=0;i<100;i++) hub.Register(Input("probe-"+i)); watch.Stop(); Console.WriteLine(new JsonObject { ["synthetic"]=true,["registrations"]=100,["elapsedMs"]=watch.Elapsed.TotalMilliseconds,["layoutMs"]=hub.RegistrationLayoutMilliseconds }.ToJsonString()); });
+    return 0;
+}
+
+var cases = new (string Name, Action Test)[]
+{
+    ("registration identity, recovery proof and credential boundaries", () => Run((hub, _) => {
+        var a = Register(hub); var retry = Register(hub); Check(a.ToJsonString() == retry.ToJsonString(), "Retry changed credentials");
+        Throws(() => hub.Register(Input("a", "wrong-private-registration-key-long-enough")), 409);
+        var id = S(a,"runId"); var forged = Convert.ToBase64String(HMACSHA256.HashData(Encoding.UTF8.GetBytes(Keys().IngestToken), Encoding.UTF8.GetBytes("run:"+id))).TrimEnd('=').Replace('+','-').Replace('/','_');
+        Throws(() => hub.Heartbeat(id, forged), 403);
+        var child = Input("child"); child["parentId"] = id; child["parentToken"] = S(a,"runToken"); hub.Register(child);
+        child.Remove("parentToken"); Throws(() => hub.Register(child), 409);
+    })),
+    ("atomic mutation failures, exact retries and old-sequence conflicts", () => Run((hub, _) => {
+        var a = Register(hub); var first = Batch(1, new { op="upsert", component=Metric() }); Publish(hub,a,first);
+        Check(Publish(hub,a,first)["duplicate"]!.GetValue<bool>(), "Exact retry was not idempotent");
+        Throws(() => Publish(hub,a,Batch(2,new {op="clear"},new {op="append",componentId="missing",items=new[]{1}})),400);
+        Check(hub.GetRun(S(a,"runId"))!["components"]!["metric"] is not null,"Partial mutation escaped");
+        Publish(hub,a,Batch(2,new {op="context",text="Second"}));
+        Check(Publish(hub,a,first)["duplicate"]!.GetValue<bool>(),"Older exact retry rejected");
+        Throws(() => Publish(hub,a,Batch(1,new {op="clear"})),409);
+        Throws(() => Publish(hub,a,Batch(4,new {op="clear"})),409);
+    })),
+    ("bounded append reports trimming", () => Run((hub, _) => {
+        var a=Register(hub); Publish(hub,a,Batch(1,new {op="upsert",component=new {id="logs",title="Synthetic",kind="logs",data=new {entries=Enumerable.Range(0,2000).Select(i=>new {message="Synthetic "+i,level="info"}).ToArray()}}}));
+        var result=Publish(hub,a,Batch(2,new {op="append",componentId="logs",items=new[]{new {message="Latest",level="info"}}}));
+        Check(result["trimmed"]!.GetValue<int>()==1,"Trim count missing");
+        Check(hub.GetRun(S(a,"runId"))!["components"]!["logs"]!["data"]!["entries"]!.AsArray().Count==2000,"Retention bound failed");
+    })),
+    ("persistence preserves content, sequence and compressed archives", () => Run((hub, directory) => {
+        var a=Register(hub); Publish(hub,a,Batch(1,new {op="upsert",component=new {id="text",title="Evidence",kind="markdown",data=new {text=string.Concat(Enumerable.Repeat("synthetic evidence ",2000))}}}));
+        var summary=hub.Archive(S(a,"runId")); Check(summary["bytes"]!.GetValue<int>()<summary["rawBytes"]!.GetValue<int>()/3,"Archive compression ineffective");
+        using var gzip=new GZipStream(new MemoryStream(hub.ArchiveBytes(S(a,"runId"))),CompressionMode.Decompress); Check(JsonNode.Parse(gzip)!["components"]!["text"] is not null,"Export lost view");
+        hub.Dispose(); using var reopened=new Hub(directory,Keys()); Check(reopened.Archives().Count==1,"Archive not durable");
+        Check(reopened.ReadArchive(S(a,"runId"))["components"]!["text"] is not null,"Archived evidence missing");
+        reopened.AuthorizeArchive(S(a,"runId"),S(a,"runToken")); reopened.Archive(S(a,"runId"));
+    })),
+    ("completed runs permit cleanup and cannot resurrect", () => Run((hub, _) => {
+        var a=Register(hub); Publish(hub,a,Batch(1,new {op="upsert",component=Metric()},new {op="status",status="completed"}));
+        Throws(()=>Publish(hub,a,Batch(2,new {op="status",status="active"})),409); Publish(hub,a,Batch(2,new {op="clear"}));
+        hub.Heartbeat(S(a,"runId"),S(a,"runToken")); Check(S(hub.GetRun(S(a,"runId"))!,"status")=="completed","Heartbeat resurrected completed run");
+        Check(hub.Settings["autoArchiveMinutes"] is null && !hub.Settings["archiveAfterCompletion"]!.GetValue<bool>(),"Unexpected automatic cleanup");
+    })),
+    ("orphan promotion remains collision-free and preserves ancestry", () => Run((hub, _) => {
+        var parent=Register(hub); var one=Input("one"); one["parentId"]=S(parent,"runId"); one["parentToken"]=S(parent,"runToken"); var a=hub.Register(one);
+        var two=(JsonObject)one.DeepClone(); two["requestId"]="two"; two["agentId"]="two"; var b=hub.Register(two); hub.Archive(S(parent,"runId"));
+        var first=hub.GetRun(S(a,"runId"))!; var second=hub.GetRun(S(b,"runId"))!;
+        Check(S(first,"parentId")==S(parent,"runId"),"Ancestry lost"); Throws(()=>hub.SetLayout(S(b,"runId"),(JsonObject)first["layout"]!.DeepClone()),409);
+        var layout=(JsonObject)second["layout"]!.DeepClone(); layout["locked"]=true; hub.SetLayout(S(b,"runId"),layout); layout["x"]=999999; Throws(()=>hub.SetLayout(S(b,"runId"),layout),409);
+    })),
+    ("tree cycles, reserved properties and unknown kinds are rejected", () => Run((hub, _) => {
+        var a=Register(hub); Throws(()=>Publish(hub,a,Batch(1,new {op="upsert",component=new {id="tree",title="Bad",kind="tree",data=new {nodes=new[]{new{id="a",label="A",parentId="b"},new{id="b",label="B",parentId="a"}}}}})),400);
+        Throws(()=>ComponentValidator.Validate(Json.Object(new {id="__proto__",title="Bad",kind="metric",data=new {value=1}})),400);
+        Throws(()=>ComponentValidator.Validate(Json.Object(new {id="bad",title="Bad",kind="unknown",data=new {}})),400);
+    })),
+    ("coalesced patches preserve final content across remove and clear", () => Run((hub, _) => {
+        var a=Register(hub); JsonObject? patch=null; hub.Patched+=value=>patch=value;
+        Publish(hub,a,Batch(1,new {op="upsert",component=Metric()})); Publish(hub,a,Batch(2,new {op="clear"},new {op="upsert",component=new {id="new",title="New",kind="metric",data=new {value=2}}})); hub.Flush();
+        var change=patch!["changes"]!.AsArray().Single()!; Check(change["clear"]!.GetValue<bool>(),"Clear signal missing");
+        Check(change["components"]!.AsArray().Count==1 && change["components"]![0]!["id"]!.GetValue<string>()=="new","Coalescing resurrected removed component");
+    }))
+};
+var failed=0;
+foreach(var (name, action) in cases) { try { action(); Console.WriteLine("PASS "+name); } catch(Exception error) { failed++; Console.Error.WriteLine("FAIL "+name+": "+error); } }
+Console.WriteLine($"{cases.Length-failed}/{cases.Length} C# contracts passed"); return failed==0?0:1;
+
+static Secrets Keys() => new("synthetic-viewer-not-a-real-secret-key", "synthetic-ingestion-not-a-real-secret", "synthetic-server-private-run-derivation-key");
+static string S(JsonObject value,string key)=>value[key]!.GetValue<string>();
+static void Check(bool value,string message) { if(!value) throw new Exception(message); }
+static void Throws(Action action,int status) { try { action(); } catch(HubError error) when(error.Status==status) { return; } throw new Exception("Expected HubError "+status); }
+static JsonObject Input(string id="a",string registrationKey="synthetic-private-recovery-key-for-tests")=>Json.Object(new {requestId=id,registrationKey,agentId=id,name="Synthetic "+id});
+static JsonObject Register(Hub hub)=>hub.Register(Input());
+static object Metric()=>new {id="metric",title="Rows",kind="metric",data=new {value=1}};
+static JsonObject Batch(long sequence,params object[] operations)=>Json.Object(new {sequence,operations});
+static JsonObject Publish(Hub hub,JsonObject run,JsonObject batch)=>hub.Publish(S(run,"runId"),S(run,"runToken"),batch);
+static void Run(Action<Hub,string> action)
+{
+    var root=Path.GetFullPath(Path.GetTempPath()); var directory=Path.Combine(root,"agenticview-contract-"+Guid.NewGuid());
+    try { using var hub=new Hub(directory,Keys()); action(hub,directory); }
+    finally { SqliteConnection.ClearAllPools(); if(Path.GetDirectoryName(Path.GetFullPath(directory))!=root.TrimEnd(Path.DirectorySeparatorChar)) throw new Exception("Unsafe cleanup target"); if(Directory.Exists(directory)) Directory.Delete(directory,true); }
+}

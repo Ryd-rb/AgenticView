@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/AgenticView.Server/AgenticView.Server.csproj" />
+  <Project Path="tests/AgenticView.Contracts/AgenticView.Contracts.csproj" />
+</Solution>

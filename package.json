@@ -1,0 +1,39 @@
+{
+  "name": "agenticview",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "description": "A self-hosted MCP observability canvas for agents",
+  "engines": { "node": ">=24.0.0" },
+  "packageManager": "pnpm@11.25.0",
+  "scripts": {
+    "dev": "dotnet run --project src/AgenticView.Server",
+    "dev:web": "vite --host 127.0.0.1",
+    "check": "tsc --noEmit",
+    "test": "dotnet run --project tests/AgenticView.Contracts -c Release && tsx --test tests/*.test.ts",
+    "build": "tsx scripts/schema.ts && vite build && dotnet publish src/AgenticView.Server -c Release --no-self-contained -o dist/server",
+    "start": "dotnet dist/server/AgenticView.Server.dll",
+    "keys": "dotnet run --project src/AgenticView.Server -- --keys",
+    "demo": "tsx scripts/demo.ts",
+    "bench": "tsx scripts/bench.ts"
+  },
+  "dependencies": {
+    "zod": "4.6.7",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "lucide-react": "^0.577.0",
+    "diff": "^8.0.2"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.4.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "7.0.2",
+    "vite": "8.3.5",
+    "tsx": "^4.20.0"
+  }
+}
