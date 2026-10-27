@@ -2,7 +2,7 @@
 
 A real-time observability workspace for agents, wherever they run.
 
-AgenticView is being designed as an MCP server and a responsive web monitor.
+AgenticView is being designed as a self-hosted MCP server and a responsive web monitor.
 Agents report their activity and publish structured displays into a shared view:
 metrics, charts, tables, Markdown, logs, code, timelines, and visualizations.
 
@@ -13,8 +13,13 @@ while the surrounding layout adapts. Finished runs remain available in archives.
 ## Status
 
 Early design. The server, protocol, SDKs, and web application are not implemented
-yet. Deployment, data retention, component contracts, and agent lifecycle behavior
-are being defined before implementation.
+yet. See the [design brief](docs/design.md) for agreed requirements, proposed
+architecture, component families, and the remaining decisions.
+
+The first version serves one operator, observes agents without controlling their
+execution, and prioritizes investigations. Separate installations keep unrelated
+environments apart. Run archives are persisted locally. Native structured
+components and agent-authored embedded views are both part of the design.
 
 ## Privacy
 
