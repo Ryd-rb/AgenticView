@@ -1,0 +1,48 @@
+# Dependencies and generated builds
+node_modules/
+dist/
+build/
+out/
+coverage/
+*.tsbuildinfo
+bin/
+obj/
+__pycache__/
+.venv/
+
+# Credentials and local configuration
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.pfx
+*.p12
+secrets/
+private/
+
+# Runtime telemetry and local persistence
+.agenticview/
+data/
+logs/
+*.log
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+
+# Task-local evidence and workspaces
+.task/
+.worktrees/
+.artifacts/
+
+# Editor and operating system state
+.idea/
+.vs/
+.vscode/
+*.user
+*.suo
+.DS_Store
+Thumbs.db
