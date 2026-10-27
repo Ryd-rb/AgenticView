@@ -20,6 +20,8 @@
 - Keep agent-provided content untrusted. Preserve authentication boundaries and
   validate protocol inputs before rendering or persisting them.
 - Keep runtime state, local configuration, and task evidence outside tracked files.
+- Keep wheel and pinch zoom anchored under the pointer or finger midpoint across
+  main-view/card handoffs; never recenter a card during a zoom gesture.
 - Keep the page within the viewport, with the settings cog fixed at bottom left.
   Automatically bin pack all unlocked cards, favor older positions and close gaps.
   Preserve sizes and active gestures. Provide Arrange all beside zoom.

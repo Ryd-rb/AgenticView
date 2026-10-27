@@ -2,18 +2,26 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ContentNavigation, gestureOwner, contentPoint, minimumContentZoom, clampContentCamera, consumeScrollDelta, zoomTowardFocus } from '../shared/interaction.ts';
+import { ContentNavigation, gestureOwner, contentPoint, minimumContentZoom, clampContentCamera, consumeScrollDelta, zoomTowardScale, projectContentBounds } from '../shared/interaction.ts';
 import { TouchViewport } from '../shared/viewport.ts';
 import { CardSurface } from '../web/CardSurface.tsx';
 
-test('overview zoom reaches the selected card before handing the residual factor to content', () => {
-  const focus = { x: 100, y: 80, zoom: 1 }, center = { x: 500, y: 400 };
-  const first = zoomTowardFocus({ x: 0, y: 0, zoom: .1 }, focus, 4, center);
+test('overview zoom preserves the input anchor while handing residual scale to content', () => {
+  const initial = { x: 37, y: -61, zoom: .1 }, anchor = { x: 357, y: 44 };
+  const world = (camera: typeof initial) => ({ x: (anchor.x - camera.x) / camera.zoom, y: (anchor.y - camera.y) / camera.zoom });
+  const first = zoomTowardScale(initial, 1, 4, anchor);
   assert.equal(first.camera.zoom, .4); assert.equal(first.remaining, 1);
-  const next = zoomTowardFocus(first.camera, focus, 4, center);
-  assert.deepEqual(next.camera, focus); assert.equal(next.remaining, 1.6);
-  assert.equal(zoomTowardFocus(focus, focus, 2, center).remaining, 2);
-  assert.equal(zoomTowardFocus(first.camera, focus, .5, center).remaining, .5);
+  const next = zoomTowardScale(first.camera, 1, 4, anchor);
+  assert.equal(next.camera.zoom, 1); assert.equal(next.remaining, 1.6);
+  assert.deepEqual(world(first.camera), world(initial)); assert.deepEqual(world(next.camera), world(initial));
+  assert.equal(zoomTowardScale(next.camera, 1, 2, anchor).remaining, 2);
+  assert.equal(zoomTowardScale(first.camera, 1, .5, anchor).remaining, .5);
+});
+test('pending world transforms project a committed rectangle into current logical coordinates', () => {
+  const rendered = { x: 37, y: -61, zoom: .25 }, logical = { x: -283, y: -166, zoom: .5 };
+  const projected = projectContentBounds({ left: 287, top: 14, width: 100 }, rendered, logical);
+  assert.deepEqual(projected, { left: 217, top: -16, width: 200 });
+  assert.deepEqual(contentPoint({ x: 357, y: 44 }, projected, 400), { x: 280, y: 120 });
 });
 
 test('nested scrolling conserves movement at partial and exhausted edges on both axes', () => {

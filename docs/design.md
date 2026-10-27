@@ -47,10 +47,15 @@ card reaches its own scroll boundary, residual movement pans the main canvas;
 the card content stays clamped, and the same drag continues without a jump. Reversing
 direction scrolls the nearest region first. Ctrl/Command-wheel and two-finger pinch
 zoom the active card before component handlers can consume them.
-From an overview, zoom-in on a selected card first focuses that card in the main
-view, then applies the remaining zoom to its content. Zoom-out reverses the chain:
+From an overview, zoom-in on a selected card first increases main-view scale to
+the card's fit threshold, then applies remaining zoom to its content. Zoom-out reverses the chain:
 content reaches its fit boundary before remaining zoom returns to the main view.
 Wheel, card zoom buttons and continuous two-finger pinches share this routing.
+Wheel zoom stays anchored under the pointer; pinch zoom stays anchored under the
+moving finger midpoint through both handoffs. The scale threshold never recenters
+the card. When native scroll bounds or offset rounding restrict inner movement,
+the main-view translation consumes the difference to preserve the anchor. Pending
+camera updates use geometry projected from the last committed DOM transform.
 
 The optional C# Windows desktop host opens the monitor in a dedicated fullscreen
 WebView2 window with no system title bar. Custom top-right controls minimize,

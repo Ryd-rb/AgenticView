@@ -1,14 +1,15 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Check, Minus, Plus, RotateCcw } from 'lucide-react';
-import { ContentNavigation, clampContentCamera, contentPoint, minimumContentZoom } from '../shared/interaction.js';
+import { ContentNavigation, clampContentCamera, contentPoint, minimumContentZoom, projectContentBounds } from '../shared/interaction.js';
 import { TouchViewport, zoomAt, type Camera } from '../shared/viewport.js';
 import { CardInteraction } from './CardInteraction.js';
 import { scrollAncestors, scrollThrough } from './scrollChain.js';
 
 const initial: Camera = { x: 0, y: 0, zoom: 1 };
-export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCanvas, panPastEdge, zoomBeforeCard, zoomPastCard, store, children }: {
+export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCanvas, panPastEdge, zoomBeforeCard, zoomPastCard, canvasCamera, getCanvasCamera, store, children }: {
   id: string; active: boolean; deactivate: () => void; canvasOwnsPointer: (id: number) => boolean; forceCanvas: () => boolean;
-  panPastEdge?: (x: number, y: number) => void; zoomBeforeCard?: (factor: number) => number; zoomPastCard?: (factor: number, anchor: { x: number; y: number }) => void;
+  panPastEdge?: (x: number, y: number) => void; zoomBeforeCard?: (factor: number, anchor: { x: number; y: number }) => number; zoomPastCard?: (factor: number, anchor: { x: number; y: number }) => void;
+  canvasCamera?: Camera; getCanvasCamera?: () => Camera;
   store?: Map<string, Camera>; children: React.ReactNode;
 }) {
   const [camera, setCamera] = useState<Camera>(() => store?.get(id) ?? initial), [extent, setExtent] = useState({ width: 0, height: 0 });
@@ -18,8 +19,10 @@ export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCa
   type Drag = { pointer: number; x: number; y: number; position: { x: number; y: number }; origin: { x: number; y: number }; regions: HTMLElement[]; moved: boolean; editable: boolean };
   const touch = useRef(new TouchViewport(1e-9, 1e9)), drag = useRef<Drag | null>(null), contacts = useRef(new Map<number, Drag>());
   const captured = useRef(new Set<number>()), suppressClickUntil = useRef(0);
-  const callbacks = useRef({ panPastEdge, zoomBeforeCard, zoomPastCard }); callbacks.current = { panPastEdge, zoomBeforeCard, zoomPastCard };
+  const callbacks = useRef({ panPastEdge, zoomBeforeCard, zoomPastCard, getCanvasCamera }); callbacks.current = { panPastEdge, zoomBeforeCard, zoomPastCard, getCanvasCamera };
+  const renderedCanvas = useRef(canvasCamera ?? initial), anchorCommit = useRef(false);
   enabled.current = active;
+  useLayoutEffect(() => { renderedCanvas.current = canvasCamera ?? initial; });
   function geometry() {
     const viewport = scroller.current!, content = plane.current!;
     return { view: { width: Math.max(1, viewport.clientWidth), height: Math.max(1, viewport.clientHeight) }, content: { width: Math.max(1, content.scrollWidth), height: Math.max(1, content.scrollHeight) } };
@@ -31,14 +34,15 @@ export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCa
     if (renderScale) { setCamera(next); setCommitRevision(navigation.current.revision); }
     else if (!navigation.current.pending && scroller.current) { scroller.current.scrollLeft = -next.x; scroller.current.scrollTop = -next.y; navigation.current.scrolled(scroller.current.scrollLeft, scroller.current.scrollTop); current.current = navigation.current.camera; store?.set(id, current.current); }
   }
-  function point(x: number, y: number) { const body = scroller.current!; return contentPoint({ x, y }, body.getBoundingClientRect(), body.offsetWidth); }
+  function frame() { const body = scroller.current!, bounds = body.getBoundingClientRect(), currentCanvas = callbacks.current.getCanvasCamera?.(); return currentCanvas ? projectContentBounds(bounds, renderedCanvas.current, currentCanvas) : bounds; }
+  function point(x: number, y: number) { const body = scroller.current!; return contentPoint({ x, y }, frame(), body.offsetWidth); }
   function panThrough(regions: HTMLElement[], dx: number, dy: number) {
     const zoom = current.current.zoom;
     const remaining = scrollThrough(regions, dx / zoom, dy / zoom);
     const before = current.current;
     apply({ ...before, x: before.x - remaining.x * zoom, y: before.y - remaining.y * zoom });
     const x = remaining.x * zoom - (before.x - current.current.x), y = remaining.y * zoom - (before.y - current.current.y);
-    const viewport = scroller.current!, scale = viewport.getBoundingClientRect().width / viewport.offsetWidth;
+    const viewport = scroller.current!, scale = frame().width / viewport.offsetWidth;
     if (x || y) callbacks.current.panPastEdge?.(x * scale, y * scale);
   }
   function capture(pointer: number) {
@@ -50,12 +54,19 @@ export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCa
   }
   function zoom(factor: number, client?: { x: number; y: number }): boolean {
     if (!scroller.current || !plane.current) return false;
-    const bounds = geometry(), rect = scroller.current.getBoundingClientRect();
-    const screen = client ?? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
-    const remaining = callbacks.current.zoomBeforeCard?.(factor) ?? factor, outer = remaining !== factor;
-    const anchor = outer ? { x: bounds.view.width / 2, y: bounds.view.height / 2 } : point(screen.x, screen.y);
+    const bounds = geometry(), rect = frame();
+    const screen = client ?? { x: rect.left + rect.width / 2, y: rect.top + bounds.view.height * rect.width / scroller.current.offsetWidth / 2 };
+    // An outer zoom at this same screen point leaves its local coordinate invariant.
+    const anchor = point(screen.x, screen.y);
+    const remaining = callbacks.current.zoomBeforeCard?.(factor, screen) ?? factor, outer = remaining !== factor;
     const before = current.current.zoom;
-    apply(zoomAt(current.current, remaining, anchor, minimumContentZoom(bounds.view, bounds.content), 4));
+    const ideal = zoomAt(current.current, remaining, anchor, minimumContentZoom(bounds.view, bounds.content), 4);
+    apply(ideal);
+    anchorCommit.current ||= navigation.current.pending !== null;
+    // Scroll bounds may prevent the inner translation; the world consumes the difference.
+    const scale = frame().width / scroller.current.offsetWidth;
+    const dx = (current.current.x - ideal.x) * scale, dy = (current.current.y - ideal.y) * scale;
+    if (dx || dy) callbacks.current.panPastEdge?.(dx, dy);
     const residual = remaining / (current.current.zoom / before);
     if (residual < 1 - 1e-10) { callbacks.current.zoomPastCard?.(residual, screen); return true; }
     return outer;
@@ -66,13 +77,13 @@ export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCa
     const observer = new ResizeObserver(measure); observer.observe(viewport); observer.observe(content); measure();
     return () => observer.disconnect();
   }, []);
-  useLayoutEffect(() => { const viewport = scroller.current; if (viewport) { const target = navigation.current.pending ?? current.current; viewport.scrollLeft = -target.x; viewport.scrollTop = -target.y; navigation.current.committed(viewport.scrollLeft, viewport.scrollTop); current.current = navigation.current.camera; store?.set(id, current.current); } }, [commitRevision, extent]);
+  useLayoutEffect(() => { const viewport = scroller.current; if (viewport) { const target = navigation.current.pending ?? current.current; viewport.scrollLeft = -target.x; viewport.scrollTop = -target.y; navigation.current.committed(viewport.scrollLeft, viewport.scrollTop); current.current = navigation.current.camera; store?.set(id, current.current); const anchored = anchorCommit.current; anchorCommit.current = false; if (anchored) { const scale = frame().width / viewport.offsetWidth, dx = (current.current.x - target.x) * scale, dy = (current.current.y - target.y) * scale; if (dx || dy) callbacks.current.panPastEdge?.(dx, dy); } } }, [commitRevision, extent]);
   useEffect(() => {
     const body = element.current; if (!body) return;
     const wheel = (event: WheelEvent) => {
       if (!enabled.current || forceCanvas() || event.altKey) return;
       event.preventDefault(); event.stopPropagation();
-      const viewport = scroller.current!, scale = viewport.getBoundingClientRect().width / viewport.offsetWidth;
+      const viewport = scroller.current!, scale = frame().width / viewport.offsetWidth;
       const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.clientHeight : 1;
       const delta = event.deltaY * unit, horizontal = event.deltaX * unit;
       if (event.ctrlKey || event.metaKey) zoom(Math.exp(Math.max(-4, Math.min(4, -delta * .0015))), { x: event.clientX, y: event.clientY });
@@ -85,7 +96,7 @@ export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCa
   useEffect(() => { if (!active) clear(); }, [active]);
   function down(event: React.PointerEvent<HTMLDivElement>) {
     if (!active || forceCanvas() || event.altKey || canvasOwnsPointer(event.pointerId)) return;
-    const viewport = scroller.current!, bounds = viewport.getBoundingClientRect(), scale = bounds.width / viewport.offsetWidth;
+    const viewport = scroller.current!, bounds = frame(), scale = bounds.width / viewport.offsetWidth;
     const localControl = !!(event.target as Element).closest('.card-local-controls');
     if (!localControl && (event.clientX >= bounds.left + viewport.clientWidth * scale || event.clientY >= bounds.top + viewport.clientHeight * scale)) return;
     const target = event.target as Element, editable = localControl || !!target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"])');
@@ -111,14 +122,14 @@ export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCa
         const outer = zoom(pinched.zoom / current.current.zoom, center), next = [...touch.current.pointers.values()].slice(0, 2);
         const dx = (next[0]!.x + next[1]!.x) / 2 - center.x, dy = (next[0]!.y + next[1]!.y) / 2 - center.y;
         if (outer) { if (dx || dy) callbacks.current.panPastEdge?.(-dx, -dy); }
-        else { const viewport = scroller.current!, scale = viewport.getBoundingClientRect().width / viewport.offsetWidth; panThrough([], -dx / scale, -dy / scale); }
+        else { const viewport = scroller.current!, scale = frame().width / viewport.offsetWidth; panThrough([], -dx / scale, -dy / scale); }
         touch.current.commit(current.current); return;
       }
     }
     const start = drag.current; if (!start || start.pointer !== event.pointerId) return;
     if (start.editable) return;
     if (!start.moved && Math.hypot(event.clientX - start.origin.x, event.clientY - start.origin.y) < 4) return;
-    const viewport = scroller.current!, scale = viewport.getBoundingClientRect().width / viewport.offsetWidth;
+    const viewport = scroller.current!, scale = frame().width / viewport.offsetWidth;
     const dx = (event.clientX - start.x) / scale, dy = (event.clientY - start.y) / scale; start.moved = true; start.x = event.clientX; start.y = event.clientY;
     event.preventDefault(); event.stopPropagation();
     capture(event.pointerId); suppressClickUntil.current = performance.now() + 500; panThrough(start.regions, -dx, -dy);

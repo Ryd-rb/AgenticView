@@ -1,3 +1,5 @@
+import { zoomAt, type Camera } from './viewport.js';
+
 export type GestureOwner = 'canvas' | 'card';
 
 /** Explicit activation is the only route into a card; global controls always win. */
@@ -19,14 +21,17 @@ export function consumeScrollDelta(scroll: { left: number; top: number; maxLeft:
   return { left, top, remainingX: dx - (left - scroll.left), remainingY: dy - (top - scroll.top) };
 }
 
-/** Consume overview zoom while bringing the selected card to its fitted position. */
-export function zoomTowardFocus(camera: { x: number; y: number; zoom: number }, focus: { x: number; y: number; zoom: number }, factor: number, center: { x: number; y: number }) {
-  if (factor <= 1 || camera.zoom >= focus.zoom) return { camera, remaining: factor };
-  const consumed = Math.min(factor, focus.zoom / camera.zoom), zoom = camera.zoom * consumed;
-  const progress = Math.log(consumed) / Math.log(focus.zoom / camera.zoom);
-  const x = center.x - (center.x - camera.x) * consumed, y = center.y - (center.y - camera.y) * consumed;
-  const targetX = center.x + (focus.x - center.x) * zoom / focus.zoom, targetY = center.y + (focus.y - center.y) * zoom / focus.zoom;
-  return { camera: { zoom, x: x + (targetX - x) * progress, y: y + (targetY - y) * progress }, remaining: factor / consumed };
+/** Consume overview scale at the input anchor, then hand the remaining factor inward. */
+export function zoomTowardScale(camera: Camera, targetZoom: number, factor: number, anchor: { x: number; y: number }) {
+  if (factor <= 1 || camera.zoom >= targetZoom) return { camera, remaining: factor };
+  const consumed = Math.min(factor, targetZoom / camera.zoom);
+  return { camera: zoomAt(camera, consumed, anchor), remaining: factor / consumed };
+}
+
+/** A DOM rectangle belongs to its committed camera, even when logical zoom is ahead. */
+export function projectContentBounds(bounds: { left: number; top: number; width: number }, rendered: Camera, current: Camera) {
+  const scale = current.zoom / rendered.zoom;
+  return { left: current.x + (bounds.left - rendered.x) * scale, top: current.y + (bounds.top - rendered.y) * scale, width: bounds.width * scale };
 }
 export function minimumContentZoom(view: Size, content: Size): number {
   if (![view.width, view.height, content.width, content.height].every(value => Number.isFinite(value) && value > 0)) throw new RangeError('Invalid content extent');

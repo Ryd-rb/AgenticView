@@ -5,7 +5,8 @@ import { act, createElement } from 'react';
 import { CardSurface } from '../web/CardSurface.tsx';
 import { ComponentView } from '../web/Components.tsx';
 import { scrollAncestors, scrollThrough } from '../web/scrollChain.ts';
-import { zoomTowardFocus } from '../shared/interaction.ts';
+import { zoomTowardScale } from '../shared/interaction.ts';
+import { zoomAt, type Camera } from '../shared/viewport.ts';
 
 // In-memory event contracts. No browser, external document, or visual capture runs here.
 const dom = new Window({ url: 'http://localhost/', settings: { disableIframePageLoading: true, enableJavaScriptEvaluation: false } });
@@ -25,7 +26,7 @@ prototype.hasPointerCapture = pointer => captured.has(pointer);
 prototype.releasePointerCapture = pointer => { captured.delete(pointer); };
 after(() => { dom.happyDOM.abort(); dom.happyDOM.close(); });
 
-async function mount(children: React.ReactNode, active = true, panPastEdge?: (x: number, y: number) => void, zoomRouting: Pick<React.ComponentProps<typeof CardSurface>, 'zoomBeforeCard' | 'zoomPastCard'> = {}) {
+async function mount(children: React.ReactNode, active = true, panPastEdge?: (x: number, y: number) => void, zoomRouting: Pick<React.ComponentProps<typeof CardSurface>, 'zoomBeforeCard' | 'zoomPastCard' | 'canvasCamera' | 'getCanvasCamera'> = {}) {
   const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
   const store = new Map<string, { x: number; y: number; zoom: number }>();
   const render = (enabled: boolean) => createElement(CardSurface, { id: 'test', active: enabled, deactivate() {}, canvasOwnsPointer: () => false, forceCanvas: () => false, panPastEdge, ...zoomRouting, store, children });
@@ -44,6 +45,73 @@ function pointer(target: Element, type: string, x: number, y: number, id = 1, po
   const event = new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: id, pointerType, button: 0 }); target.dispatchEvent(event); return event;
 }
 const grid = () => createElement('div', { className: 'grid', style: { overflowX: 'auto', overflowY: 'auto' } }, createElement('span', null, 'Grid evidence'));
+
+function closeTo(actual: number, expected: number) { assert.ok(Math.abs(actual - expected) < 1e-8, `${actual} != ${expected}`); }
+async function anchoredFixture(start: Camera = { x: 37, y: -61, zoom: .25 }) {
+  const origin = { x: 1000, y: 300 }; let world = { ...start }, committed = { ...start };
+  const announce = () => window.dispatchEvent(new CustomEvent('agenticview:canvas-navigation', { detail: { card: 'test' } }));
+  const routing = { canvasCamera: committed, getCanvasCamera: () => world,
+    zoomBeforeCard(factor: number, anchor: { x: number; y: number }) { const result = zoomTowardScale(world, 1, factor, anchor); world = result.camera; announce(); return result.remaining; },
+    zoomPastCard(factor: number, anchor: { x: number; y: number }) { world = zoomAt(world, factor, anchor); announce(); } };
+  const view = await mount(grid(), true, (x, y) => { world = { ...world, x: world.x - x, y: world.y - y }; announce(); }, routing);
+  // This rectangle stays at its last committed camera until explicitly committed.
+  view.viewport.getBoundingClientRect = () => new DOMRect(committed.x + committed.zoom * origin.x, committed.y + committed.zoom * origin.y, 400 * committed.zoom, 300 * committed.zoom);
+  const contentAt = (screen: { x: number; y: number }) => {
+    const inner = view.store.get('test') ?? { x: 0, y: 0, zoom: 1 };
+    return { x: ((screen.x - world.x) / world.zoom - origin.x - inner.x) / inner.zoom, y: ((screen.y - world.y) / world.zoom - origin.y - inner.y) / inner.zoom };
+  };
+  return { ...view, target: view.host.querySelector('.grid')!, contentAt, world: () => world,
+    async commitWorld() { committed = { ...world }; routing.canvasCamera = committed; await view.active(true); } };
+}
+
+test('batched wheel handoffs preserve an off-center content anchor through scale changes and clamping', async () => {
+  const view = await anchoredFixture();
+  try {
+    const anchor = { x: 357, y: 44 }, original = view.contentAt(anchor); let scale = view.world().zoom;
+    await act(() => {
+      for (const factor of [2, 3, 1.25, .7, .1, .5, 4, 1.8, .2]) {
+        wheel(view.target, { ctrlKey: true, deltaY: -Math.log(factor) / .0015, clientX: anchor.x, clientY: anchor.y }); scale *= factor;
+        const content = view.contentAt(anchor), inner = view.store.get('test')!;
+        closeTo(content.x, original.x); closeTo(content.y, original.y); closeTo(view.world().zoom * inner.zoom, scale);
+        assert.ok(inner.x <= 0 && inner.y <= 0);
+      }
+    });
+    closeTo(view.contentAt(anchor).x, original.x); closeTo(view.contentAt(anchor).y, original.y);
+    await view.commitWorld();
+    await act(() => { wheel(view.target, { ctrlKey: true, deltaY: -Math.log(3) / .0015, clientX: anchor.x, clientY: anchor.y }); });
+    closeTo(view.contentAt(anchor).x, original.x); closeTo(view.contentAt(anchor).y, original.y);
+  } finally { await view.close(); }
+});
+
+test('continuous moving pinch preserves the content under its midpoint across both handoff directions', async () => {
+  const view = await anchoredFixture();
+  try {
+    const positions = [{ x: 307, y: 34 }, { x: 347, y: 34 }], original = view.contentAt({ x: 327, y: 34 });
+    await act(() => { pointer(view.target, 'pointerdown', 307, 34, 1); pointer(view.target, 'pointerdown', 347, 34, 2); });
+    for (const [id, x, y] of [[2, 387, 54], [2, 467, 14], [1, 297, 24], [2, 337, 34], [1, 317, 34], [2, 347, 44]]) {
+      positions[id! - 1] = { x: x!, y: y! };
+      await act(() => { pointer(view.target, 'pointermove', x!, y!, id!); });
+      const center = { x: (positions[0]!.x + positions[1]!.x) / 2, y: (positions[0]!.y + positions[1]!.y) / 2 };
+      closeTo(view.contentAt(center).x, original.x); closeTo(view.contentAt(center).y, original.y);
+    }
+    await act(() => { pointer(view.target, 'pointerup', 317, 34, 1); pointer(view.target, 'pointerup', 347, 44, 2); }); assert.equal(captured.size, 0);
+  } finally { await view.close(); }
+});
+
+test('native scroll rounding is compensated once after zoom commit without scroll-event feedback', async () => {
+  const view = await anchoredFixture({ x: 37, y: -61, zoom: 1 });
+  try {
+    let left = 0, top = 0;
+    Object.defineProperty(view.viewport, 'scrollLeft', { configurable: true, get: () => left, set: value => { left = Math.floor(value); } });
+    Object.defineProperty(view.viewport, 'scrollTop', { configurable: true, get: () => top, set: value => { top = Math.floor(value); } });
+    const anchor = { x: 1162.25, y: 326.7 }, original = view.contentAt(anchor);
+    await act(() => { wheel(view.target, { ctrlKey: true, deltaY: -Math.log(1.3) / .0015, clientX: anchor.x, clientY: anchor.y }); });
+    closeTo(view.contentAt(anchor).x, original.x); closeTo(view.contentAt(anchor).y, original.y);
+    const world = { ...view.world() }, inner = { ...view.store.get('test')! };
+    await act(() => { for (let i = 0; i < 100; i++) view.viewport.dispatchEvent(new Event('scroll', { bubbles: true })); });
+    assert.deepEqual(view.world(), world); assert.deepEqual(view.store.get('test'), inner);
+  } finally { await view.close(); }
+});
 
 test('wheel capture beats component interception and chains partial overflow into the card', async () => {
   const view = await mount(grid());
@@ -115,10 +183,10 @@ test('world handoff converts residuals back to screen pixels at overview scale o
   } finally { await view.close(); }
 });
 
-test('wheel zoom focuses the world first and returns to the world after local zoom-out reaches fit', async () => {
+test('wheel zoom raises world scale first and returns to it after local zoom-out reaches fit', async () => {
   let world = { x: 0, y: 0, zoom: .1 };
   const view = await mount(grid(), true, undefined, {
-    zoomBeforeCard(factor) { const result = zoomTowardFocus(world, { x: 0, y: 0, zoom: 1 }, factor, { x: 200, y: 150 }); world = result.camera; return result.remaining; },
+    zoomBeforeCard(factor, anchor) { const result = zoomTowardScale(world, 1, factor, anchor); world = result.camera; return result.remaining; },
     zoomPastCard(factor) { world = { ...world, zoom: world.zoom * factor }; }
   });
   try {
@@ -135,7 +203,7 @@ test('wheel zoom focuses the world first and returns to the world after local zo
 test('one continuous pinch crosses overview, local zoom and local fit without resetting', async () => {
   let world = { x: 0, y: 0, zoom: .25 };
   const view = await mount(grid(), true, undefined, {
-    zoomBeforeCard(factor) { const result = zoomTowardFocus(world, { x: 0, y: 0, zoom: 1 }, factor, { x: 200, y: 150 }); world = result.camera; window.dispatchEvent(new CustomEvent('agenticview:canvas-navigation', { detail: { card: 'test' } })); return result.remaining; },
+    zoomBeforeCard(factor, anchor) { const result = zoomTowardScale(world, 1, factor, anchor); world = result.camera; window.dispatchEvent(new CustomEvent('agenticview:canvas-navigation', { detail: { card: 'test' } })); return result.remaining; },
     zoomPastCard(factor) { world = { ...world, zoom: world.zoom * factor }; }
   });
   try {
