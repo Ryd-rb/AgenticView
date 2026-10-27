@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { gestureOwner, contentPoint, minimumContentZoom, clampContentCamera } from '../shared/interaction.ts';
+import { ContentNavigation, gestureOwner, contentPoint, minimumContentZoom, clampContentCamera } from '../shared/interaction.ts';
 import { TouchViewport } from '../shared/viewport.ts';
 import { CardSurface } from '../web/CardSurface.tsx';
 
@@ -41,4 +41,20 @@ test('card pan is constrained to native scroll ranges on every edge', () => {
 test('content shrinking removes obsolete scroll offsets and rejects invalid geometry', () => {
   assert.deepEqual(clampContentCamera({ x: -900, y: -700, zoom: 1 }, { width: 400, height: 300 }, { width: 400, height: 200 }), { x: 0, y: 0, zoom: 1 });
   assert.throws(() => minimumContentZoom({ width: 0, height: 300 }, { width: 400, height: 300 }), RangeError);
+});
+test('delayed native scroll events cannot overwrite a pending zoom or cause render feedback', () => {
+  const navigation = new ContentNavigation({ x: 0, y: 0, zoom: 1 });
+  assert.equal(navigation.request({ x: -80, y: -120, zoom: 2 }), true);
+  for (let event = 0; event < 100; event++) assert.equal(navigation.scrolled(event / 100, event / 100), false);
+  assert.deepEqual(navigation.camera, { x: -80, y: -120, zoom: 2 });
+  navigation.committed(80, 120);
+  for (let event = 0; event < 100; event++) { assert.equal(navigation.scrolled(80 + event / 100, 120), true); assert.equal(navigation.request({ ...navigation.camera, y: -121 }), false); }
+  assert.equal(navigation.pending, null); assert.equal(navigation.camera.zoom, 2);
+});
+test('batched zoom and reset still schedule a commit before subsequent scrolling', () => {
+  const navigation = new ContentNavigation({ x: 0, y: 0, zoom: 1 });
+  navigation.request({ x: -50, y: -50, zoom: 2 }); navigation.request({ x: 0, y: 0, zoom: 1 });
+  assert.equal(navigation.revision, 2); assert.equal(navigation.pending?.zoom, 1);
+  navigation.committed(0, 0); assert.equal(navigation.pending, null);
+  assert.equal(navigation.scrolled(10, 20), true); assert.deepEqual(navigation.camera, { x: -10, y: -20, zoom: 1 });
 });

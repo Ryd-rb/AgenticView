@@ -21,3 +21,26 @@ export function clampContentCamera(camera: { x: number; y: number; zoom: number 
   const zoom = Math.max(minimumContentZoom(view, content), Math.min(4, camera.zoom));
   return { zoom, x: Math.max(Math.min(0, view.width - content.width * zoom), Math.min(0, camera.x)), y: Math.max(Math.min(0, view.height - content.height * zoom), Math.min(0, camera.y)) };
 }
+
+/** Native scroll events acknowledge position; they must not schedule another zoom render. */
+export class ContentNavigation {
+  revision = 0;
+  pending: { x: number; y: number; zoom: number } | null = null;
+  constructor(public camera: { x: number; y: number; zoom: number }) {}
+  request(next: { x: number; y: number; zoom: number }): boolean {
+    const scaleChanged = next.zoom !== this.camera.zoom;
+    if (scaleChanged) this.revision++;
+    this.camera = next;
+    if (scaleChanged || this.pending) this.pending = next;
+    return scaleChanged;
+  }
+  scrolled(left: number, top: number): boolean {
+    if (this.pending) return false;
+    this.camera = { ...this.camera, x: -left, y: -top };
+    return true;
+  }
+  committed(left: number, top: number) {
+    this.camera = { ...this.camera, x: -left, y: -top };
+    this.pending = null;
+  }
+}
