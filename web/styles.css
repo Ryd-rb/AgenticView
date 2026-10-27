@@ -31,3 +31,33 @@ body{position:fixed;inset:0}
   .bottom-left{left:max(15px,env(safe-area-inset-left));bottom:max(17px,env(safe-area-inset-bottom))}
   .viewport-controls{right:max(15px,env(safe-area-inset-right));bottom:max(17px,env(safe-area-inset-bottom));max-width:calc(100% - 86px - env(safe-area-inset-left) - env(safe-area-inset-right))}
 }
+
+/* The HUD is outside the transformed world and cannot acquire its scroll extent. */
+html,body{position:fixed;inset:0;margin:0;width:100%;height:100%;overflow:hidden;overscroll-behavior:none}
+#root{position:fixed;inset:0;width:100dvw;height:100dvh;overflow:clip;contain:strict;isolation:isolate}
+.viewport-hud{position:fixed;inset:0;width:100dvw;height:100dvh;overflow:clip;contain:strict;z-index:1000000;pointer-events:none}
+.viewport-hud .chrome{pointer-events:auto}.viewport-hud .topbar{pointer-events:none}
+.viewport-hud .bottom-left{position:absolute;left:max(16px,env(safe-area-inset-left));bottom:max(16px,env(safe-area-inset-bottom));max-width:calc(100% - 32px)}
+.settings-toggle{display:flex;gap:8px;width:auto;min-width:44px;height:44px;padding:0 12px;flex-shrink:0}
+.settings-toggle .settings-label{font-size:12px;font-weight:550;color:#c6bfd7}
+.viewport-hud .viewport-controls{position:absolute;right:16px;bottom:16px;max-width:calc(100% - 150px);overflow:visible;flex-wrap:wrap;justify-content:flex-end;gap:2px}
+.viewport-controls .arrange-all{color:#ded1ff;background:#b5a2fa12;border:1px solid #b5a2fa24}
+@media(max-width:650px){.viewport-hud .viewport-controls{max-width:calc(100% - 84px)}.settings-label{display:none}}
+.card-surface{position:relative;overflow:hidden;touch-action:none;cursor:grab;isolation:isolate}.card-surface:active{cursor:grabbing}
+.card-content-plane{min-width:0;width:100%;will-change:transform}.card-surface:not(.card-active) .card-content-plane{pointer-events:none;user-select:none}
+.card-active .card-content-plane{padding-top:30px}.is-active{border-color:#ac94ea;box-shadow:0 0 0 1px #b5a2fa27,0 12px 30px #0004}
+.card-activation-hint{position:absolute;bottom:8px;right:10px;z-index:2;pointer-events:none;border-radius:5px;background:#15121de8;border:1px solid #b5a2fa20;padding:3px 7px;color:#a89cbb;font-size:10px}
+.card-local-controls{position:absolute;z-index:5;right:8px;top:7px;display:flex;align-items:center;gap:3px;padding:3px 5px;border:1px solid #b5a2fa30;border-radius:7px;background:#211b2dee;box-shadow:0 3px 12px #0003;cursor:default;font-size:10px;color:#c6b5e5}
+.card-local-controls>button{height:23px;width:24px;display:grid;place-items:center;border-radius:4px}.card-local-controls>span{padding:0 4px}
+.window-controls{position:fixed;right:12px;top:12px;z-index:2000000;display:flex;align-items:center;gap:3px;padding:4px;border:1px solid #ffffff13;border-radius:10px;background:#15141bdc;box-shadow:0 5px 20px #0002;backdrop-filter:blur(12px)}
+.window-controls>button{width:34px;height:29px;display:grid;place-items:center;color:#aaa8b9;border-radius:6px;transition:background .12s,color .12s}.window-controls>button:hover{background:#ffffff0e;color:#fff}.window-controls>.window-close:hover{background:#c83e58;color:#fff}.desktop-host .topbar{padding-right:156px}
+/* Readability improves within the existing component footprints. */
+:root{font-family:'Segoe UI',Inter,system-ui,sans-serif;font-size:14px;color:#e4e4ed}
+.agent-title strong{font-size:14px;line-height:1.4}.agent-title>span{font-size:11px;line-height:1.35;color:#9699aa}
+.agent-context{font-size:12px;line-height:1.55;color:#b0b3c3}.component h3{font-size:11px;line-height:1.36;color:#b6b8c9}
+.markdown{font-size:12px;line-height:1.6;color:#c3c6d5}pre{font-family:'Cascadia Code',Consolas,monospace;font-size:12px;line-height:1.65;color:#c7ccda}
+table{font-size:12px;line-height:1.25}th{font-size:11px;line-height:1.25;color:#a0a7ba}td{color:#c4c9d6}
+.log-row{font-size:11px;line-height:1.35}.log-row b{font-size:10px}.log-row>span{color:#bec7d6}.chart text{font-size:10px;fill:#969eb1}
+.child-card>header strong{font-size:12px;line-height:1.375}.section-label{font-size:10px;line-height:1.2;color:#9a9fb3}.card-footer{font-size:10px;color:#8e94a6}
+.card-footer>code{font-size:10px}.connection-status{font-size:12px;color:#b6b9c9}.canvas-help{font-size:11px;color:#8c91a2}
+.desktop-host .viewport-hud .topbar{pointer-events:auto}

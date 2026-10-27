@@ -9,6 +9,7 @@ export function zoomAt(camera: Camera, factor: number, point: Point, minZoom = 1
 const midpoint = (a: Point, b: Point): Point => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
 /** Pointer identities survive cancellation/lift; every membership change rebases the pinch. */
 export class TouchViewport {
+  constructor(private readonly minZoom = 1e-9, private readonly maxZoom = 2) {}
   readonly pointers = new Map<number, Point>();
   private baseline?: { ids: [number, number]; center: Point; distance: number; camera: Camera };
   get count() { return this.pointers.size; }
@@ -22,7 +23,7 @@ export class TouchViewport {
     this.pointers.set(id, point); const base = this.baseline; if (!base) return null;
     const a = this.pointers.get(base.ids[0])!, b = this.pointers.get(base.ids[1])!;
     const center = midpoint(a, b), distance = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y));
-    const zoomed = zoomAt(base.camera, distance / base.distance, base.center);
+    const zoomed = zoomAt(base.camera, distance / base.distance, base.center, this.minZoom, this.maxZoom);
     return { ...zoomed, x: zoomed.x + center.x - base.center.x, y: zoomed.y + center.y - base.center.y };
   }
   end(id: number, camera: Camera) { this.pointers.delete(id); this.rebase(camera); }

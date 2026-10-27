@@ -18,3 +18,13 @@ jobs:
       - run: pnpm check
       - run: pnpm build
       - run: pnpm test
+  windows-desktop:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-dotnet@v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet restore src/AgenticView.Desktop --locked-mode -p:NuGetAudit=false
+      - run: dotnet publish src/AgenticView.Desktop --no-restore --no-self-contained -c Release -o dist/desktop
+      - run: dotnet run --project tests/AgenticView.Desktop.Contracts -c Release

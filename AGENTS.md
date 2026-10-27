@@ -21,8 +21,12 @@
   validate protocol inputs before rendering or persisting them.
 - Keep runtime state, local configuration, and task evidence outside tracked files.
 - Keep the page within the viewport, with the settings cog fixed at bottom left.
-  Automatically bin pack untouched cards; preserve manual and locked positions.
-  Provide an Arrange all control beside zoom, respecting locks.
+  Automatically bin pack all unlocked cards, favor older positions and close gaps.
+  Preserve sizes and active gestures. Provide Arrange all beside zoom.
+- Default to canvas navigation until a card is explicitly activated. Global
+  controls always retain canvas authority. Keep text legible within component bounds.
+- Support a dedicated Windows fullscreen window with no system title bar and
+  custom minimize, maximize/restore and close controls; keep desktop dependencies offline-ready.
 - Do not create or run automated image, screenshot, pixel, golden, or framebuffer
   tests. Verify meaningful rendering behavior through non-image contracts; visual
   review is manual.

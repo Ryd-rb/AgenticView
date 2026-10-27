@@ -41,11 +41,15 @@ $sourceFiles = @(
     'src/AgenticView.Server/Program.cs', 'src/AgenticView.Server/AppHost.cs', 'src/AgenticView.Server/Configuration.cs',
     'src/AgenticView.Server/McpTools.cs', 'src/AgenticView.Server/Hub.cs', 'src/AgenticView.Server/ComponentValidator.cs',
     'src/AgenticView.Server/Demo.cs', 'src/AgenticView.Server/demo.json', 'src/AgenticView.Server/CanvasPacking.cs',
-    'scripts/build-offline.ps1', 'docs/design.md', 'docs/offline-build.md', 'docs/protocol.md', 'docs/performance.md'
+    'src/AgenticView.Desktop/AgenticView.Desktop.csproj', 'src/AgenticView.Desktop/packages.lock.json',
+    'src/AgenticView.Desktop/Program.cs', 'src/AgenticView.Desktop/DesktopOptions.cs',
+    'src/AgenticView.Desktop/DesktopWindow.cs', 'src/AgenticView.Desktop/BridgePolicy.cs',
+    'scripts/build-offline.ps1', 'docs/design.md', 'docs/offline-build.md', 'docs/protocol.md', 'docs/performance.md', 'docs/desktop.md'
 )
 foreach ($relative in $sourceFiles) { $file = Assert-PlainPath (Join-Path $repository $relative) $repository; if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Missing allowed source file: $relative" } }
-$lock = Get-Content -LiteralPath (Join-Path $repository 'src/AgenticView.Server/packages.lock.json') -Raw | ConvertFrom-Json
 $packages = @{}
+foreach ($lockPath in @('src/AgenticView.Server/packages.lock.json','src/AgenticView.Desktop/packages.lock.json')) {
+$lock = Get-Content -LiteralPath (Join-Path $repository $lockPath) -Raw | ConvertFrom-Json
 foreach ($framework in $lock.dependencies.PSObject.Properties) {
     foreach ($dependency in $framework.Value.PSObject.Properties) {
         if ($dependency.Value.type -eq 'Project') { continue }
@@ -55,6 +59,7 @@ foreach ($framework in $lock.dependencies.PSObject.Properties) {
         if ($packages.ContainsKey($key) -and $packages[$key].contentHash -ne $dependency.Value.contentHash) { throw 'Conflicting package hashes across target frameworks.' }
         $packages[$key] = @{ id = $id; version = $version; contentHash = [string]$dependency.Value.contentHash }
     }
+}
 }
 if ($packages.Count -eq 0) { throw 'The lockfile has no resolved packages.' }
 foreach ($package in $packages.Values) {

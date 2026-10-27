@@ -20,10 +20,13 @@ public sealed class Hub : IDisposable
     private readonly Dictionary<string, Run> runs = new();
     private readonly Dictionary<string, Pending> pending = new();
     private readonly HashSet<string> removed = [];
+    private readonly HashSet<string> freshLayouts = [];
+    private readonly Dictionary<string, long> manualReservations = new();
     private JsonObject settings;
     private long revision, updates, previousUpdates, totalBytes, archiveCount;
     private double rate;
     private bool settingsDirty, disposed, packingDirty;
+    private bool compactPacking;
     private double packingAspectRatio = 1.6;
     private SqliteTransaction? transaction;
     private long registrationLayoutTicks;
@@ -53,6 +56,7 @@ public sealed class Hub : IDisposable
                 CREATE TABLE IF NOT EXISTS archive_batches(run_id TEXT NOT NULL REFERENCES archives(id) ON DELETE CASCADE,sequence INTEGER NOT NULL,digest TEXT NOT NULL,PRIMARY KEY(run_id,sequence));
                 CREATE INDEX IF NOT EXISTS requests_run_id ON requests(run_id);
                 CREATE TABLE IF NOT EXISTS settings(id INTEGER PRIMARY KEY CHECK(id=1),payload TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS layout_policy(id INTEGER PRIMARY KEY CHECK(id=1),version INTEGER NOT NULL,aspect REAL NOT NULL);
                 """;
             command.ExecuteNonQuery();
         }
@@ -66,6 +70,9 @@ public sealed class Hub : IDisposable
             view["components"] = components; var bytes = Size(view); runs[row.Id] = new Run(view, row.Token, bytes); totalBytes += bytes;
         }
         archiveCount = Convert.ToInt64(Scalar("SELECT COUNT(*) FROM archives"));
+        // Migrate old layouts once, then retain the operator's chosen footprint across restarts.
+        packingDirty = Scalar("SELECT version FROM layout_policy WHERE id=1") is null; compactPacking = packingDirty;
+        packingAspectRatio = Convert.ToDouble(Scalar("SELECT aspect FROM layout_policy WHERE id=1") ?? 1.6, System.Globalization.CultureInfo.InvariantCulture);
     }
     private static JsonObject Clone(JsonObject value) => (JsonObject)value.DeepClone();
     private static JsonObject Parse(string value) => JsonNode.Parse(value, documentOptions: new JsonDocumentOptions { MaxDepth = 64 }) as JsonObject ?? throw new InvalidDataException("Expected stored JSON object.");
@@ -126,7 +133,7 @@ public sealed class Hub : IDisposable
             var bytes = Size(view); if (totalBytes + bytes > MaxLiveBytes) throw new HubError(429, "Live capacity reached.");
             var run = new Run(view, Hash(Token(id)), bytes);
             Transaction(() => { Execute("INSERT INTO runs VALUES($p0,$p1,$p2,$p3,$p4,$p5)", id, Serialize(Metadata(view)), request, hash, run.TokenHash, ""); Execute("INSERT INTO requests VALUES($p0,$p1,$p2)", request, id, hash); });
-            runs[id] = run; totalBytes += bytes; Queue(view); packingDirty = true; revision++; return Registration(id, view);
+            runs[id] = run; totalBytes += bytes; Queue(view); freshLayouts.Add(id); packingDirty = true; revision++; return Registration(id, view);
         }
     }
     private JsonObject Registration(string id, JsonObject view) => new() { ["runId"] = id, ["runToken"] = Token(id), ["heartbeatSeconds"] = 15, ["sequence"] = Integer(view, "sequence") };
@@ -204,7 +211,7 @@ public sealed class Hub : IDisposable
         {
             if (!runs.TryGetValue(id, out var run)) throw new HubError(404, "Run unavailable.");
             var view = Clone(run.View); var layout = (JsonObject)view["layout"]!; layout["automatic"] = false;
-            SaveView(run, view); Queue(view); packingDirty = true; revision++; return Clone(layout);
+            SaveView(run, view); Queue(view); manualReservations[id] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + 30_000; packingDirty = true; revision++; return Clone(layout);
         }
     }
     public JsonObject SetLayout(string id, JsonObject raw)
@@ -223,7 +230,8 @@ public sealed class Hub : IDisposable
                 if (!ComponentValidator.Boolean(raw, "resolveOverlap") || current["locked"]!.GetValue<bool>() || layout["locked"]!.GetValue<bool>()) throw new HubError(409, "Cards cannot overlap.");
                 layout = FreePosition(layout, obstacles);
             }
-            var view = Clone(run.View); view["layout"] = layout; SaveView(run, view); Queue(view); packingDirty = true; revision++; return Clone(layout);
+            var dimensionsChanged = N(current, "width") != N(layout, "width") || N(current, "height") != N(layout, "height");
+            var view = Clone(run.View); view["layout"] = layout; SaveView(run, view); Queue(view); manualReservations.Remove(id); freshLayouts.Remove(id); packingDirty = true; compactPacking |= dimensionsChanged; revision++; return Clone(layout);
         }
     }
     private static JsonObject NormalizeSettings(JsonObject raw)
@@ -246,7 +254,7 @@ public sealed class Hub : IDisposable
             if (promoted.Any(child => Size(child.View) > MaxRunBytes) || totalBytes - run.Bytes + promoted.Sum(child => Size(child.View) - child.Run.Bytes) > MaxLiveBytes) throw new HubError(413, "Promoted child layout exceeds the live data budget.");
             Transaction(() => { Execute("INSERT INTO archives VALUES($p0,$p1,$p2)", id, Serialize(summary), compressed); Execute("INSERT INTO archive_batches SELECT run_id,sequence,digest FROM batches WHERE run_id=$p0", id); Execute("DELETE FROM runs WHERE id=$p0", id); foreach (var child in promoted) Execute("UPDATE runs SET payload=$p0 WHERE id=$p1", Serialize(Metadata(child.View)), String(child.View, "id")); });
             foreach (var child in promoted) { totalBytes += Size(child.View) - child.Run.Bytes; child.Run.Bytes = Size(child.View); child.Run.View = child.View; Queue(child.View); }
-            runs.Remove(id); totalBytes -= run.Bytes; archiveCount++; pending.Remove(id); removed.Add(id); packingDirty = true; revision++; return summary;
+            runs.Remove(id); totalBytes -= run.Bytes; archiveCount++; pending.Remove(id); removed.Add(id); manualReservations.Remove(id); freshLayouts.Remove(id); packingDirty = true; compactPacking = true; revision++; return summary;
         }
     }
     // Recovery keeps the same identity and credentials; only placement may change to avoid live cards.
@@ -270,7 +278,7 @@ public sealed class Hub : IDisposable
     private void AcceptRestore(Run run, JsonObject view)
     {
         var id = String(view, "id"); run.View = view; run.Bytes = Size(view); runs[id] = run; totalBytes += run.Bytes; archiveCount--;
-        removed.Remove(id); pending.Remove(id); packingDirty = true; Queue(view); var patch = pending[id]; patch.Clear = true;
+        removed.Remove(id); pending.Remove(id); freshLayouts.Add(id); packingDirty = true; Queue(view); var patch = pending[id]; patch.Clear = true;
         foreach (var pair in (JsonObject)view["components"]!) patch.Components[pair.Key] = Clone((JsonObject)pair.Value!);
     }
     public JsonObject Restore(string id)
@@ -298,15 +306,15 @@ public sealed class Hub : IDisposable
         {
             ComponentValidator.Choice(request, "mode", ["all", "automatic"], "all");
             var aspect = request.ContainsKey("aspectRatio") ? ComponentValidator.Number(request, "aspectRatio", .3, 4) : packingAspectRatio;
-            var result = PackCards(String(request, "mode") == "all", aspect); packingAspectRatio = aspect; packingDirty = false; return result;
+            var result = PackCards(String(request, "mode") == "all" || compactPacking, aspect); packingAspectRatio = aspect; packingDirty = false; compactPacking = false; freshLayouts.Clear(); return result;
         }
     }
     private JsonObject PackCards(bool all, double aspect)
     {
         var roots = EffectiveRoots().ToArray();
-        bool Movable(Run run) { var layout = (JsonObject)run.View["layout"]!; return !ComponentValidator.Boolean(layout, "locked") && (all || ComponentValidator.Boolean(layout, "automatic")); }
+        bool Movable(Run run) { var layout = (JsonObject)run.View["layout"]!; return !ComponentValidator.Boolean(layout, "locked") && !manualReservations.ContainsKey(String(run.View, "id")); }
         var movable = roots.Where(Movable).ToArray(); var fixedCards = roots.Where(r => !Movable(r)).ToArray();
-        var packed = CanvasPacking.Pack(movable.Select(r => new PackingItem(String(r.View, "id"), N((JsonObject)r.View["layout"]!, "width"), N((JsonObject)r.View["layout"]!, "height"))).ToArray(), fixedCards.Select(r => { var l = (JsonObject)r.View["layout"]!; return new PackingRect(N(l, "x"), N(l, "y"), N(l, "width"), N(l, "height")); }).ToArray(), aspect);
+        var packed = CanvasPacking.PackStable(movable.Select(r => { var l = (JsonObject)r.View["layout"]!; var id = String(r.View, "id"); return new PositionedPackingItem(id, N(l, "x"), N(l, "y"), N(l, "width"), N(l, "height"), Integer(r.View, "createdAt"), !freshLayouts.Contains(id)); }).ToArray(), fixedCards.Select(r => { var l = (JsonObject)r.View["layout"]!; return new PackingRect(N(l, "x"), N(l, "y"), N(l, "width"), N(l, "height")); }).ToArray(), aspect, all);
         var changed = new List<(Run Run, JsonObject View, long Bytes)>();
         foreach (var run in movable)
         {
@@ -316,9 +324,9 @@ public sealed class Hub : IDisposable
             changed.Add((run, view, Size(view)));
         }
         if (changed.Any(c => c.Bytes > MaxRunBytes) || totalBytes + changed.Sum(c => c.Bytes - c.Run.Bytes) > MaxLiveBytes) throw new HubError(413, "Packed layouts exceed the live data budget.");
+        Transaction(() => { foreach (var c in changed) Execute("UPDATE runs SET payload=$p0 WHERE id=$p1", Serialize(Metadata(c.View)), String(c.View, "id")); Execute("INSERT INTO layout_policy VALUES(1,1,$p0) ON CONFLICT(id) DO UPDATE SET version=excluded.version,aspect=excluded.aspect", aspect); });
         if (changed.Count > 0)
         {
-            Transaction(() => { foreach (var c in changed) Execute("UPDATE runs SET payload=$p0 WHERE id=$p1", Serialize(Metadata(c.View)), String(c.View, "id")); });
             foreach (var c in changed) { totalBytes += c.Bytes - c.Run.Bytes; c.Run.Bytes = c.Bytes; c.Run.View = c.View; Queue(c.View); } revision++;
         }
         return new JsonObject { ["arranged"] = movable.Length, ["changed"] = changed.Count, ["fixed"] = fixedCards.Length };
@@ -338,7 +346,7 @@ public sealed class Hub : IDisposable
         JsonObject patch; lock (gate)
         {
             if (disposed) return;
-            if (packingDirty) { packingDirty = false; try { PackCards(false, packingAspectRatio); } catch { Console.Error.WriteLine("Automatic arrangement failed; existing layouts retained."); } }
+            if (packingDirty) { packingDirty = false; try { PackCards(compactPacking, packingAspectRatio); freshLayouts.Clear(); compactPacking = false; } catch { Console.Error.WriteLine("Automatic arrangement failed; existing layouts retained."); } }
             patch = new JsonObject { ["revision"] = revision, ["changes"] = new JsonArray(pending.Select(pair => (JsonNode)new JsonObject { ["id"] = pair.Key, ["meta"] = Clone(pair.Value.Meta), ["components"] = new JsonArray(pair.Value.Components.Values.Select(c => (JsonNode)Clone(c)).ToArray()), ["removeComponents"] = new JsonArray(pair.Value.Removed.Select(x => (JsonNode?)JsonValue.Create(x)).ToArray()), ["clear"] = pair.Value.Clear }).ToArray()), ["removed"] = new JsonArray(removed.Select(x => (JsonNode?)JsonValue.Create(x)).ToArray()), ["stats"] = Stats() };
             if (settingsDirty) patch["settings"] = Clone(settings); pending.Clear(); removed.Clear(); settingsDirty = false;
         }
@@ -349,6 +357,7 @@ public sealed class Hub : IDisposable
         lock (gate)
         {
             if (disposed) return; rate = updates - previousUpdates; previousUpdates = updates; var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            foreach (var id in manualReservations.Where(pair => pair.Value <= now).Select(pair => pair.Key).ToArray()) { manualReservations.Remove(id); packingDirty = true; }
             foreach (var run in runs.Values.ToArray())
             {
                 var inactive = now - Integer(run.View, "lastSeen");

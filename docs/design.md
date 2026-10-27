@@ -12,11 +12,12 @@ Cards grow with content or use manually resized fixed viewports. A locked card
 that cannot grow safely scrolls internally. Native displays are titled subcards
 inside the agent: Markdown plans, diffs, modified-file trees, metrics, and evidence.
 
-Untouched world cards are automatically bin packed, coalesced with live updates.
-Moving or resizing a card takes it out of automatic packing; locked and manually
-placed cards act as fixed obstacles. Arrange all beside the zoom controls packs
-every unlocked card and returns it to automatic management. Legacy layouts remain
-fixed until explicitly arranged, preserving positions chosen before this feature.
+All unlocked world cards participate in automatic bin packing, including legacy
+and manually sized cards. Arrivals favor older valid positions and fill available
+gaps. Removals and size changes trigger compaction; Arrange all compacts explicitly.
+Sizes and position locks are preserved. Active moves/resizes hold temporary
+reservations so concurrent layout updates cannot move the card under the pointer.
+The chosen packing footprint persists across restarts.
 
 Mouse, keyboard, and touchscreen input share the same camera transforms. Pinch
 zoom preserves the world anchor under the fingers while midpoint motion pans.
@@ -25,6 +26,17 @@ level; double-click or double-tap focuses a card. Editing controls retain their
 normal key and tap behavior. Embedded documents own their internal pointer events.
 Fit all follows arriving cards and layout changes until you pan, zoom, or move a
 card. In a custom viewport, an offscreen arrival offers a persistent Show card action.
+
+Canvas navigation has priority until a card is clicked, tapped, or activated with
+Enter. Active cards expose independent content zoom and pan; Escape returns to
+canvas navigation. Space-drag, middle-drag and Alt gestures force the canvas.
+Main zoom, Fit all, Arrange all and settings remain authoritative in a viewport
+HUD outside the transformed world. Larger system text uses the existing card
+dimensions and component spacing, with internal panning where needed.
+
+The optional C# Windows desktop host opens the monitor in a dedicated fullscreen
+WebView2 window with no system title bar. Custom top-right controls minimize,
+restore/maximize and close it. See [desktop setup](desktop.md).
 
 Orchestrators declare children, which appear as nested agent cards. Surviving
 children become independent world cards when their parent is archived, retaining

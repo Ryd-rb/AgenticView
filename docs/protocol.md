@@ -54,10 +54,12 @@ archiving it again saves its latest retained view.
 
 Viewer layout controls use `POST /api/layout/pack` with
 `{"mode":"all","aspectRatio":1.6}`. All unlocked world cards are packed and
-returned to automatic management. Mode `automatic` moves only untouched cards;
-manual and locked cards remain fixed obstacles. Layouts persist `automatic`.
+compacted. Mode `automatic` includes every unlocked card and preserves older
+valid positions where possible. `automatic` remains in layouts for compatibility;
+it no longer excludes manually placed or legacy cards from the default policy.
 Before a real drag/resize starts, `POST /api/agents/{id}/layout/manual` reserves
-manual ownership without changing position. A layout PATCH may set
+a 30-second gesture reservation without changing position. Final layout PATCH
+releases it; abandoned reservations expire. A layout PATCH may set
 `resolveOverlap:true` to find a nearby free position if concurrent arrivals
 occupied the requested location. Locked cards always retain position.
 

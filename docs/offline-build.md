@@ -7,7 +7,7 @@ npm, JavaScript build tools, or online package restore. Building changes to the 
 monitor itself still requires a separate connected preparation environment.
 
 On the preparation machine, build the current web monitor into `dist/web`, restore
-the server's existing locked packages into the local NuGet cache, then run:
+the server and desktop host's locked packages into the local NuGet cache, then run:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-offline.ps1
@@ -42,6 +42,13 @@ revocation checks are disabled for this offline operation. Publish uses
 `--no-restore`, produces a framework-dependent server in `app`, and requires the
 installed .NET 10 runtime supplied with the SDK. The monitor is served from that
 application's `wwwroot`; no development server is needed.
+
+On Windows the same build also publishes the optional fullscreen desktop host to
+`app/desktop`. Its one additional locked package, Microsoft.Web.WebView2, is in the
+feed. The Windows SDK supplies the desktop targeting/apphost packs. Running this
+host requires the .NET 10 Windows Desktop Runtime and an existing Microsoft Edge
+WebView2 Runtime; this bundle does not install either runtime. Pass `-ServerOnly`
+to omit the desktop build. See [desktop setup](desktop.md) for launch and security.
 
 An existing `app` directory is preserved and stops another build. Rename it or
 extract a fresh bundle before rebuilding. Failed restore caches and partial

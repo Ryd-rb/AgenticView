@@ -41,11 +41,16 @@ dotnet app/AgenticView.Server.dll
 
 # Another terminal, same directory and AV_DATA_DIR:
 dotnet app/AgenticView.Server.dll --keys
+
+# Optional dedicated fullscreen window, with WebView2 Runtime already installed:
+app/desktop/AgenticView.Desktop.exe
 ```
 
 Open [http://127.0.0.1:4317](http://127.0.0.1:4317) and enter the viewer key. Give
 producers the ingestion key. Keep `runSecret` private. See [offline builds](docs/offline-build.md)
 for bundle preparation and verification.
+The [Windows desktop host](docs/desktop.md) provides custom window controls;
+closing it leaves the hub running. The browser view remains available separately.
 
 ## Connected development
 

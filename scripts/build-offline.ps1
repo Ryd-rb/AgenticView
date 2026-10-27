@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$CacheRoot = [IO.Path]::GetTempPath())
+param([string]$CacheRoot = [IO.Path]::GetTempPath(), [switch]$ServerOnly)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -82,6 +82,15 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Offline locked restore failed. The cache and diagnostics were retained.' }
         & dotnet publish $project --no-restore --no-self-contained --configuration Release --output $application '-p:NuGetAudit=false' '-p:UseAppHost=false'
         if ($LASTEXITCODE -ne 0) { throw 'Offline publish failed. Sources, cache and any partial output were retained.' }
+        if (!$ServerOnly -and $env:OS -eq 'Windows_NT') {
+            $desktopProject = Assert-BundlePath (Join-Path $bundleRoot 'src/AgenticView.Desktop/AgenticView.Desktop.csproj')
+            $desktopOutput = Assert-BundlePath (Join-Path $application 'desktop')
+            & dotnet restore $desktopProject --configfile $configuration --packages $env:NUGET_PACKAGES --locked-mode --no-http-cache '-p:NuGetAudit=false' '-p:RestoreIgnoreFailedSources=false' "-p:RestoreSources=$feed" '-p:RestoreFallbackFolders=' '-p:RestoreAdditionalProjectSources=' '-p:RestoreAdditionalProjectFallbackFolders='
+            if ($LASTEXITCODE -ne 0) { throw 'Offline desktop restore failed. Sources, cache and diagnostics retained.' }
+            & dotnet publish $desktopProject --no-restore --no-self-contained --configuration Release --output $desktopOutput '-p:NuGetAudit=false'
+            if ($LASTEXITCODE -ne 0) { throw 'Offline desktop publish failed. Sources, cache and diagnostics retained.' }
+            $diagnostic['desktop'] = 'app/desktop/AgenticView.Desktop.exe'
+        }
         $diagnostic.status = 'succeeded'
     } finally { Pop-Location }
 } catch {
