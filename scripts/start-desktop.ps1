@@ -52,6 +52,11 @@ foreach ($required in @('AgenticView.Desktop.exe','AgenticView.Desktop.dll','Age
 $identity = ($files | ForEach-Object { $_.Substring($sourceRoot.Length + 1) + ':' + (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash }) -join "`n"
 $algorithm = [Security.Cryptography.SHA256]::Create()
 try { $buildHash = [BitConverter]::ToString($algorithm.ComputeHash([Text.Encoding]::UTF8.GetBytes($identity))).Replace('-','').ToLowerInvariant() } finally { $algorithm.Dispose() }
+$markup = [string](Invoke-WebRequest -Uri $parsed.AbsoluteUri -TimeoutSec 5 -MaximumRedirection 0).Content
+$pageIdentity = (@([regex]::Matches($markup, '(?:src|href)="[^"]+"') | ForEach-Object Value | Sort-Object) -join "`n")
+if (!$pageIdentity) { throw 'The monitor web assets could not be identified. Existing desktop state was retained.' }
+$algorithm = [Security.Cryptography.SHA256]::Create()
+try { $pageHash = [BitConverter]::ToString($algorithm.ComputeHash([Text.Encoding]::UTF8.GetBytes($pageIdentity))).Replace('-','').ToLowerInvariant() } finally { $algorithm.Dispose() }
 $desktopRoot = Join-Path $repository '.task/desktop'
 Assert-PlainPath $desktopRoot
 [IO.Directory]::CreateDirectory($desktopRoot) | Out-Null
@@ -67,7 +72,7 @@ try {
         if ($existing) {
             Assert-PlainPath ([string]$state.Entry)
             if ($existing.ExecutablePath -ne [string]$state.Entry -or !$existing.CommandLine -or !$existing.CommandLine.Contains('"' + $data + '"') -or $existing.CreationDate.ToUniversalTime() -ne ([DateTime]$state.CreatedUtc).ToUniversalTime()) { throw 'The previous desktop process identity cannot be established.' }
-            if ($state.BuildHash -eq $buildHash -and $state.Url -eq $parsed.AbsoluteUri) { $state | ConvertTo-Json -Compress; return }
+            if ($state.BuildHash -eq $buildHash -and $state.Url -eq $parsed.AbsoluteUri -and $state.PageHash -eq $pageHash) { $state | ConvertTo-Json -Compress; return }
             if (!$Replace) { throw 'Another owned desktop build is running. Use -Replace to relaunch with the same private profile.' }
             # Only the PID with matching command line, creation time and bounded profile is owned.
             Stop-Process -Id ([int]$state.ProcessId)
@@ -102,7 +107,7 @@ try {
     $launcher = "& '" + (Join-Path $repository 'scripts/start-desktop.ps1').Replace("'","''") + "' -Source '" + $relativeStage.Replace("'","''") + "' -Url '" + $parsed.AbsoluteUri.Replace("'","''") + "' -Replace"
     if ($ViewerKeyFile) { $launcher += " -ViewerKeyFile '" + $ViewerKeyFile.Replace("'","''") + "'" }
     [IO.File]::WriteAllText($relaunch,$launcher,[Text.UTF8Encoding]::new($false))
-    $state = [ordered]@{ ProcessId=$process.Id; Entry=$entry; CreatedUtc=$native.CreationDate.ToUniversalTime().ToString('O'); BuildHash=$buildHash; Url=$parsed.AbsoluteUri; Data=$data; Relaunch=$relaunch }
+    $state = [ordered]@{ ProcessId=$process.Id; Entry=$entry; CreatedUtc=$native.CreationDate.ToUniversalTime().ToString('O'); BuildHash=$buildHash; PageHash=$pageHash; Url=$parsed.AbsoluteUri; Data=$data; Relaunch=$relaunch }
     [IO.File]::WriteAllText($statePath,($state | ConvertTo-Json),[Text.UTF8Encoding]::new($false))
     $state | ConvertTo-Json -Compress
 } finally { $launcherLock.Dispose() }
