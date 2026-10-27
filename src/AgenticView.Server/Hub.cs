@@ -49,6 +49,8 @@ public sealed class Hub : IDisposable
                 CREATE TABLE IF NOT EXISTS requests(request_id TEXT PRIMARY KEY,run_id TEXT NOT NULL,request_hash TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS batches(run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,sequence INTEGER NOT NULL,digest TEXT NOT NULL,PRIMARY KEY(run_id,sequence));
                 CREATE TABLE IF NOT EXISTS archives(id TEXT PRIMARY KEY,summary TEXT NOT NULL,payload BLOB NOT NULL);
+                CREATE TABLE IF NOT EXISTS archive_batches(run_id TEXT NOT NULL REFERENCES archives(id) ON DELETE CASCADE,sequence INTEGER NOT NULL,digest TEXT NOT NULL,PRIMARY KEY(run_id,sequence));
+                CREATE INDEX IF NOT EXISTS requests_run_id ON requests(run_id);
                 CREATE TABLE IF NOT EXISTS settings(id INTEGER PRIMARY KEY CHECK(id=1),payload TEXT NOT NULL);
                 """;
             command.ExecuteNonQuery();
@@ -111,7 +113,7 @@ public sealed class Hub : IDisposable
             if (raw.ContainsKey("parentId")) registration["parentId"] = parent; if (raw.ContainsKey("parentToken")) registration["parentToken"] = proof;
             var hash = Digest(registration);
             using (var reader = Command("SELECT run_id,request_hash FROM requests WHERE request_id=$p0", request).ExecuteReader())
-                if (reader.Read()) { var existingId = reader.GetString(0); if (!Equal(reader.GetString(1), hash)) throw new HubError(409, "Registration ID was already used with different content or proof."); if (!runs.TryGetValue(existingId, out var existing)) throw new HubError(409, "Registration has been archived. Use a new request ID."); return Registration(existingId, existing.View); }
+                if (reader.Read()) { var existingId = reader.GetString(0); if (!Equal(reader.GetString(1), hash)) throw new HubError(409, "Registration ID was already used with different content or proof."); return Registration(existingId, runs.TryGetValue(existingId, out var existing) ? existing.View : ReadArchive(existingId)); }
             if (parent.Length > 0) Authorize(parent, proof);
             if (runs.Count >= 2000 || totalBytes >= MaxLiveBytes) throw new HubError(429, "Live capacity reached. Archive completed runs first.");
             var id = Guid.NewGuid().ToString(); var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -131,13 +133,16 @@ public sealed class Hub : IDisposable
     {
         lock (gate)
         {
-            ComponentValidator.Budget(raw); var run = Authorize(id, token);
+            ComponentValidator.Budget(raw); var recovering = !runs.ContainsKey(id);
+            Run run;
+            if (recovering) { AuthorizeArchive(id, token); var archived = ReadArchive(id); run = new Run(archived, Hash(token), Size(archived)); }
+            else run = Authorize(id, token);
             var sequence = (long)ComponentValidator.Number(raw, "sequence", 1, 9007199254740991, true, true);
             var operations = ComponentValidator.Array(raw, "operations", 256, 1); var hash = Digest(raw);
             if (sequence <= Integer(run.View, "sequence"))
             {
-                var previous = Scalar("SELECT digest FROM batches WHERE run_id=$p0 AND sequence=$p1", id, sequence) as string;
-                if (previous is not null && Equal(previous, hash)) return new JsonObject { ["sequence"] = Integer(run.View, "sequence"), ["duplicate"] = true, ["trimmed"] = 0 };
+                var previous = Scalar(recovering ? "SELECT digest FROM archive_batches WHERE run_id=$p0 AND sequence=$p1" : "SELECT digest FROM batches WHERE run_id=$p0 AND sequence=$p1", id, sequence) as string;
+                if (previous is not null && Equal(previous, hash)) { if (recovering) Restore(id); return new JsonObject { ["sequence"] = Integer(run.View, "sequence"), ["duplicate"] = true, ["trimmed"] = 0, ["restored"] = recovering }; }
                 throw new HubError(409, "Sequence was already used or is outside the retry window. No new content accepted.");
             }
             if (sequence != Integer(run.View, "sequence") + 1) throw new HubError(409, $"Expected sequence {Integer(run.View, "sequence") + 1}.");
@@ -165,24 +170,30 @@ public sealed class Hub : IDisposable
                 }
             }
             if (((JsonObject)view["components"]!).Count > 64) throw new HubError(413, "A run can contain at most 64 components.");
-            var bytes = Size(view); if (bytes > MaxRunBytes || totalBytes - run.Bytes + bytes > MaxLiveBytes) throw new HubError(413, "Live data budget exceeded.");
+            if (recovering) PrepareRestore(view);
+            var bytes = Size(view); if (bytes > MaxRunBytes || totalBytes - (recovering ? 0 : run.Bytes) + bytes > MaxLiveBytes) throw new HubError(413, "Live data budget exceeded.");
             Transaction(() =>
             {
+                if (recovering) PersistRestore(view, run.TokenHash);
                 Execute("UPDATE runs SET payload=$p0,last_digest=$p1 WHERE id=$p2", Serialize(Metadata(view)), hash, id);
                 Execute("INSERT INTO batches VALUES($p0,$p1,$p2)", id, sequence, hash); Execute("DELETE FROM batches WHERE run_id=$p0 AND sequence<$p1", id, sequence - 255);
-                foreach (var n in operations) { var op = (JsonObject)n!; if (String(op, "op") == "clear") Execute("DELETE FROM components WHERE run_id=$p0", id); if (String(op, "op") == "remove") Execute("DELETE FROM components WHERE run_id=$p0 AND id=$p1", id, String(op, "componentId")); }
-                foreach (var cid in touched) if (view["components"]![cid] is JsonObject component) Execute("INSERT INTO components VALUES($p0,$p1,$p2) ON CONFLICT(run_id,id) DO UPDATE SET payload=excluded.payload", id, cid, Serialize(component));
+                if (!recovering)
+                {
+                    foreach (var n in operations) { var op = (JsonObject)n!; if (String(op, "op") == "clear") Execute("DELETE FROM components WHERE run_id=$p0", id); if (String(op, "op") == "remove") Execute("DELETE FROM components WHERE run_id=$p0 AND id=$p1", id, String(op, "componentId")); }
+                    foreach (var cid in touched) if (view["components"]![cid] is JsonObject component) Execute("INSERT INTO components VALUES($p0,$p1,$p2) ON CONFLICT(run_id,id) DO UPDATE SET payload=excluded.payload", id, cid, Serialize(component));
+                }
             });
-            totalBytes += bytes - run.Bytes; run.Bytes = bytes; run.View = view;
-            foreach (var op in operations) Queue(view, (JsonObject)op!); revision++; updates += operations.Count;
+            if (recovering) AcceptRestore(run, view);
+            else { totalBytes += bytes - run.Bytes; run.Bytes = bytes; run.View = view; foreach (var op in operations) Queue(view, (JsonObject)op!); }
+            revision++; updates += operations.Count;
             if (settings["archiveAfterCompletion"]!.GetValue<bool>() && String(view, "status") is "completed" or "error")
                 try { Archive(id); } catch { Console.Error.WriteLine("Automatic archive failed; accepted live state remains retained."); }
-            return new JsonObject { ["sequence"] = sequence, ["duplicate"] = false, ["trimmed"] = trimmed };
+            return new JsonObject { ["sequence"] = sequence, ["duplicate"] = false, ["trimmed"] = trimmed, ["restored"] = recovering };
         }
     }
     public JsonObject Heartbeat(string id, string token)
     {
-        lock (gate) { var run = Authorize(id, token); var view = Clone(run.View); var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(); view["lastSeen"] = now; if (String(view, "status") == "stale") view["status"] = "active"; SaveView(run, view); Queue(view); revision++; return new JsonObject { ["lastSeen"] = now, ["sequence"] = Integer(view, "sequence") }; }
+        lock (gate) { if (!runs.ContainsKey(id)) { AuthorizeArchive(id, token); var archived = ReadArchive(id); return new JsonObject { ["lastSeen"] = Integer(archived, "lastSeen"), ["sequence"] = Integer(archived, "sequence"), ["archived"] = true }; } var run = Authorize(id, token); var view = Clone(run.View); var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(); view["lastSeen"] = now; if (String(view, "status") == "stale") view["status"] = "active"; SaveView(run, view); Queue(view); revision++; return new JsonObject { ["lastSeen"] = now, ["sequence"] = Integer(view, "sequence") }; }
     }
     private void SaveView(Run run, JsonObject view) { var bytes = Size(view); if (bytes > MaxRunBytes || totalBytes - run.Bytes + bytes > MaxLiveBytes) throw new HubError(413, "Live data budget exceeded."); Execute("UPDATE runs SET payload=$p0 WHERE id=$p1", Serialize(Metadata(view)), String(view, "id")); totalBytes += bytes - run.Bytes; run.Bytes = bytes; run.View = view; }
     private IEnumerable<Run> EffectiveRoots() => runs.Values.Where(r => r.View["parentId"] is null || !runs.ContainsKey(String(r.View, "parentId")));
@@ -218,9 +229,42 @@ public sealed class Hub : IDisposable
             var promoted = new List<(Run Run, JsonObject View)>();
             foreach (var child in runs.Values.Where(r => String(r.View, "parentId") == id)) { var view = Clone(child.View); var layout = InitialPosition((JsonObject)view["layout"]!, obstacles); view["layout"] = layout; obstacles.Add(layout); promoted.Add((child, view)); }
             if (promoted.Any(child => Size(child.View) > MaxRunBytes) || totalBytes - run.Bytes + promoted.Sum(child => Size(child.View) - child.Run.Bytes) > MaxLiveBytes) throw new HubError(413, "Promoted child layout exceeds the live data budget.");
-            Transaction(() => { Execute("INSERT INTO archives VALUES($p0,$p1,$p2)", id, Serialize(summary), compressed); Execute("DELETE FROM runs WHERE id=$p0", id); foreach (var child in promoted) Execute("UPDATE runs SET payload=$p0 WHERE id=$p1", Serialize(Metadata(child.View)), String(child.View, "id")); });
+            Transaction(() => { Execute("INSERT INTO archives VALUES($p0,$p1,$p2)", id, Serialize(summary), compressed); Execute("INSERT INTO archive_batches SELECT run_id,sequence,digest FROM batches WHERE run_id=$p0", id); Execute("DELETE FROM runs WHERE id=$p0", id); foreach (var child in promoted) Execute("UPDATE runs SET payload=$p0 WHERE id=$p1", Serialize(Metadata(child.View)), String(child.View, "id")); });
             foreach (var child in promoted) { totalBytes += Size(child.View) - child.Run.Bytes; child.Run.Bytes = Size(child.View); child.Run.View = child.View; Queue(child.View); }
             runs.Remove(id); totalBytes -= run.Bytes; archiveCount++; pending.Remove(id); removed.Add(id); revision++; return summary;
+        }
+    }
+    // Recovery keeps the same identity and credentials; only placement may change to avoid live cards.
+    private void PrepareRestore(JsonObject view)
+    {
+        if (runs.Count >= 2000) throw new HubError(429, "Live capacity reached. Archive completed runs first.");
+        var id = String(view, "id");
+        if (view["parentId"] is null || !runs.ContainsKey(String(view, "parentId")))
+            view["layout"] = FreePosition((JsonObject)view["layout"]!, EffectiveRoots().Where(r => String(r.View, "parentId") != id).Select(r => (JsonObject)r.View["layout"]!).ToList());
+        if (Size(view) > MaxRunBytes || totalBytes + Size(view) > MaxLiveBytes) throw new HubError(413, "Live data budget exceeded.");
+    }
+    private void PersistRestore(JsonObject view, string tokenHash)
+    {
+        var id = String(view, "id");
+        var count = Command("INSERT INTO runs SELECT $p0,$p1,request_id,request_hash,$p2,'' FROM requests WHERE run_id=$p0", id, Serialize(Metadata(view)), tokenHash).ExecuteNonQuery();
+        if (count != 1) throw new HubError(409, "Registration evidence is unavailable; archive retained.");
+        foreach (var pair in (JsonObject)view["components"]!) Execute("INSERT INTO components VALUES($p0,$p1,$p2)", id, pair.Key, Serialize(pair.Value!));
+        Execute("INSERT INTO batches SELECT run_id,sequence,digest FROM archive_batches WHERE run_id=$p0", id);
+        Execute("DELETE FROM archives WHERE id=$p0", id);
+    }
+    private void AcceptRestore(Run run, JsonObject view)
+    {
+        var id = String(view, "id"); run.View = view; run.Bytes = Size(view); runs[id] = run; totalBytes += run.Bytes; archiveCount--;
+        removed.Remove(id); pending.Remove(id); Queue(view); var patch = pending[id]; patch.Clear = true;
+        foreach (var pair in (JsonObject)view["components"]!) patch.Components[pair.Key] = Clone((JsonObject)pair.Value!);
+    }
+    public JsonObject Restore(string id)
+    {
+        lock (gate)
+        {
+            if (runs.TryGetValue(id, out var existing)) return Clone(existing.View);
+            var view = ReadArchive(id); PrepareRestore(view); view["lastSeen"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(); if (String(view, "status") == "stale") view["status"] = "active";
+            var run = new Run(view, Hash(Token(id)), 0); Transaction(() => PersistRestore(view, run.TokenHash)); AcceptRestore(run, view); revision++; return Clone(view);
         }
     }
     public JsonArray Archives(int offset = 0, int limit = 1000)

@@ -14,14 +14,18 @@ inside the agent: Markdown plans, diffs, modified-file trees, metrics, and evide
 
 Mouse, keyboard, and touchscreen input share the same camera transforms. Pinch
 zoom preserves the world anchor under the fingers while midpoint motion pans.
-Fit all has no fixed zoom floor. At overview scales, expensive card bodies remain
-unmounted; double-click or double-tap focuses a card. Editing controls retain their
+Fit all has no fixed zoom floor. Visible cards retain their content at every zoom
+level; double-click or double-tap focuses a card. Editing controls retain their
 normal key and tap behavior. Embedded documents own their internal pointer events.
 
 Orchestrators declare children, which appear as nested agent cards. Surviving
 children become independent world cards when their parent is archived, retaining
 ancestry. Independent sizing controls currently apply to world cards; nested
 children use contained content and scrolling.
+
+Archives can be restored from the settings card. A valid agent content update also
+restores its archived card, preserving identity and retained content. Heartbeats
+leave archives in place. Restored cards move only when their saved position is occupied.
 
 One bottom-left cog opens a settings card in the world. It holds preferences,
 archives, and connection guidance. Agents own cleanup: remove components, clear,

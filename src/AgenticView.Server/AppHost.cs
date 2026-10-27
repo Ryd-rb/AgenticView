@@ -58,7 +58,7 @@ public static class AppHost
             }
         });
         app.UseRateLimiter();
-        app.MapGet("/health", () => new { status = "ok", version = "0.1.0", runtime = ".NET 10" });
+        app.MapGet("/health", () => new { status = "ok", version = "0.1.2", runtime = ".NET 10" });
         app.MapGet("/api/session", (HttpContext c) => new { authenticated = Authentication.Viewer(c.Request, config.Secrets) });
         app.MapPost("/api/login", (Func<HttpContext, Task<IResult>>)(async c =>
         {
@@ -78,6 +78,7 @@ public static class AppHost
         app.MapGet("/api/connection", () => new { mcpUrl = authority + "/mcp", ingestUrl = authority + "/api/agents/register", credentialHelp = "Run dotnet run --project src/AgenticView.Server -- --keys on the server with the same AV_DATA_DIR. Give agents only the ingestion key; every run receives its own write token." });
         app.MapGet("/api/archives", (int? offset, int? limit) => hub.Archives(Math.Max(0, offset ?? 0), Math.Clamp(limit ?? 1000, 1, 1000)));
         app.MapGet("/api/archives/{id}", (string id) => hub.ReadArchive(id));
+        app.MapPost("/api/archives/{id}/restore", (string id) => hub.Restore(id));
         app.MapGet("/api/archives/{id}/export", (string id) => Results.File(hub.ArchiveBytes(id), "application/gzip", $"agenticview-{SafeId(id)}.json.gz"));
         app.MapPost("/api/demo", () => Demo.Seed(hub));
         app.MapGet("/api/embeds/{id}/{componentId}", (string id, string componentId, HttpContext c) =>

@@ -36,6 +36,22 @@ Send `POST /api/agents/{runId}/heartbeat` every 15 seconds. Use
 retained view. Archiving is idempotent. A completed status allows cleanup, and
 does not automatically archive under the default settings.
 
+Archives are reversible. The viewer can restore a card from Settings → Archives,
+or `POST /api/archives/{runId}/restore` with viewer authentication. Restoration
+keeps the run ID, credentials, sequence, components, ancestry and sizing. The card
+returns to its saved position when free, or moves to a nearby free position.
+The next valid content publish also restores an archived card automatically;
+heartbeats acknowledge its sequence without bringing it back. Invalid writes leave
+the archive untouched. Completed/error runs retain their terminal status and accept
+only cleanup operations, even after restoration.
+
+New archives retain the last 256 batch digests for exact retries across restarts.
+Older archives remain restorable, but their unavailable retry digests cannot be
+reconstructed: send the next sequence instead of replaying an old batch. Repeating
+the original registration with its private proof returns the existing credentials
+and sequence without restoring the card. A restored run leaves the archive list;
+archiving it again saves its latest retained view.
+
 ## Bounds
 
 Requests: 1 MiB, 256 operations. Runs: 64 components, 2 MiB. Appends: 512 items.

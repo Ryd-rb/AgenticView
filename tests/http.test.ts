@@ -42,6 +42,21 @@ test('official MCP client negotiates and publishes through Streamable HTTP', asy
   const invalid = await client.callTool({ name: 'agent_publish', arguments: { ...credentials, sequence: 2, operations: [{ op: 'upsert', component: { id: 'bad', title: 'Invalid', kind: 'unsupported', data: {} } }] } }); assert.ok(invalid.isError);
 } finally { await client.close(); await f.close(); } });
 
+test('viewer restore and producer auto-recovery preserve credentials and content', async () => { const f = await fixture(); try {
+  const created = await f.call('/api/agents/register', secrets.ingestToken, { requestId: 'recovery', registrationKey, agentId: 'recovery', name: 'Synthetic recovery' });
+  const { runId, runToken } = await created.json(); const publish = `/api/agents/${runId}/publish`, archive = `/api/agents/${runId}/archive`, restore = `/api/archives/${runId}/restore`;
+  assert.equal((await f.call(publish, runToken, { sequence: 1, operations: [{ op: 'upsert', component: { id: 'evidence', title: 'Evidence', kind: 'markdown', data: { text: 'Retained evidence' } } }] })).status, 200);
+  assert.equal((await f.call(archive, secrets.viewerToken, {})).status, 200);
+  assert.equal((await f.call(restore, runToken, {})).status, 401);
+  assert.equal((await f.call(restore, secrets.ingestToken, {})).status, 401);
+  assert.equal((await f.call(restore, secrets.viewerToken, {})).status, 200);
+  assert.equal((await f.call(restore, secrets.viewerToken, {})).status, 200);
+  assert.equal((await f.call(archive, runToken, {})).status, 200);
+  const response = await f.call(publish, runToken, { sequence: 2, operations: [{ op: 'context', text: 'Continuing work' }] }); assert.equal(response.status, 200); assert.equal((await response.json()).restored, true);
+  const snapshot = await (await f.call('/api/snapshot', secrets.viewerToken)).json();
+  assert.equal(snapshot.agents.find((a: { id: string }) => a.id === runId).components.evidence.data.text, 'Retained evidence'); assert.equal(snapshot.stats.archived, 0);
+} finally { await f.close(); } });
+
 test('published monitor serves its HTML and compiled script from the C# process', async () => { const f = await fixture(); try {
   const response = await fetch(f.url + '/'); assert.equal(response.status, 200);
   const html = await response.text(); assert.match(html, /AgenticView/);
