@@ -25,6 +25,7 @@ public sealed record DesktopOptions(Uri Url, string DataDirectory, bool Diagnose
             throw new ArgumentException("The URL must use HTTPS or loopback HTTP, without credentials, query or fragment.");
         if (string.IsNullOrWhiteSpace(data) || data.IndexOfAny(['\"', '\r', '\n']) >= 0)
             throw new ArgumentException("A private local data directory is required.");
+        if (data.StartsWith("\\\\", StringComparison.Ordinal) || data.StartsWith("//", StringComparison.Ordinal)) throw new ArgumentException("The profile directory must be local.");
         var fullPath = Path.GetFullPath(data);
         if (fullPath.StartsWith("\\\\", StringComparison.Ordinal)) throw new ArgumentException("The profile directory must be local.");
         if (viewerKeyFile is not null)
