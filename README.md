@@ -53,8 +53,8 @@ assets and run development checks.
 ```sh
 pnpm install --frozen-lockfile
 pnpm check
-pnpm test
 pnpm build
+pnpm test
 pnpm start
 pnpm keys
 ```
