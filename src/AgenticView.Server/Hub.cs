@@ -23,7 +23,8 @@ public sealed class Hub : IDisposable
     private JsonObject settings;
     private long revision, updates, previousUpdates, totalBytes, archiveCount;
     private double rate;
-    private bool settingsDirty, disposed;
+    private bool settingsDirty, disposed, packingDirty;
+    private double packingAspectRatio = 1.6;
     private SqliteTransaction? transaction;
     private long registrationLayoutTicks;
     private int nextSlot;
@@ -118,14 +119,14 @@ public sealed class Hub : IDisposable
             if (runs.Count >= 2000 || totalBytes >= MaxLiveBytes) throw new HubError(429, "Live capacity reached. Archive completed runs first.");
             var id = Guid.NewGuid().ToString(); var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             var layoutStart = Stopwatch.GetTimestamp();
-            var initial = new JsonObject { ["x"] = 0, ["y"] = 0, ["width"] = 480, ["height"] = 420, ["locked"] = false, ["z"] = 1, ["sizing"] = "fixed" };
+            var initial = new JsonObject { ["x"] = 0, ["y"] = 0, ["width"] = 480, ["height"] = 420, ["locked"] = false, ["z"] = 1, ["sizing"] = "fixed", ["automatic"] = true };
             var layout = parent.Length > 0 ? initial : InitialPosition(initial, EffectiveRoots().Select(r => (JsonObject)r.View["layout"]!).ToList());
             registrationLayoutTicks += Stopwatch.GetTimestamp() - layoutStart;
             var view = new JsonObject { ["id"] = id, ["agentId"] = agentId, ["name"] = name, ["role"] = role, ["context"] = context, ["parentId"] = parent.Length > 0 ? parent : null, ["createdAt"] = now, ["lastSeen"] = now, ["status"] = "active", ["sequence"] = 0L, ["components"] = new JsonObject(), ["layout"] = layout };
             var bytes = Size(view); if (totalBytes + bytes > MaxLiveBytes) throw new HubError(429, "Live capacity reached.");
             var run = new Run(view, Hash(Token(id)), bytes);
             Transaction(() => { Execute("INSERT INTO runs VALUES($p0,$p1,$p2,$p3,$p4,$p5)", id, Serialize(Metadata(view)), request, hash, run.TokenHash, ""); Execute("INSERT INTO requests VALUES($p0,$p1,$p2)", request, id, hash); });
-            runs[id] = run; totalBytes += bytes; Queue(view); revision++; return Registration(id, view);
+            runs[id] = run; totalBytes += bytes; Queue(view); packingDirty = true; revision++; return Registration(id, view);
         }
     }
     private JsonObject Registration(string id, JsonObject view) => new() { ["runId"] = id, ["runToken"] = Token(id), ["heartbeatSeconds"] = 15, ["sequence"] = Integer(view, "sequence") };
@@ -197,6 +198,15 @@ public sealed class Hub : IDisposable
     }
     private void SaveView(Run run, JsonObject view) { var bytes = Size(view); if (bytes > MaxRunBytes || totalBytes - run.Bytes + bytes > MaxLiveBytes) throw new HubError(413, "Live data budget exceeded."); Execute("UPDATE runs SET payload=$p0 WHERE id=$p1", Serialize(Metadata(view)), String(view, "id")); totalBytes += bytes - run.Bytes; run.Bytes = bytes; run.View = view; }
     private IEnumerable<Run> EffectiveRoots() => runs.Values.Where(r => r.View["parentId"] is null || !runs.ContainsKey(String(r.View, "parentId")));
+    public JsonObject MarkManual(string id)
+    {
+        lock (gate)
+        {
+            if (!runs.TryGetValue(id, out var run)) throw new HubError(404, "Run unavailable.");
+            var view = Clone(run.View); var layout = (JsonObject)view["layout"]!; layout["automatic"] = false;
+            SaveView(run, view); Queue(view); packingDirty = true; revision++; return Clone(layout);
+        }
+    }
     public JsonObject SetLayout(string id, JsonObject raw)
     {
         lock (gate)
@@ -204,11 +214,16 @@ public sealed class Hub : IDisposable
             if (!runs.TryGetValue(id, out var run)) throw new HubError(404, "Run unavailable."); var layout = Clone(raw);
             ComponentValidator.Number(layout, "x", -1e7, 1e7); ComponentValidator.Number(layout, "y", -1e7, 1e7); ComponentValidator.Number(layout, "width", 320, 1600); ComponentValidator.Number(layout, "height", 240, 1600); ComponentValidator.Number(layout, "z", 0, 1e9, true, true);
             if (!layout.ContainsKey("locked")) throw new HubError(400, "locked is required."); ComponentValidator.Boolean(layout, "locked"); ComponentValidator.Choice(layout, "sizing", ["content", "fixed"], "fixed");
-            layout = new JsonObject { ["x"] = N(layout, "x"), ["y"] = N(layout, "y"), ["width"] = N(layout, "width"), ["height"] = N(layout, "height"), ["z"] = (long)N(layout, "z"), ["locked"] = layout["locked"]!.GetValue<bool>(), ["sizing"] = String(layout, "sizing") };
+            layout = new JsonObject { ["x"] = N(layout, "x"), ["y"] = N(layout, "y"), ["width"] = N(layout, "width"), ["height"] = N(layout, "height"), ["z"] = (long)N(layout, "z"), ["locked"] = layout["locked"]!.GetValue<bool>(), ["sizing"] = String(layout, "sizing"), ["automatic"] = ComponentValidator.Boolean(layout, "automatic") };
             var current = (JsonObject)run.View["layout"]!;
             if (current["locked"]!.GetValue<bool>() && (N(layout, "x") != N(current, "x") || N(layout, "y") != N(current, "y"))) throw new HubError(409, "Unlock the card before moving it.");
-            if ((run.View["parentId"] is null || !runs.ContainsKey(String(run.View, "parentId"))) && EffectiveRoots().Any(other => other != run && Overlaps(layout, (JsonObject)other.View["layout"]!))) throw new HubError(409, "Cards cannot overlap.");
-            var view = Clone(run.View); view["layout"] = layout; SaveView(run, view); Queue(view); revision++; return Clone(layout);
+            var obstacles = EffectiveRoots().Where(other => other != run).Select(other => (JsonObject)other.View["layout"]!).ToList();
+            if ((run.View["parentId"] is null || !runs.ContainsKey(String(run.View, "parentId"))) && obstacles.Any(other => Overlaps(layout, other)))
+            {
+                if (!ComponentValidator.Boolean(raw, "resolveOverlap") || current["locked"]!.GetValue<bool>() || layout["locked"]!.GetValue<bool>()) throw new HubError(409, "Cards cannot overlap.");
+                layout = FreePosition(layout, obstacles);
+            }
+            var view = Clone(run.View); view["layout"] = layout; SaveView(run, view); Queue(view); packingDirty = true; revision++; return Clone(layout);
         }
     }
     private static JsonObject NormalizeSettings(JsonObject raw)
@@ -231,7 +246,7 @@ public sealed class Hub : IDisposable
             if (promoted.Any(child => Size(child.View) > MaxRunBytes) || totalBytes - run.Bytes + promoted.Sum(child => Size(child.View) - child.Run.Bytes) > MaxLiveBytes) throw new HubError(413, "Promoted child layout exceeds the live data budget.");
             Transaction(() => { Execute("INSERT INTO archives VALUES($p0,$p1,$p2)", id, Serialize(summary), compressed); Execute("INSERT INTO archive_batches SELECT run_id,sequence,digest FROM batches WHERE run_id=$p0", id); Execute("DELETE FROM runs WHERE id=$p0", id); foreach (var child in promoted) Execute("UPDATE runs SET payload=$p0 WHERE id=$p1", Serialize(Metadata(child.View)), String(child.View, "id")); });
             foreach (var child in promoted) { totalBytes += Size(child.View) - child.Run.Bytes; child.Run.Bytes = Size(child.View); child.Run.View = child.View; Queue(child.View); }
-            runs.Remove(id); totalBytes -= run.Bytes; archiveCount++; pending.Remove(id); removed.Add(id); revision++; return summary;
+            runs.Remove(id); totalBytes -= run.Bytes; archiveCount++; pending.Remove(id); removed.Add(id); packingDirty = true; revision++; return summary;
         }
     }
     // Recovery keeps the same identity and credentials; only placement may change to avoid live cards.
@@ -255,7 +270,7 @@ public sealed class Hub : IDisposable
     private void AcceptRestore(Run run, JsonObject view)
     {
         var id = String(view, "id"); run.View = view; run.Bytes = Size(view); runs[id] = run; totalBytes += run.Bytes; archiveCount--;
-        removed.Remove(id); pending.Remove(id); Queue(view); var patch = pending[id]; patch.Clear = true;
+        removed.Remove(id); pending.Remove(id); packingDirty = true; Queue(view); var patch = pending[id]; patch.Clear = true;
         foreach (var pair in (JsonObject)view["components"]!) patch.Components[pair.Key] = Clone((JsonObject)pair.Value!);
     }
     public JsonObject Restore(string id)
@@ -277,6 +292,37 @@ public sealed class Hub : IDisposable
         lock (gate) { using var input = new MemoryStream(ArchiveBytes(id)); using var gzip = new GZipStream(input, CompressionMode.Decompress); using var output = new MemoryStream(); var buffer = new byte[8192]; int read; while ((read = gzip.Read(buffer)) > 0) { if (output.Length + read > MaxRunBytes) throw new HubError(413, "Archive exceeds the decompression budget."); output.Write(buffer, 0, read); } return Parse(Encoding.UTF8.GetString(output.ToArray())); }
     }
     private JsonObject Stats() => new() { ["active"] = runs.Values.Count(r => String(r.View, "status") == "active"), ["stale"] = runs.Values.Count(r => String(r.View, "status") == "stale"), ["archived"] = archiveCount, ["updates"] = updates, ["updatesPerSecond"] = rate };
+    public JsonObject PackLayout(JsonObject request)
+    {
+        lock (gate)
+        {
+            ComponentValidator.Choice(request, "mode", ["all", "automatic"], "all");
+            var aspect = request.ContainsKey("aspectRatio") ? ComponentValidator.Number(request, "aspectRatio", .3, 4) : packingAspectRatio;
+            var result = PackCards(String(request, "mode") == "all", aspect); packingAspectRatio = aspect; packingDirty = false; return result;
+        }
+    }
+    private JsonObject PackCards(bool all, double aspect)
+    {
+        var roots = EffectiveRoots().ToArray();
+        bool Movable(Run run) { var layout = (JsonObject)run.View["layout"]!; return !ComponentValidator.Boolean(layout, "locked") && (all || ComponentValidator.Boolean(layout, "automatic")); }
+        var movable = roots.Where(Movable).ToArray(); var fixedCards = roots.Where(r => !Movable(r)).ToArray();
+        var packed = CanvasPacking.Pack(movable.Select(r => new PackingItem(String(r.View, "id"), N((JsonObject)r.View["layout"]!, "width"), N((JsonObject)r.View["layout"]!, "height"))).ToArray(), fixedCards.Select(r => { var l = (JsonObject)r.View["layout"]!; return new PackingRect(N(l, "x"), N(l, "y"), N(l, "width"), N(l, "height")); }).ToArray(), aspect);
+        var changed = new List<(Run Run, JsonObject View, long Bytes)>();
+        foreach (var run in movable)
+        {
+            var position = packed[String(run.View, "id")]; var current = (JsonObject)run.View["layout"]!;
+            if (N(current, "x") == position.X && N(current, "y") == position.Y && ComponentValidator.Boolean(current, "automatic")) continue;
+            var view = Clone(run.View); var layout = (JsonObject)view["layout"]!; layout["x"] = position.X; layout["y"] = position.Y; layout["automatic"] = true;
+            changed.Add((run, view, Size(view)));
+        }
+        if (changed.Any(c => c.Bytes > MaxRunBytes) || totalBytes + changed.Sum(c => c.Bytes - c.Run.Bytes) > MaxLiveBytes) throw new HubError(413, "Packed layouts exceed the live data budget.");
+        if (changed.Count > 0)
+        {
+            Transaction(() => { foreach (var c in changed) Execute("UPDATE runs SET payload=$p0 WHERE id=$p1", Serialize(Metadata(c.View)), String(c.View, "id")); });
+            foreach (var c in changed) { totalBytes += c.Bytes - c.Run.Bytes; c.Run.Bytes = c.Bytes; c.Run.View = c.View; Queue(c.View); } revision++;
+        }
+        return new JsonObject { ["arranged"] = movable.Length, ["changed"] = changed.Count, ["fixed"] = fixedCards.Length };
+    }
     public JsonObject Snapshot() { lock (gate) return new JsonObject { ["revision"] = revision, ["agents"] = new JsonArray(runs.Values.Select(r => (JsonNode)Clone(r.View)).ToArray()), ["settings"] = Clone(settings), ["stats"] = Stats() }; }
     private void Queue(JsonObject view, JsonObject? op = null)
     {
@@ -292,6 +338,7 @@ public sealed class Hub : IDisposable
         JsonObject patch; lock (gate)
         {
             if (disposed) return;
+            if (packingDirty) { packingDirty = false; try { PackCards(false, packingAspectRatio); } catch { Console.Error.WriteLine("Automatic arrangement failed; existing layouts retained."); } }
             patch = new JsonObject { ["revision"] = revision, ["changes"] = new JsonArray(pending.Select(pair => (JsonNode)new JsonObject { ["id"] = pair.Key, ["meta"] = Clone(pair.Value.Meta), ["components"] = new JsonArray(pair.Value.Components.Values.Select(c => (JsonNode)Clone(c)).ToArray()), ["removeComponents"] = new JsonArray(pair.Value.Removed.Select(x => (JsonNode?)JsonValue.Create(x)).ToArray()), ["clear"] = pair.Value.Clear }).ToArray()), ["removed"] = new JsonArray(removed.Select(x => (JsonNode?)JsonValue.Create(x)).ToArray()), ["stats"] = Stats() };
             if (settingsDirty) patch["settings"] = Clone(settings); pending.Clear(); removed.Clear(); settingsDirty = false;
         }

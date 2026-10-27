@@ -14,6 +14,24 @@ if (args.Contains("--layout-probe"))
 
 var cases = new (string Name, Action Test)[]
 {
+    ("efficient deterministic bin packing respects fixed obstacles", PackingContracts.Run),
+    ("automatic packing preserves manual and locked cards; arrange all resumes management", () => Run((hub, directory) => {
+        var a=Register(hub); var b=hub.Register(Input("b")); var c=hub.Register(Input("c")); hub.Flush();
+        var manual=(JsonObject)hub.GetRun(S(a,"runId"))!["layout"]!.DeepClone(); manual["x"]=-1500; manual["y"]=-1500; manual["automatic"]=false; hub.SetLayout(S(a,"runId"),manual);
+        var locked=(JsonObject)hub.GetRun(S(b,"runId"))!["layout"]!.DeepClone(); locked["locked"]=true; hub.SetLayout(S(b,"runId"),locked); hub.Flush();
+        Check(JsonNode.DeepEquals(hub.GetRun(S(a,"runId"))!["layout"],manual),"Automatic packing moved a manually placed card");
+        Check(JsonNode.DeepEquals(hub.GetRun(S(b,"runId"))!["layout"],locked),"Automatic packing moved a locked card");
+        var beforeReservation=(JsonObject)hub.GetRun(S(c,"runId"))!["layout"]!.DeepClone(); var reserved=hub.MarkManual(S(c,"runId"));
+        Check(!reserved["automatic"]!.GetValue<bool>() && reserved["x"]!.ToJsonString()==beforeReservation["x"]!.ToJsonString() && reserved["y"]!.ToJsonString()==beforeReservation["y"]!.ToJsonString(),"Manual reservation changed geometry");
+        hub.Flush(); Check(JsonNode.DeepEquals(hub.GetRun(S(c,"runId"))!["layout"],reserved),"Packing moved a reserved gesture");
+        var packed=hub.PackLayout(Json.Object(new{mode="all",aspectRatio=1.6})); Check(packed["arranged"]!.GetValue<int>()==2,"Arrange all did not include manual unlocked cards");
+        Check(hub.GetRun(S(a,"runId"))!["layout"]!["automatic"]!.GetValue<bool>(),"Arrange all did not resume automatic management");
+        Check(JsonNode.DeepEquals(hub.GetRun(S(b,"runId"))!["layout"],locked),"Arrange all moved locked card");
+        Throws(()=>hub.PackLayout(Json.Object(new{mode="all",aspectRatio=double.MaxValue})),400);
+        var collision=(JsonObject)locked.DeepClone(); collision["locked"]=false; collision["automatic"]=false; collision["resolveOverlap"]=true;
+        var accepted=hub.SetLayout(S(a,"runId"),collision); Check(accepted["x"]!.ToJsonString()!=locked["x"]!.ToJsonString() || accepted["y"]!.ToJsonString()!=locked["y"]!.ToJsonString(),"Concurrent drag overlap was not resolved");
+        hub.Dispose(); using var reopened=new Hub(directory,Keys()); Check(!reopened.GetRun(S(a,"runId"))!["layout"]!["automatic"]!.GetValue<bool>(),"Manual packing ownership not durable");
+    })),
     ("registration identity, recovery proof and credential boundaries", () => Run((hub, _) => {
         var a = Register(hub); var retry = Register(hub); Check(a.ToJsonString() == retry.ToJsonString(), "Retry changed credentials");
         Throws(() => hub.Register(Input("a", "wrong-private-registration-key-long-enough")), 409);

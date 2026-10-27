@@ -12,11 +12,19 @@ Cards grow with content or use manually resized fixed viewports. A locked card
 that cannot grow safely scrolls internally. Native displays are titled subcards
 inside the agent: Markdown plans, diffs, modified-file trees, metrics, and evidence.
 
+Untouched world cards are automatically bin packed, coalesced with live updates.
+Moving or resizing a card takes it out of automatic packing; locked and manually
+placed cards act as fixed obstacles. Arrange all beside the zoom controls packs
+every unlocked card and returns it to automatic management. Legacy layouts remain
+fixed until explicitly arranged, preserving positions chosen before this feature.
+
 Mouse, keyboard, and touchscreen input share the same camera transforms. Pinch
 zoom preserves the world anchor under the fingers while midpoint motion pans.
 Fit all has no fixed zoom floor. Visible cards retain their content at every zoom
 level; double-click or double-tap focuses a card. Editing controls retain their
 normal key and tap behavior. Embedded documents own their internal pointer events.
+Fit all follows arriving cards and layout changes until you pan, zoom, or move a
+card. In a custom viewport, an offscreen arrival offers a persistent Show card action.
 
 Orchestrators declare children, which appear as nested agent cards. Surviving
 children become independent world cards when their parent is archived, retaining

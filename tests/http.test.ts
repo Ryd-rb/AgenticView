@@ -2,8 +2,26 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { fixture, secrets } from './server-fixture.ts';
+import { applyLivePatch, rootAgents } from '../shared/live-state.ts';
+import { fitToViewport, isVisible } from '../shared/canvas.ts';
+import type { Patch, Snapshot } from '../shared/protocol.ts';
 
 const registrationKey = 'synthetic-private-registration-recovery-key';
+
+test('an already-connected viewer receives new agents and packing without reload', async () => { const f = await fixture(); const controller = new AbortController(); const deadline = setTimeout(() => controller.abort(), 8_000); try {
+  const stream = await fetch(f.url + '/api/events', { headers: { Authorization: `Bearer ${secrets.viewerToken}` }, signal: controller.signal });
+  const reader = stream.body!.getReader(), decoder = new TextDecoder(); let buffer = '';
+  async function event() { for (;;) { const end = buffer.indexOf('\n\n'); if (end >= 0) { const frame = buffer.slice(0, end); buffer = buffer.slice(end + 2); const data = frame.split('\n').find(line => line.startsWith('data: ')); if (data) return { type: frame.split('\n').find(line => line.startsWith('event: '))?.slice(7), value: JSON.parse(data.slice(6)) }; } else { const next = await reader.read(); if (next.done) throw new Error('Live stream closed'); buffer += decoder.decode(next.value, { stream: true }); } } }
+  const first = await event(); assert.equal(first.type, 'snapshot'); let view = first.value as Snapshot; assert.equal(view.agents.length, 0);
+  const registered = await (await f.call('/api/agents/register', secrets.ingestToken, { requestId: 'late', registrationKey, agentId: 'late', name: 'Synthetic arriving agent' })).json();
+  assert.equal((await f.call(`/api/agents/${registered.runId}/publish`, registered.runToken, { sequence: 1, operations: [{ op: 'upsert', component: { id: 'metric', title: 'Live metric', kind: 'metric', data: { value: 7 } } }] })).status, 200);
+  for (let count = 0; count < 30 && !view.agents[0]?.components.metric; count++) { const message = await event(); assert.equal(message.type, 'patch'); view = applyLivePatch(view, message.value as Patch); }
+  assert.equal(view.agents[0]?.name, 'Synthetic arriving agent'); assert.equal(view.agents[0]?.components.metric.kind, 'metric');
+  assert.equal((await f.call('/api/layout/pack', secrets.ingestToken, { mode: 'all' })).status, 401);
+  assert.equal((await f.call('/api/layout/pack', secrets.viewerToken, { mode: 'all', aspectRatio: 1.6 })).status, 200);
+  const roots = rootAgents(view.agents), camera = fitToViewport(roots.map(agent => agent.layout), { width: 1200, height: 800 });
+  assert.ok(roots.every(agent => isVisible(agent.layout, { x: -camera.x / camera.zoom, y: -camera.y / camera.zoom, width: 1200 / camera.zoom, height: 800 / camera.zoom })));
+} finally { clearTimeout(deadline); controller.abort(); await f.close(); } });
 
 test('viewer/producer boundaries, origin checks and login cookies', async () => { const f = await fixture(); try {
   assert.equal((await f.call('/api/snapshot')).status, 401);

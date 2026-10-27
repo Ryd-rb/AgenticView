@@ -52,6 +52,15 @@ the original registration with its private proof returns the existing credential
 and sequence without restoring the card. A restored run leaves the archive list;
 archiving it again saves its latest retained view.
 
+Viewer layout controls use `POST /api/layout/pack` with
+`{"mode":"all","aspectRatio":1.6}`. All unlocked world cards are packed and
+returned to automatic management. Mode `automatic` moves only untouched cards;
+manual and locked cards remain fixed obstacles. Layouts persist `automatic`.
+Before a real drag/resize starts, `POST /api/agents/{id}/layout/manual` reserves
+manual ownership without changing position. A layout PATCH may set
+`resolveOverlap:true` to find a nearby free position if concurrent arrivals
+occupied the requested location. Locked cards always retain position.
+
 ## Bounds
 
 Requests: 1 MiB, 256 operations. Runs: 64 components, 2 MiB. Appends: 512 items.

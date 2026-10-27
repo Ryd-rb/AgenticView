@@ -20,6 +20,9 @@
 - Keep agent-provided content untrusted. Preserve authentication boundaries and
   validate protocol inputs before rendering or persisting them.
 - Keep runtime state, local configuration, and task evidence outside tracked files.
+- Keep the page within the viewport, with the settings cog fixed at bottom left.
+  Automatically bin pack untouched cards; preserve manual and locked positions.
+  Provide an Arrange all control beside zoom, respecting locks.
 - Do not create or run automated image, screenshot, pixel, golden, or framebuffer
   tests. Verify meaningful rendering behavior through non-image contracts; visual
   review is manual.

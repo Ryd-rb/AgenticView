@@ -24,7 +24,7 @@ export const componentSchema = z.discriminatedUnion('kind', [
   z.object({ ...base, kind: z.literal('embed'), data: z.object({ html: z.string().max(524_288), height: z.number().int().min(120).max(1_200).default(300), state: z.json().optional() }) }),
 ]);
 export type Component = z.infer<typeof componentSchema>;
-export type Layout = { x: number; y: number; width: number; height: number; locked: boolean; z: number; sizing?: 'content' | 'fixed' };
+export type Layout = { x: number; y: number; width: number; height: number; locked: boolean; z: number; sizing?: 'content' | 'fixed'; automatic?: boolean };
 export type AgentStatus = 'active' | 'stale' | 'completed' | 'error';
 export type AgentView = {
   id: string; agentId: string; name: string; role: string; context: string;
@@ -64,4 +64,4 @@ export const operationSchema = z.discriminatedUnion('op', [
 ]);
 export type Operation = z.infer<typeof operationSchema>;
 export const publishSchema = z.object({ sequence: z.number().int().positive(), operations: z.array(operationSchema).min(1).max(256) });
-export const layoutSchema = z.object({ x: z.number().finite().min(-1e7).max(1e7), y: z.number().finite().min(-1e7).max(1e7), width: z.number().min(320).max(1_600), height: z.number().min(240).max(1_600), locked: z.boolean(), z: z.number().int().min(0).max(1e9), sizing: z.enum(['content', 'fixed']).default('fixed') });
+export const layoutSchema = z.object({ x: z.number().finite().min(-1e7).max(1e7), y: z.number().finite().min(-1e7).max(1e7), width: z.number().min(320).max(1_600), height: z.number().min(240).max(1_600), locked: z.boolean(), z: z.number().int().min(0).max(1e9), sizing: z.enum(['content', 'fixed']).default('fixed'), automatic: z.boolean().optional() });

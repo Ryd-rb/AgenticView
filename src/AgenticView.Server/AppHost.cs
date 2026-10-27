@@ -74,6 +74,8 @@ public static class AppHost
         app.MapPost("/api/agents/{id}/heartbeat", (string id, HttpContext c) => hub.Heartbeat(id, Authentication.Bearer(c.Request)));
         app.MapPost("/api/agents/{id}/archive", (string id, HttpContext c) => { if (!Authentication.Viewer(c.Request, config.Secrets)) hub.AuthorizeArchive(id, Authentication.Bearer(c.Request)); return hub.Archive(id); });
         app.MapPatch("/api/agents/{id}/layout", async (string id, HttpContext c) => hub.SetLayout(id, await Body(c)));
+        app.MapPost("/api/agents/{id}/layout/manual", (string id) => hub.MarkManual(id));
+        app.MapPost("/api/layout/pack", async (HttpContext c) => hub.PackLayout(await Body(c)));
         app.MapPut("/api/settings", (Func<HttpContext, Task<JsonObject>>)(async c => hub.SetSettings(await Body(c))));
         app.MapGet("/api/connection", () => new { mcpUrl = authority + "/mcp", ingestUrl = authority + "/api/agents/register", credentialHelp = "Run dotnet run --project src/AgenticView.Server -- --keys on the server with the same AV_DATA_DIR. Give agents only the ingestion key; every run receives its own write token." });
         app.MapGet("/api/archives", (int? offset, int? limit) => hub.Archives(Math.Max(0, offset ?? 0), Math.Clamp(limit ?? 1000, 1, 1000)));
