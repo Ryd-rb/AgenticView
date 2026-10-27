@@ -22,6 +22,14 @@ $previousData = $null
 if (Test-Path -LiteralPath $statePath) {
     $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
     $existing = Get-CimInstance Win32_Process -Filter ('ProcessId=' + [int]$state.ProcessId)
+    $previewBoundary = [IO.Path]::GetFullPath((Join-Path $repository '.task/preview')) + [IO.Path]::DirectorySeparatorChar
+    if (![IO.Path]::GetFullPath([string]$state.Entry).StartsWith($previewBoundary,[StringComparison]::OrdinalIgnoreCase) -or ![IO.Path]::GetFullPath([string]$state.Data).StartsWith($previewBoundary,[StringComparison]::OrdinalIgnoreCase)) { throw 'Existing preview custody could not be established.' }
+    if ($existing -and (!$existing.CommandLine -or !$existing.CommandLine.Contains([string]$state.Entry))) { throw 'The recorded preview PID belongs to another process; retained state was not touched.' }
+    if ($Replace) {
+        # A prior failed replacement can leave a stopped process and intact data. Keep that data.
+        $previousData = [IO.Path]::GetFullPath([string]$state.Data)
+        $null = @(Plain-Files $previousData)
+    }
     if ($existing -and $existing.CommandLine -and $existing.CommandLine.Contains([string]$state.Entry)) {
         if ($state.BuildHash -eq $buildHash) { $state | ConvertTo-Json -Compress; return }
         if (!$Replace) { throw 'An isolated preview of another build is still running. Use -Replace to update this owned preview while preserving its data.' }
@@ -33,8 +41,14 @@ if (Test-Path -LiteralPath $statePath) {
         Wait-Process -Id ([int]$state.ProcessId) -Timeout 15 -ErrorAction SilentlyContinue
     }
 }
-$probe = [Net.Sockets.TcpClient]::new()
-try { if ($probe.ConnectAsync('127.0.0.1',$Port).Wait(150)) { throw 'Preview port is already occupied.' } } catch [AggregateException] { } finally { $probe.Dispose() }
+$occupied = $true
+for ($attempt=0; $attempt -lt $(if ($previousData) { 30 } else { 1 }); $attempt++) {
+    $probe = [Net.Sockets.TcpClient]::new()
+    try { $occupied = $probe.ConnectAsync('127.0.0.1',$Port).Wait(150) } catch [AggregateException] { $occupied = $false } finally { $probe.Dispose() }
+    if (!$occupied) { break }
+    if ($previousData) { Start-Sleep -Milliseconds 100 }
+}
+if ($occupied) { throw 'Preview port is already occupied. Existing data was retained.' }
 $stage = Join-Path $repository ('.task/preview/' + [Guid]::NewGuid().ToString('N'))
 $application = Join-Path $stage 'app'
 [IO.Directory]::CreateDirectory($application) | Out-Null
