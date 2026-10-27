@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Archive, ArrowDownToLine, ArrowLeft, ArrowUpRight, Check, ChevronDown, ChevronRight, Circle, Copy, Focus, Link2, Lock, Maximize2, Minus, Plus, Radio, Settings as Cog, Unlock, X, Zap } from 'lucide-react';
 import type { AgentView, ArchiveSummary, Layout, Patch, Settings, Snapshot } from '../shared/protocol.js';
-import { findFreePosition, isVisible, moveWithoutOverlap, resizeWithoutOverlap, type Rect } from '../shared/canvas.js';
+import { findFreePosition, isVisible, moveWithoutOverlap, resizeWithoutOverlap, fitToViewport, formatZoom, type Rect } from '../shared/canvas.js';
 import { ComponentView } from './Components.js';
+import { TouchViewport, canvasKey, zoomAt, type Camera } from '../shared/viewport.js';
 
 async function api<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const response = await fetch(path, { method, credentials: 'same-origin', headers: body === undefined ? undefined : { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -12,7 +13,7 @@ async function api<T>(path: string, method = 'GET', body?: unknown): Promise<T> 
 }
 const defaultSettings: Settings = { staleSeconds: 45, autoArchiveMinutes: null, archiveAfterCompletion: false, trustedEmbeds: true, reducedMotion: false };
 const empty: Snapshot = { revision: 0, agents: [], settings: defaultSettings, stats: { active: 0, stale: 0, archived: 0, updates: 0, updatesPerSecond: 0 } };
-type Camera = { x: number; y: number; zoom: number };
+type TouchIntent = { pointer: number; kind: 'pan' | 'drag' | 'resize' | 'scroll' | 'tap'; origin: { x: number; y: number }; last: { x: number; y: number }; camera: Camera; id?: string; rect?: Rect; scroll?: HTMLElement; moved: boolean; };
 const bytes = (n: number) => n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 ** 2).toFixed(1)} MB`;
 const date = (n: number) => new Date(n).toLocaleString();
 
@@ -55,6 +56,7 @@ function SettingsBody({ settings, save, stats, report }: { settings: Settings; s
 export function App() {
   const [auth, setAuth] = useState<boolean | null>(null), [snapshot, setSnapshot] = useState<Snapshot>(empty), [online, setOnline] = useState(false), [notice, setNotice] = useState('');
   const [camera, setCamera] = useState<Camera>({ x: 72, y: 86, zoom: 1 }), [size, setSize] = useState({ width: innerWidth, height: innerHeight }), [settingsRect, setSettingsRect] = useState<Rect | null>(null), [layouts, setLayouts] = useState<Record<string, Layout>>({}), [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const canvasElement = useRef<HTMLDivElement>(null), touches = useRef(new TouchViewport()), touchIntent = useRef<TouchIntent | null>(null), suppressClickUntil = useRef(0), lastTap = useRef<{ id: string; at: number; x: number; y: number } | null>(null), mouseCleanup = useRef<(() => void) | null>(null);
   const activeDrag = useRef<string | null>(null), remoteLayouts = useRef<Record<string, string>>({});
   const cameraRef = useRef(camera), layoutRef = useRef(layouts), snapshotRef = useRef(snapshot), settingsRef = useRef(settingsRect);
   cameraRef.current = camera; layoutRef.current = layouts; snapshotRef.current = snapshot; settingsRef.current = settingsRect;
@@ -64,12 +66,11 @@ export function App() {
   useEffect(() => {
     if (!auth) return;
     let alive = true;
-    const full = () => api<Snapshot>('/api/snapshot').then(s => { if (alive) setSnapshot(previous => s.revision >= previous.revision ? s : previous); }).catch(e => { if (alive) report(e.message); });
-    void full(); const events = new EventSource('/api/events');
-    events.onopen = () => { setOnline(true); void full(); };
+    const events = new EventSource('/api/events');
+    events.onopen = () => setOnline(true);
     events.onerror = () => setOnline(false);
-    events.addEventListener('snapshot', event => { const s = JSON.parse((event as MessageEvent).data) as Snapshot; setSnapshot(p => s.revision >= p.revision ? s : p); });
-    events.addEventListener('patch', event => { const p = JSON.parse((event as MessageEvent).data) as Patch; setSnapshot(old => {
+    events.addEventListener('snapshot', event => { const s = JSON.parse((event as MessageEvent).data) as Snapshot; if (alive) setSnapshot(s); });
+    events.addEventListener('patch', event => { if (!alive) return; const p = JSON.parse((event as MessageEvent).data) as Patch; setSnapshot(old => {
       if (p.revision < old.revision) return old;
       const map = new Map(old.agents.map(a => [a.id, a]));
       p.removed.forEach(id => map.delete(id));
@@ -112,7 +113,7 @@ export function App() {
     commitLayout(id, { ...current, ...resized });
   }
   function resizeCard(e: React.PointerEvent<HTMLElement>, id: string) {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || e.pointerType === 'touch' || cameraRef.current.zoom < .35) return;
     e.stopPropagation(); e.preventDefault();
     const initial = layoutRef.current[id]; if (!initial) return;
     activeDrag.current = id; const element = e.currentTarget; element.setPointerCapture(e.pointerId);
@@ -125,7 +126,8 @@ export function App() {
       last = { ...initial, ...resizeWithoutOverlap(initial, { width, height }, obstacles(id)), sizing: 'fixed' };
       layoutRef.current = { ...layoutRef.current, [id]: last }; setLayouts(layoutRef.current);
     };
-    const up = () => { activeDrag.current = null; element.removeEventListener('pointermove', move); element.removeEventListener('pointerup', up); element.removeEventListener('pointercancel', up); persist(id, last); };
+    const up = () => { mouseCleanup.current = null; activeDrag.current = null; element.removeEventListener('pointermove', move); element.removeEventListener('pointerup', up); element.removeEventListener('pointercancel', up); persist(id, last); };
+    mouseCleanup.current = up;
     element.addEventListener('pointermove', move); element.addEventListener('pointerup', up); element.addEventListener('pointercancel', up);
   }
   function resizeKeyboard(e: React.KeyboardEvent, id: string) {
@@ -137,33 +139,123 @@ export function App() {
     commitLayout(id, { ...current, ...resizeWithoutOverlap(current, { width, height }, obstacles(id)), sizing: 'fixed' });
   }
   function dragCard(e: React.PointerEvent<HTMLElement>, id: string) {
-    if (e.button !== 0 || (e.target as HTMLElement).closest('button,a,input')) return;
+    if (e.button !== 0 || e.pointerType === 'touch' || cameraRef.current.zoom < .35 || (e.target as HTMLElement).closest('button,a,input')) return;
     const initial = id === 'settings' ? settingsRef.current : layoutRef.current[id];
     if (!initial || id !== 'settings' && (initial as Layout).locked) return;
     e.stopPropagation(); activeDrag.current = id; const element = e.currentTarget; element.setPointerCapture(e.pointerId);
     const pointer = { x: e.clientX, y: e.clientY }, zoom = cameraRef.current.zoom; let last = initial;
     const move = (event: PointerEvent) => { last = moveWithoutOverlap(initial, { x: initial.x + (event.clientX - pointer.x) / zoom, y: initial.y + (event.clientY - pointer.y) / zoom }, obstacles(id)); if (id === 'settings') setSettingsRect(last); else setLayouts(previous => ({ ...previous, [id]: { ...previous[id]!, ...last } })); };
-    const up = () => { activeDrag.current = null; element.removeEventListener('pointermove', move); element.removeEventListener('pointerup', up); element.removeEventListener('pointercancel', up); if (id !== 'settings') persist(id, { ...layoutRef.current[id]!, ...last }); };
+    const up = () => { mouseCleanup.current = null; activeDrag.current = null; element.removeEventListener('pointermove', move); element.removeEventListener('pointerup', up); element.removeEventListener('pointercancel', up); if (id !== 'settings') persist(id, { ...layoutRef.current[id]!, ...last }); };
+    mouseCleanup.current = up;
     element.addEventListener('pointermove', move); element.addEventListener('pointerup', up); element.addEventListener('pointercancel', up);
   }
   function pan(e: React.PointerEvent<HTMLDivElement>) {
-    if (e.button !== 0 || (e.target as HTMLElement).closest('.world-card,.chrome,button,a,input')) return;
-    e.currentTarget.setPointerCapture(e.pointerId); const element = e.currentTarget, origin = { x: e.clientX, y: e.clientY }, initial = cameraRef.current;
-    const move = (event: PointerEvent) => setCamera({ ...initial, x: initial.x + event.clientX - origin.x, y: initial.y + event.clientY - origin.y });
-    const up = () => { element.removeEventListener('pointermove', move); element.removeEventListener('pointerup', up); element.removeEventListener('pointercancel', up); };
+    if (e.pointerType === 'touch' || ![0, 1].includes(e.button) || (e.target as HTMLElement).closest('.chrome,button,a,input,select,textarea') || e.button === 0 && cameraRef.current.zoom >= .35 && (e.target as HTMLElement).closest('.world-card')) return;
+    e.preventDefault(); e.currentTarget.focus({ preventScroll: true });
+    const element = e.currentTarget, origin = { x: e.clientX, y: e.clientY }, initial = cameraRef.current, overCard = !!(e.target as Element).closest('.world-card');
+    if (!overCard) element.setPointerCapture(e.pointerId);
+    const move = (event: PointerEvent) => { if (Math.hypot(event.clientX - origin.x, event.clientY - origin.y) < 4) return; element.setPointerCapture(e.pointerId); suppressClickUntil.current = performance.now() + 400; applyCamera({ ...initial, x: initial.x + event.clientX - origin.x, y: initial.y + event.clientY - origin.y }); };
+    const up = () => { mouseCleanup.current = null; element.removeEventListener('pointermove', move); element.removeEventListener('pointerup', up); element.removeEventListener('pointercancel', up); };
+    mouseCleanup.current = up;
     element.addEventListener('pointermove', move); element.addEventListener('pointerup', up); element.addEventListener('pointercancel', up);
   }
-  function zoom(amount: number, at = { x: size.width / 2, y: size.height / 2 }) { setCamera(c => { const z = Math.max(.01, Math.min(2, c.zoom * amount)), scale = z / c.zoom; return { zoom: z, x: at.x - (at.x - c.x) * scale, y: at.y - (at.y - c.y) * scale }; }); }
-  function fit() { const rects = [...Object.values(layoutRef.current), ...(settingsRect ? [settingsRect] : [])]; if (!rects.length) { setCamera({ x: 72, y: 86, zoom: 1 }); return; } const minX = Math.min(...rects.map(r => r.x)), minY = Math.min(...rects.map(r => r.y)), maxX = Math.max(...rects.map(r => r.x + r.width)), maxY = Math.max(...rects.map(r => r.y + r.height)); const z = Math.min(1.3, (size.width - 120) / (maxX - minX), (size.height - 160) / (maxY - minY)); setCamera({ x: (size.width - (maxX - minX) * z) / 2 - minX * z, y: (size.height - (maxY - minY) * z) / 2 - minY * z, zoom: Math.max(.01, z) }); }
+  function applyCamera(next: Camera) { cameraRef.current = next; setCamera(next); }
+  function zoom(amount: number, at = { x: size.width / 2, y: size.height / 2 }) { applyCamera(zoomAt(cameraRef.current, amount, at)); }
+  function resetZoom() { zoom(1 / cameraRef.current.zoom); }
+  function fit() { applyCamera(fitToViewport([...Object.values(layoutRef.current), ...(settingsRef.current ? [settingsRef.current] : [])], size)); }
+  function focusCard(id: string) { const rect = id === 'settings' ? settingsRef.current : layoutRef.current[id]; if (rect) applyCamera(fitToViewport([rect], size, 80)); }
   function openSettings() { if (settingsRect) { setSettingsRect(null); return; } const c = { ...cameraRef.current, zoom: Math.max(.8, cameraRef.current.zoom) }; const placed = findFreePosition({ x: (size.width / 2 - c.x) / c.zoom - 290, y: (size.height / 2 - c.y) / c.zoom - 290, width: 580, height: 610 }, obstacles()); setSettingsRect(placed); setCamera({ ...c, x: size.width / 2 - (placed.x + placed.width / 2) * c.zoom, y: size.height / 2 - (placed.y + placed.height / 2) * c.zoom }); }
-  function keyboard(e: React.KeyboardEvent, id: string) { if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return; const r = layoutRef.current[id]; if (!r || r.locked) return; e.preventDefault(); const d = e.shiftKey ? 80 : 20; const moved = moveWithoutOverlap(r, { x: r.x + (e.key === 'ArrowLeft' ? -d : e.key === 'ArrowRight' ? d : 0), y: r.y + (e.key === 'ArrowUp' ? -d : e.key === 'ArrowDown' ? d : 0) }, obstacles(id)); const next = { ...r, ...moved }; setLayouts(p => ({ ...p, [id]: next })); persist(id, next); }
+  function keyboard(e: React.KeyboardEvent, id: string) { if (e.target !== e.currentTarget) return; if (e.key === 'Enter') { e.preventDefault(); focusCard(id); return; } if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return; const r = layoutRef.current[id]; if (!r || r.locked) return; e.preventDefault(); e.stopPropagation(); const d = e.shiftKey ? 80 : 20; const moved = moveWithoutOverlap(r, { x: r.x + (e.key === 'ArrowLeft' ? -d : e.key === 'ArrowRight' ? d : 0), y: r.y + (e.key === 'ArrowUp' ? -d : e.key === 'ArrowDown' ? d : 0) }, obstacles(id)); const next = { ...r, ...moved }; setLayouts(p => ({ ...p, [id]: next })); persist(id, next); }
+  function canvasKeyboard(e: React.KeyboardEvent) {
+    if (e.defaultPrevented) return;
+    const protectedTarget = !!(e.target as Element).closest('input,textarea,select,button,a,[contenteditable]:not([contenteditable="false"]),[role="textbox"],.resize-handle');
+    const action = canvasKey(e.key, protectedTarget, e.altKey || e.ctrlKey || e.metaKey); if (!action) return;
+    e.preventDefault(); const c = cameraRef.current, step = e.shiftKey ? 180 : 60;
+    if (action === 'fit') fit(); else if (action === 'reset') resetZoom(); else if (action === 'in') zoom(1.2); else if (action === 'out') zoom(1 / 1.2); else if (action === 'escape') setSettingsRect(null);
+    else applyCamera({ ...c, x: c.x + (action === 'left' ? step : action === 'right' ? -step : 0), y: c.y + (action === 'up' ? step : action === 'down' ? -step : 0) });
+  }
+  function touchStart(e: React.PointerEvent<HTMLDivElement>) {
+    if (e.pointerType !== 'touch') return;
+    const point = { x: e.clientX, y: e.clientY }; touches.current.start(e.pointerId, point, cameraRef.current);
+    if (touches.current.count >= 2) {
+      mouseCleanup.current?.();
+      if (activeDrag.current && activeDrag.current !== 'settings' && layoutRef.current[activeDrag.current]) persist(activeDrag.current, layoutRef.current[activeDrag.current]!);
+      activeDrag.current = null; touchIntent.current = null; lastTap.current = null; suppressClickUntil.current = performance.now() + 700; e.preventDefault(); return;
+    }
+    const target = e.target as Element, controls = !!target.closest('button,a,input,textarea,select,[contenteditable]:not([contenteditable="false"])');
+    const id = target.closest<HTMLElement>('[data-card-id]')?.dataset.cardId;
+    const rect = id === 'settings' ? settingsRef.current : id ? layoutRef.current[id] : undefined;
+    let scroll: HTMLElement | undefined;
+    if (!controls) {
+      let cursor = target instanceof HTMLElement ? target : target.parentElement;
+      while (cursor && cursor !== e.currentTarget) {
+        const style = getComputedStyle(cursor);
+        if (/(auto|scroll)/.test(style.overflowY + style.overflowX) && (cursor.scrollHeight > cursor.clientHeight || cursor.scrollWidth > cursor.clientWidth)) { scroll = cursor; break; }
+        cursor = cursor.parentElement;
+      }
+      scroll ??= target.closest<HTMLElement>('.card-body,.settings-content,.child-body') ?? undefined;
+    }
+    const lowZoom = cameraRef.current.zoom < .35;
+    const canDrag = !!rect && !!target.closest('.card-header') && (id === 'settings' || !(rect as Layout).locked);
+    const kind: TouchIntent['kind'] = controls ? target.closest('.resize-handle') && !lowZoom ? 'resize' : 'tap' : lowZoom ? 'pan' : canDrag ? 'drag' : scroll ? 'scroll' : !id ? 'pan' : 'tap';
+    touchIntent.current = { pointer: e.pointerId, kind, origin: point, last: point, camera: { ...cameraRef.current }, id: controls && kind !== 'resize' ? undefined : id, rect: rect ?? undefined, scroll, moved: false };
+  }
+  function touchMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (e.pointerType !== 'touch' || !touches.current.pointers.has(e.pointerId)) return;
+    const point = { x: e.clientX, y: e.clientY }, pinched = touches.current.move(e.pointerId, point);
+    if (pinched) { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); suppressClickUntil.current = performance.now() + 700; applyCamera(pinched); return; }
+    const intent = touchIntent.current; if (!intent || intent.pointer !== e.pointerId) return;
+    const dx = point.x - intent.origin.x, dy = point.y - intent.origin.y;
+    if (!intent.moved && Math.hypot(dx, dy) < 7) return;
+    intent.moved = true; lastTap.current = null;
+    if (intent.kind === 'tap') return;
+    e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); suppressClickUntil.current = performance.now() + 500;
+    if (intent.kind === 'pan') applyCamera({ ...intent.camera, x: intent.camera.x + dx, y: intent.camera.y + dy });
+    if (intent.kind === 'scroll' && intent.scroll) { intent.scroll.scrollTop -= (point.y - intent.last.y) / cameraRef.current.zoom; intent.scroll.scrollLeft -= (point.x - intent.last.x) / cameraRef.current.zoom; }
+    if (intent.id && intent.rect && (intent.kind === 'drag' || intent.kind === 'resize')) {
+      activeDrag.current = intent.id;
+      const next = intent.kind === 'drag' ? moveWithoutOverlap(intent.rect, { x: intent.rect.x + dx / intent.camera.zoom, y: intent.rect.y + dy / intent.camera.zoom }, obstacles(intent.id)) : resizeWithoutOverlap(intent.rect, { width: Math.max(320, Math.min(1600, intent.rect.width + dx / intent.camera.zoom)), height: Math.max(240, Math.min(1600, intent.rect.height + dy / intent.camera.zoom)) }, obstacles(intent.id));
+      if (intent.id === 'settings') { settingsRef.current = next; setSettingsRect(next); }
+      else { layoutRef.current = { ...layoutRef.current, [intent.id]: { ...layoutRef.current[intent.id]!, ...next, ...(intent.kind === 'resize' ? { sizing: 'fixed' as const } : {}) } }; setLayouts(layoutRef.current); }
+    }
+    intent.last = point;
+  }
+  function touchEnd(e: React.PointerEvent<HTMLDivElement>, cancelled: boolean) {
+    if (e.pointerType !== 'touch' || !touches.current.pointers.has(e.pointerId)) return;
+    const intent = touchIntent.current;
+    if (intent?.pointer === e.pointerId) {
+      if (intent.moved) { suppressClickUntil.current = performance.now() + 400; if (intent.id && ['drag', 'resize'].includes(intent.kind) && intent.id !== 'settings') persist(intent.id, layoutRef.current[intent.id]!); }
+      else if (!cancelled && intent.id) {
+        const previous = lastTap.current, now = performance.now();
+        if (previous?.id === intent.id && now - previous.at < 350 && Math.hypot(e.clientX - previous.x, e.clientY - previous.y) < 25) { focusCard(intent.id); lastTap.current = null; suppressClickUntil.current = now + 400; }
+        else lastTap.current = { id: intent.id, at: now, x: e.clientX, y: e.clientY };
+      }
+    }
+    if (cancelled) touches.current.cancel(e.pointerId, cameraRef.current); else touches.current.end(e.pointerId, cameraRef.current);
+    activeDrag.current = null; touchIntent.current = null;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+    const remaining = [...touches.current.pointers.entries()];
+    if (remaining.length === 1) touchIntent.current = { pointer: remaining[0]![0], kind: 'pan', origin: remaining[0]![1], last: remaining[0]![1], camera: { ...cameraRef.current }, moved: false };
+  }
+  useEffect(() => {
+    const element = canvasElement.current; if (!element) return;
+    const wheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey && !e.shiftKey && (e.target as Element).closest('.card-body,.settings-content,pre,.table-scroll,.logs')) return;
+      e.preventDefault(); const delta = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? size.height : 1);
+      if (e.shiftKey && !e.ctrlKey && !e.metaKey) { const c = cameraRef.current; applyCamera({ ...c, x: c.x - delta - e.deltaX }); }
+      else zoom(Math.exp(Math.max(-4, Math.min(4, -delta * .0015))), { x: e.clientX, y: e.clientY });
+    };
+    const clear = () => { const id = activeDrag.current; if (id && id !== 'settings' && layoutRef.current[id]) persist(id, layoutRef.current[id]!); touches.current.clear(); touchIntent.current = null; activeDrag.current = null; mouseCleanup.current?.(); };
+    element.addEventListener('wheel', wheel, { passive: false }); window.addEventListener('blur', clear);
+    return () => { element.removeEventListener('wheel', wheel); window.removeEventListener('blur', clear); clear(); };
+  }, [auth, size.width, size.height]);
   if (auth === null) return <div className="boot"><Radio size={22} /><span>Connecting to AgenticView</span></div>;
   if (!auth) return <Login complete={() => setAuth(true)} />;
   const viewport: Rect = { x: -camera.x / camera.zoom - 150, y: -camera.y / camera.zoom - 150, width: size.width / camera.zoom + 300, height: size.height / camera.zoom + 300 };
-  return <main className={`app ${snapshot.settings.reducedMotion ? 'reduced-motion' : ''}`}><div className="canvas" onPointerDown={pan} onWheel={e => { if ((e.target as HTMLElement).closest('.card-body,.settings-content')) return; if (e.ctrlKey || e.metaKey || !e.shiftKey) zoom(Math.exp(-e.deltaY * .0015), { x: e.clientX, y: e.clientY }); else setCamera(c => ({ ...c, x: c.x - e.deltaY })); }} style={{ backgroundPosition: `${camera.x}px ${camera.y}px`, backgroundSize: `${24 * camera.zoom}px ${24 * camera.zoom}px` }} aria-label="Agent canvas. Drag the background to pan. Use zoom controls to navigate.">
-    <div className="world" style={{ transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})` }}>{roots.map(agent => { const layout = layouts[agent.id]; if (!layout || !isVisible(layout, viewport)) return null; const isCollapsed = collapsed.has(agent.id); return <article className={`world-card agent-card ${layout.locked ? 'locked' : ''}`} key={agent.id} style={{ left: layout.x, top: layout.y, width: layout.width, height: isCollapsed ? 68 : layout.height, zIndex: layout.z }}><header className="card-header" onPointerDown={e => dragCard(e, agent.id)} onKeyDown={e => keyboard(e, agent.id)} tabIndex={0} aria-label={`${agent.name}, ${layout.locked ? 'locked' : 'use arrow keys to move'}`}><span className={`status-dot ${agent.status}`} /><div className="agent-title"><strong>{agent.name}</strong><span>{agent.role}</span></div><div className="card-actions"><button className="icon-button" title={layout.sizing === 'content' ? 'Use fixed size' : 'Grow with content'} aria-label="Grow with content" aria-pressed={layout.sizing === 'content'} onClick={() => commitLayout(agent.id, { ...layout, sizing: layout.sizing === 'content' ? 'fixed' : 'content' })}><Maximize2 size={14} /></button><button className="icon-button" title={layout.locked ? 'Unlock position' : 'Lock position'} aria-pressed={layout.locked} onClick={() => { const next = { ...layout, locked: !layout.locked }; setLayouts(p => ({ ...p, [agent.id]: next })); persist(agent.id, next); }}>{layout.locked ? <Lock size={14} /> : <Unlock size={14} />}</button><button className="icon-button" title={isCollapsed ? 'Expand agent' : 'Collapse agent'} aria-expanded={!isCollapsed} onClick={() => setCollapsed(p => { const next = new Set(p); next.has(agent.id) ? next.delete(agent.id) : next.add(agent.id); return next; })}>{isCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}</button><button className="icon-button" title="Archive agent" onClick={() => api(`/api/agents/${encodeURIComponent(agent.id)}/archive`, 'POST', {}).catch(e => report(e.message))}><Archive size={14} /></button></div></header>{!isCollapsed && camera.zoom >= .35 && <div className="card-body"><MeasuredContent watch={layout.sizing} onHeight={height => growContent(agent.id, height)}><AgentContent agent={agent} agents={snapshot.agents} settings={snapshot.settings} /></MeasuredContent></div>}<footer className="card-footer"><span>{agent.status === 'active' ? 'LIVE' : agent.status.toUpperCase()}</span><code title={agent.id}>{agent.agentId}</code><span className="sizing-label">{layout.sizing === 'content' ? 'CONTENT' : 'FIXED'}</span>{layout.locked && <Lock size={10} />}</footer>{!isCollapsed && <button className="resize-handle" title="Drag to resize - arrow keys adjust dimensions" aria-label={`Resize ${agent.name}. Use arrow keys to adjust width and height.`} onPointerDown={e => resizeCard(e, agent.id)} onKeyDown={e => resizeKeyboard(e, agent.id)}><span /></button>}</article>; })}
-    {settingsRect && isVisible(settingsRect, viewport) && <article className="world-card settings-card" style={{ left: settingsRect.x, top: settingsRect.y, width: settingsRect.width, height: settingsRect.height, zIndex: 100000 }}><header className="card-header" onPointerDown={e => dragCard(e, 'settings')}><div className="settings-icon"><Cog size={17} /></div><div className="agent-title"><strong>Workspace settings</strong><span>Your installation, your rules</span></div><button className="icon-button" title="Close settings" onClick={() => setSettingsRect(null)}><X size={17} /></button></header><SettingsBody settings={snapshot.settings} stats={snapshot.stats} save={async settings => { await api('/api/settings', 'PUT', settings); setSnapshot(s => ({ ...s, settings })); }} report={report} /></article>}
+  return <main className={`app ${snapshot.settings.reducedMotion ? 'reduced-motion' : ''}`}><div ref={canvasElement} className="canvas" tabIndex={0} onKeyDown={canvasKeyboard} onPointerDownCapture={touchStart} onPointerMoveCapture={touchMove} onPointerUpCapture={e => touchEnd(e, false)} onPointerCancelCapture={e => touchEnd(e, true)} onClickCapture={e => { if (performance.now() < suppressClickUntil.current) { e.preventDefault(); e.stopPropagation(); } }} onPointerDown={pan} style={{ backgroundPosition: `${camera.x}px ${camera.y}px`, backgroundSize: `${Math.max(12, 24 * camera.zoom)}px ${Math.max(12, 24 * camera.zoom)}px`, backgroundImage: camera.zoom < .1 ? 'none' : undefined }} aria-label="Agent canvas. Drag the background to pan. Use zoom controls to navigate.">
+    <div className="world" style={{ transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})` }}>{roots.map(agent => { const layout = layouts[agent.id]; if (!layout || !isVisible(layout, viewport)) return null; const isCollapsed = collapsed.has(agent.id); return <article className={`world-card agent-card ${camera.zoom < .35 ? 'overview' : ''} ${layout.locked ? 'locked' : ''}`} key={agent.id} data-card-id={agent.id} title={camera.zoom < .35 ? `${agent.name} · double-click or double-tap to focus` : undefined} onDoubleClick={e => { if (!(e.target as HTMLElement).closest('button,a,input,select,textarea')) focusCard(agent.id); }} style={{ left: layout.x, top: layout.y, width: layout.width, height: isCollapsed ? 68 : layout.height, zIndex: layout.z }}><header className="card-header" onPointerDown={e => dragCard(e, agent.id)} onKeyDown={e => keyboard(e, agent.id)} tabIndex={0} aria-label={`${agent.name}, ${layout.locked ? 'locked' : 'use arrow keys to move'}`}><span className={`status-dot ${agent.status}`} /><div className="agent-title"><strong>{agent.name}</strong><span>{agent.role}</span></div><div className="card-actions"><button className="icon-button" title={layout.sizing === 'content' ? 'Use fixed size' : 'Grow with content'} aria-label="Grow with content" aria-pressed={layout.sizing === 'content'} onClick={() => commitLayout(agent.id, { ...layout, sizing: layout.sizing === 'content' ? 'fixed' : 'content' })}><Maximize2 size={14} /></button><button className="icon-button" title={layout.locked ? 'Unlock position' : 'Lock position'} aria-pressed={layout.locked} onClick={() => { const next = { ...layout, locked: !layout.locked }; setLayouts(p => ({ ...p, [agent.id]: next })); persist(agent.id, next); }}>{layout.locked ? <Lock size={14} /> : <Unlock size={14} />}</button><button className="icon-button" title={isCollapsed ? 'Expand agent' : 'Collapse agent'} aria-expanded={!isCollapsed} onClick={() => setCollapsed(p => { const next = new Set(p); next.has(agent.id) ? next.delete(agent.id) : next.add(agent.id); return next; })}>{isCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}</button><button className="icon-button" title="Archive agent" onClick={() => api(`/api/agents/${encodeURIComponent(agent.id)}/archive`, 'POST', {}).catch(e => report(e.message))}><Archive size={14} /></button></div></header>{!isCollapsed && camera.zoom >= .35 && <div className="card-body"><MeasuredContent watch={layout.sizing} onHeight={height => growContent(agent.id, height)}><AgentContent agent={agent} agents={snapshot.agents} settings={snapshot.settings} /></MeasuredContent></div>}<footer className="card-footer"><span>{agent.status === 'active' ? 'LIVE' : agent.status.toUpperCase()}</span><code title={agent.id}>{agent.agentId}</code><span className="sizing-label">{layout.sizing === 'content' ? 'CONTENT' : 'FIXED'}</span>{layout.locked && <Lock size={10} />}</footer>{!isCollapsed && <button className="resize-handle" title="Drag to resize - arrow keys adjust dimensions" aria-label={`Resize ${agent.name}. Use arrow keys to adjust width and height.`} onPointerDown={e => resizeCard(e, agent.id)} onKeyDown={e => resizeKeyboard(e, agent.id)}><span /></button>}</article>; })}
+    {settingsRect && isVisible(settingsRect, viewport) && <article className="world-card settings-card" data-card-id="settings" onDoubleClick={e => { if (!(e.target as HTMLElement).closest('button,a,input,select,textarea')) focusCard('settings'); }} style={{ left: settingsRect.x, top: settingsRect.y, width: settingsRect.width, height: settingsRect.height, zIndex: 100000 }}><header className="card-header" onPointerDown={e => dragCard(e, 'settings')}><div className="settings-icon"><Cog size={17} /></div><div className="agent-title"><strong>Workspace settings</strong><span>Your installation, your rules</span></div><button className="icon-button" title="Close settings" onClick={() => setSettingsRect(null)}><X size={17} /></button></header><SettingsBody settings={snapshot.settings} stats={snapshot.stats} save={async settings => { await api('/api/settings', 'PUT', settings); setSnapshot(s => ({ ...s, settings })); }} report={report} /></article>}
     </div></div><header className="topbar chrome"><a className="brand" href="/" aria-label="AgenticView"><Radio size={19} /><span>Agentic<span>View</span></span><small>LOCAL</small></a><div className="connection-status"><i className={online ? 'connected' : ''} />{online ? 'Connected' : 'Reconnecting'}<span className="topbar-divider" />{snapshot.stats.active} active{snapshot.stats.updatesPerSecond > 0 && <span className="update-rate">{snapshot.stats.updatesPerSecond.toFixed(1)} updates/s</span>}</div></header>
-    <div className="bottom-left chrome"><button className={`settings-toggle ${settingsRect ? 'active' : ''}`} title="Workspace settings" aria-label="Workspace settings" aria-pressed={!!settingsRect} onClick={openSettings}><Cog size={20} /></button><span className="canvas-help">Drag to pan <span>·</span> Scroll to zoom</span></div><div className="viewport-controls chrome"><button title="Zoom out" aria-label="Zoom out" onClick={() => zoom(1 / 1.2)}><Minus size={15} /></button><button className="zoom-value" title="Reset zoom" onClick={() => { setCamera(c => ({ ...c, zoom: 1 })); }}>{Math.round(camera.zoom * 100)}%</button><button title="Zoom in" aria-label="Zoom in" onClick={() => zoom(1.2)}><Plus size={15} /></button><span /><button title="Fit all cards" aria-label="Fit all cards" onClick={fit}><Focus size={16} /></button></div>{notice && <div className="toast chrome" role="status">{notice}<button className="icon-button" aria-label="Dismiss message" onClick={() => setNotice('')}><X size={14} /></button></div>}
+    <div className="bottom-left chrome"><button className={`settings-toggle ${settingsRect ? 'active' : ''}`} title="Workspace settings" aria-label="Workspace settings" aria-pressed={!!settingsRect} onClick={openSettings}><Cog size={20} /></button><span className="canvas-help">Drag to pan <span>·</span> Pinch or scroll to zoom <span>·</span> F to fit</span></div><div className="viewport-controls chrome"><button title="Zoom out" aria-label="Zoom out" onClick={() => zoom(1 / 1.2)}><Minus size={15} /></button><button className="zoom-value" title="Reset zoom" onClick={resetZoom}>{formatZoom(camera.zoom)}</button><button title="Zoom in" aria-label="Zoom in" onClick={() => zoom(1.2)}><Plus size={15} /></button><span /><button className="fit-all" title="Fit all cards (F or Home)" aria-label="Fit all cards" onClick={fit}><Focus size={16} /><span>Fit all</span></button></div>{notice && <div className="toast chrome" role="status">{notice}<button className="icon-button" aria-label="Dismiss message" onClick={() => setNotice('')}><X size={14} /></button></div>}
   </main>;
 }

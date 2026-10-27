@@ -9,6 +9,8 @@
   rules. Do not introduce an LLM dependency for interpreting display instructions.
 - Use a freeform canvas with nonoverlapping draggable cards, position locks,
   content sizing and manual fixed sizing. Native displays are agent subcards.
+- Support mouse, keyboard and touchscreen pinch/tap input. Fit all must frame
+  every world card without a fixed zoom-out floor.
 - Agents own cleanup. Optional automatic archiving defaults off. Compressed archives
   and settings live behind one bottom-left cog that opens a card in the world.
 - Trusted embeds may execute scripts and load external resources; preserve host

@@ -15,6 +15,8 @@ opens a settings card in the world, including compressed archives.
   code, diffs, logs, timelines, progress, key/value data, JSON, file trees, status,
   and trusted agent-generated HTML views.
 - Content sizing and manual fixed sizing, keyboard movement and resizing.
+- Mouse, keyboard and touchscreen navigation, anchored pinch zoom, and Fit all
+  for widely separated cards. Double-click or double-tap a card to focus it.
 - Atomic sequenced batches, exact retries, incremental viewer updates, viewport
   culling, paginated tables, and windowed logs.
 - Persisted live state and gzip archives with inspection and export.
@@ -61,6 +63,26 @@ pnpm keys
 
 Run `pnpm dev` and `pnpm dev:web` in separate terminals for frontend development.
 The Vite server proxies API calls to the C# server.
+
+## Navigate the canvas
+
+| Input | Action |
+| --- | --- |
+| Mouse drag on background / middle-button drag | Pan |
+| Wheel / Ctrl-wheel | Zoom around the pointer |
+| Shift-wheel | Pan horizontally |
+| F or Home / Fit all | Frame every world card |
+| Arrow keys on the canvas | Pan; Shift moves farther |
+| + / - / 0 | Zoom in / out / reset around the viewport center |
+| Arrow keys on a card header | Move the unlocked card |
+| Arrow keys on a resize handle | Resize the card |
+| One finger | Pan background, drag a header, or scroll card content |
+| Two fingers | Pinch to zoom and move the midpoint to pan |
+| Double-click / double-tap a card | Focus it at a readable scale |
+
+Tap buttons and fields normally. Keyboard shortcuts leave text fields and controls
+alone. Embedded documents own their internal gestures; use the surrounding canvas
+for monitor gestures. Physical touchscreen verification remains a manual check.
 
 ## Connect agents
 

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findFreePosition, isVisible, moveWithoutOverlap, overlaps, resizeWithoutOverlap } from '../shared/canvas.js';
+import { findFreePosition, isVisible, moveWithoutOverlap, overlaps, resizeWithoutOverlap, fitToViewport, formatZoom } from '../shared/canvas.js';
 const card = { x: 0, y: 0, width: 480, height: 420 };
 test('stable free placement and exact gap boundaries', () => {
   assert.deepEqual(findFreePosition(card, []), card);
@@ -44,4 +44,15 @@ test('content height can grow safely, cap at an obstacle, then shrink freely', (
   assert.ok(grown.height > 583 && grown.height <= 584);
   assert.equal(overlaps(grown, below), false);
   assert.equal(resizeWithoutOverlap(grown, { width: 480, height: 240 }, [below]).height, 240);
+});
+test('fit includes all 1000 cards and widely separated extremes without a zoom floor', () => {
+  const rectangles = [...Array.from({ length: 1000 }, (_, i) => ({ ...card, x: i % 8 * 512, y: Math.floor(i / 8) * 452 })), { ...card, x: -10_000_000, y: -10_000_000 }, { ...card, x: 10_000_000, y: 10_000_000 }];
+  const viewport = { width: 1280, height: 720 }, camera = fitToViewport(rectangles, viewport);
+  assert.ok(camera.zoom > 0 && camera.zoom < .01);
+  for (const rect of rectangles) { assert.ok(rect.x * camera.zoom + camera.x >= 63.999); assert.ok(rect.y * camera.zoom + camera.y >= 63.999); assert.ok((rect.x + rect.width) * camera.zoom + camera.x <= viewport.width - 63.999); assert.ok((rect.y + rect.height) * camera.zoom + camera.y <= viewport.height - 63.999); }
+});
+test('empty and small viewports stay finite and tiny zoom never displays zero percent', () => {
+  assert.equal(fitToViewport([], { width: 100, height: 60 }).zoom, 1);
+  assert.ok(fitToViewport([card], { width: 100, height: 60 }).zoom > 0);
+  assert.ok(parseFloat(formatZoom(.0000001)) > 0); assert.ok(formatZoom(.0000001).endsWith('%'));
 });

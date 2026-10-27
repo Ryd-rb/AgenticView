@@ -12,6 +12,12 @@ Cards grow with content or use manually resized fixed viewports. A locked card
 that cannot grow safely scrolls internally. Native displays are titled subcards
 inside the agent: Markdown plans, diffs, modified-file trees, metrics, and evidence.
 
+Mouse, keyboard, and touchscreen input share the same camera transforms. Pinch
+zoom preserves the world anchor under the fingers while midpoint motion pans.
+Fit all has no fixed zoom floor. At overview scales, expensive card bodies remain
+unmounted; double-click or double-tap focuses a card. Editing controls retain their
+normal key and tap behavior. Embedded documents own their internal pointer events.
+
 Orchestrators declare children, which appear as nested agent cards. Surviving
 children become independent world cards when their parent is archived, retaining
 ancestry. Independent sizing controls currently apply to world cards; nested
