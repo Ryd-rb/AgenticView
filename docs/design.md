@@ -28,7 +28,8 @@ Fit all follows arriving cards and layout changes until you pan, zoom, or move a
 card. In a custom viewport, an offscreen arrival offers a persistent Show card action.
 
 Canvas navigation has priority until a card is clicked, tapped, or activated with
-Enter. Active cards expose independent content zoom and pan; Escape returns to
+Enter. Active cards expose independent content zoom and bounded native scrolling;
+zoom-out stops at content fit and panning cannot leave the scroll range. Escape returns to
 canvas navigation. Space-drag, middle-drag and Alt gestures force the canvas.
 Main zoom, Fit all, Arrange all and settings remain authoritative in a viewport
 HUD outside the transformed world. Larger system text uses the existing card

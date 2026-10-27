@@ -25,6 +25,7 @@
   Preserve sizes and active gestures. Provide Arrange all beside zoom.
 - Default to canvas navigation until a card is explicitly activated. Global
   controls always retain canvas authority. Keep text legible within component bounds.
+  Card zoom and pan must stay within content fit and native scroll boundaries.
 - Support a dedicated Windows fullscreen window with no system title bar and
   custom minimize, maximize/restore and close controls; keep desktop dependencies offline-ready.
 - Do not create or run automated image, screenshot, pixel, golden, or framebuffer

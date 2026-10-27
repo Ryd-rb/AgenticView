@@ -66,7 +66,7 @@ try {
         $existing = Get-CimInstance Win32_Process -Filter ('ProcessId=' + [int]$state.ProcessId)
         if ($existing) {
             Assert-PlainPath ([string]$state.Entry)
-            if ($existing.ExecutablePath -ne [string]$state.Entry -or !$existing.CommandLine -or !$existing.CommandLine.Contains('"' + $data + '"') -or $existing.CreationDate.ToUniversalTime().ToString('O') -ne [string]$state.CreatedUtc) { throw 'The previous desktop process identity cannot be established.' }
+            if ($existing.ExecutablePath -ne [string]$state.Entry -or !$existing.CommandLine -or !$existing.CommandLine.Contains('"' + $data + '"') -or $existing.CreationDate.ToUniversalTime() -ne ([DateTime]$state.CreatedUtc).ToUniversalTime()) { throw 'The previous desktop process identity cannot be established.' }
             if ($state.BuildHash -eq $buildHash -and $state.Url -eq $parsed.AbsoluteUri) { $state | ConvertTo-Json -Compress; return }
             if (!$Replace) { throw 'Another owned desktop build is running. Use -Replace to relaunch with the same private profile.' }
             # Only the PID with matching command line, creation time and bounded profile is owned.

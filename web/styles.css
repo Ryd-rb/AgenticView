@@ -61,3 +61,7 @@ table{font-size:12px;line-height:1.25}th{font-size:11px;line-height:1.25;color:#
 .child-card>header strong{font-size:12px;line-height:1.375}.section-label{font-size:10px;line-height:1.2;color:#9a9fb3}.card-footer{font-size:10px;color:#8e94a6}
 .card-footer>code{font-size:10px}.connection-status{font-size:12px;color:#b6b9c9}.canvas-help{font-size:11px;color:#8c91a2}
 .desktop-host .viewport-hud .topbar{pointer-events:auto}
+
+.card-surface{padding:16px}.card-surface.card-active{padding-top:46px}.card-active .card-content-plane{padding-top:0}.card-content-scroll{width:100%;height:100%;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;touch-action:none}.card-scroll-extent{position:relative;min-width:100%}.card-scroll-extent>.card-content-plane{position:absolute;left:0;top:0;width:100%;will-change:transform}
+
+.card-content-scroll::-webkit-scrollbar-thumb{background:#b5a2fa40}.card-content-scroll::-webkit-scrollbar-thumb:hover{background:#b5a2fa70}@media(pointer:coarse){.card-local-controls>button{min-width:30px;height:30px}.window-controls>button{width:38px;height:36px}}
