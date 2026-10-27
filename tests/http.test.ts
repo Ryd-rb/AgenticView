@@ -41,3 +41,10 @@ test('official MCP client negotiates and publishes through Streamable HTTP', asy
   assert.ok(!result.isError); const snapshot = await (await f.call('/api/snapshot', secrets.viewerToken)).json(); assert.equal(snapshot.agents.find((a: { id: string }) => a.id === credentials.runId).components.metric.kind, 'metric');
   const invalid = await client.callTool({ name: 'agent_publish', arguments: { ...credentials, sequence: 2, operations: [{ op: 'upsert', component: { id: 'bad', title: 'Invalid', kind: 'unsupported', data: {} } }] } }); assert.ok(invalid.isError);
 } finally { await client.close(); await f.close(); } });
+
+test('published monitor serves its HTML and compiled script from the C# process', async () => { const f = await fixture(); try {
+  const response = await fetch(f.url + '/'); assert.equal(response.status, 200);
+  const html = await response.text(); assert.match(html, /AgenticView/);
+  const script = /src="([^"]+\.js)"/.exec(html)?.[1]; assert.ok(script);
+  const asset = await fetch(f.url + script); assert.equal(asset.status, 200); assert.match(asset.headers.get('content-type') || '', /javascript/);
+} finally { await f.close(); } });

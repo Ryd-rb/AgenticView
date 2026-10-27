@@ -24,6 +24,8 @@ opens a settings card in the world, including compressed archives.
 This is an initial implementation. Manual visual acceptance and sustained capacity
 validation remain separate. The target is 1,000 agents and 10,000 component updates
 per second; measurements must identify their workload and duration.
+The [initial capacity measurement](docs/performance.md) exercised 200,000 operations
+across 1,000 agents. Browser frame rate remains a separate validation task.
 
 ## Build at work without internet
 
