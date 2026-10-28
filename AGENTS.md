@@ -6,7 +6,9 @@
 - The first version is a self-hosted, single-operator observation hub. Keep
   installations separate, persist archives locally, and prioritize investigations.
 - Support typed native components and agent-authored views under explicit embed
-  rules. Do not introduce an LLM dependency for interpreting display instructions.
+  rules. Prefer and expand native components so agents rarely need custom HTML.
+  Distinguish Built-in components from Custom views with persistent origin labels
+  and a separate custom frame. Do not add an LLM dependency for display instructions.
 - Use a freeform canvas with nonoverlapping draggable cards, position locks,
   content sizing and manual fixed sizing. Native displays are agent subcards.
 - Support mouse, keyboard and touchscreen pinch/tap input. Fit all must frame
@@ -31,7 +33,9 @@
   Start their temporary arrival color on first visibility, including nested cards.
 - Timestamp arrival, content updates, completion and task rows. Keep task clocks
   compact: milliseconds for second-scale gaps, seconds for minute-scale gaps,
-  minutes for ten-minute-plus gaps, with exact times on hover. Distinguish observed
+  minutes for ten-minute-plus gaps, with exact times on hover. Show elapsed task
+  durations with the same precision; never invent durations without an observed start.
+  Distinguish observed
   receipt times from agent execution times. Use status borders and emphasize the
   archive action for completed cards that remain visible.
 - Keep the page within the viewport, with the settings cog fixed at bottom left.

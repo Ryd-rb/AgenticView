@@ -37,12 +37,22 @@ do not change content times. `componentTimes` maps component IDs to last accepte
 update times. Missing log/timeline `time` values receive an ISO receipt time;
 agent-supplied times are preserved. Archives and live patches retain this metadata.
 
-Markdown `taskTimes` maps component IDs to observed task rows with stable text-based
-keys, current source `line`, `firstSeenAt`, `updatedAt`, and optional `startedAt`
+Markdown/checklist `taskTimes` maps component IDs to observed task rows with stable
+keys, current `line`, `firstSeenAt`, `updatedAt`, and optional `startedAt`
 and `completedAt`. These are report observations, not inferred execution times.
 An initially checked row has no invented start; reopening starts a new observed
 interval. Fenced code is excluded. Ambiguous deeply indented rows use the component
-receipt time in the viewer. Each component is limited to 1,024 observed task rows.
+receipt time in the viewer. Markdown keys follow normalized task text and `line`
+is the source line; native checklist keys follow item IDs and `line` is the current
+one-based item position. Markdown has at most 1,024 observed tasks; a native
+checklist has at most 200. Displayed durations are observed intervals, with an
+unavailable marker when no start was reported.
+
+Prefer the [25 native component types](native-components.md) to custom HTML.
+The catalog includes semantic query, command, trace and task views as well as
+charts, comparisons and distributions. Queries and commands display reported
+activity and never execute it. Built-in and custom views retain distinct origin
+labels in both live and archived content.
 
 Send `POST /api/agents/{runId}/heartbeat` every 15 seconds. Use
 `POST /api/agents/{runId}/archive` to retire your card and preserve its current

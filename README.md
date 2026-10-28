@@ -1,123 +1,132 @@
 # AgenticView
 
-A self-hosted observability canvas for agents. **C# / .NET 10 server, React web view,
-MIT license.**
+**A calm canvas for live agent work.**
 
-Start with an empty dark world. Agents connect from different applications and
-machines, declare children, and publish live context and visualizations. Pan,
-zoom, drag, lock, and resize their cards without overlap. The bottom-left cog
-opens a settings card in the world, including compressed archives.
+A self-hosted observation hub that brings agent plans, evidence and progress into
+one freeform workspace. Follow a run, inspect its children, and keep useful
+results in local archives.
 
-## Features
+C# · .NET 10 · React · MIT
 
-- MCP over Streamable HTTP and direct HTTP ingestion.
-- Nested agent cards with subcards for metrics, charts, tables, Markdown plans,
-  code, diffs, logs, timelines, progress, key/value data, JSON, file trees, status,
-  and trusted agent-generated HTML views.
-- Content sizing and manual fixed sizing, keyboard movement and resizing.
-- Mouse, keyboard and touchscreen navigation, anchored pinch zoom, and Fit all
-  for widely separated cards. Double-click or double-tap a card to focus it.
-- Atomic sequenced batches, exact retries, incremental viewer updates, viewport
-  culling, paginated tables, and windowed logs.
-- Persisted live state and gzip archives with inspection and export.
-- Immediate arrivals with a fading border, stable selection, status colors and
-  compact arrival, update, completion and task-list timestamps.
-- Separate viewer and registration keys, private run tokens, and parent proofs.
-  Agents own cleanup; automatic archiving is optional and disabled by default.
+[Get started](#get-started) · [Connect an agent](#connect-an-agent) · [Offline builds](docs/offline-build.md) · [Windows desktop](docs/desktop.md)
 
-This is an initial implementation. Manual visual acceptance and sustained capacity
-validation remain separate. The target is 1,000 agents and 10,000 component updates
-per second; measurements must identify their workload and duration.
-The [initial capacity measurement](docs/performance.md) exercised 200,000 operations
-across 1,000 agents. Browser frame rate remains a separate validation task.
+## A workspace that stays yours
 
-## Build at work without internet
+- **Keep your place.** Pan and zoom around the canvas. Selected cards hold their
+  position and size while reports arrive; new runs appear without moving your view.
+- **Look closer.** Activate a card to explore its content. Nested tables, logs and
+  code scroll within their bounds, with movement continuing through the surrounding
+  card and canvas. Mouse, keyboard and touch inputs share the same navigation model.
+- **Choose the right view.** Use 25 built-in types: task lists, query results,
+  commands, traces, charts, heatmaps, comparisons, code, diffs and more. Native
+  components handle display and interaction; custom HTML is an escape hatch with
+  a distinct frame and **Custom view** label. See the [native catalog](docs/native-components.md).
+- **Follow the work.** Declared child agents stay with their parent. Status colors,
+  first-visible arrival cues, timestamps and compact elapsed task durations make
+  changes easier to scan. Exact observed times remain available on hover.
+- **Keep the evidence.** Inspect, restore or export compressed local archives from
+  the bottom-left settings cog. Automatic archiving is optional and off by default.
 
-The offline source bundle includes compiled web assets and a local feed containing
-every locked NuGet package. Work builds need the **.NET 10 SDK on Windows x64**.
+AgenticView observes work that agents report. It has no LLM dependency and does
+not execute their tasks.
 
-```powershell
-# Inside an extracted offline source bundle:
-powershell -File scripts/build-offline.ps1
-dotnet app/AgenticView.Server.dll
+## Four simple concepts
 
-# Another terminal, same directory and AV_DATA_DIR:
-dotnet app/AgenticView.Server.dll --keys
+| Concept | What it means |
+| --- | --- |
+| **Run / card** | One registered agent execution, with its own identity, status and live view. |
+| **Native subcard** | A typed component inside a run: a plan, metric, table, log, diff or other evidence. |
+| **Declared child** | Another run registered with its parent's proof, shown inside the parent card. |
+| **Archive** | A compressed snapshot of the retained run, stored locally for later inspection or restoration. |
 
-# Optional dedicated fullscreen window, with WebView2 Runtime already installed:
-app/desktop/AgenticView.Desktop.exe
-```
+Arrival, update and completion times describe when reports were observed. Task
+rows retain observed start and completion timing as their checkboxes change;
+existing work does not acquire an invented history.
 
-Open [http://127.0.0.1:4317](http://127.0.0.1:4317) and enter the viewer key. Give
-producers the ingestion key. Keep `runSecret` private. See [offline builds](docs/offline-build.md)
-for bundle preparation and verification.
-The [Windows desktop host](docs/desktop.md) provides custom window controls;
-closing it leaves the hub running. The browser view remains available separately.
+## Get started
 
-## Connected development
-
-Use the .NET 10 SDK, Node.js 24+, and pnpm 11.25.0. Node and pnpm build browser
-assets and run development checks.
+For connected development, install the **.NET 10 SDK**, **Node.js 24+** and
+**pnpm 11.25.0**, then run from the repository root:
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm check
 pnpm build
-pnpm test
 pnpm start
+```
+
+In another terminal, from the same directory and with the same `AV_DATA_DIR`:
+
+```sh
 pnpm keys
 ```
 
-Run `pnpm dev` and `pnpm dev:web` in separate terminals for frontend development.
-The Vite server proxies API calls to the C# server.
+Open [localhost:4317](http://127.0.0.1:4317) and sign in with the viewer key. Give
+agents the ingestion key; keep the server's `runSecret` private.
 
-## Navigate the canvas
+For frontend development, run `pnpm dev` and `pnpm dev:web` in separate terminals.
+`pnpm check` and `pnpm test` run the project's checks.
 
-| Input | Action |
-| --- | --- |
-| Mouse drag on background / middle-button drag | Pan |
-| Wheel / Ctrl-wheel | Zoom around the pointer |
-| Shift-wheel | Pan horizontally |
-| F or Home / Fit all | Frame every world card |
-| Arrow keys on the canvas | Pan; Shift moves farther |
-| + / - / 0 | Zoom in / out / reset around the viewport center |
-| Arrow keys on a card header | Move the unlocked card |
-| Arrow keys on a resize handle | Resize the card |
-| One finger | Pan background, drag a header, or scroll card content |
-| Two fingers | Pinch to zoom and move the midpoint to pan |
-| Double-click / double-tap a card | Focus it at a readable scale |
+### Build on an offline Windows machine
 
-Tap buttons and fields normally. Keyboard shortcuts leave text fields and controls
-alone. Embedded documents own their internal gestures; use the surrounding canvas
-for monitor gestures. Physical touchscreen verification remains a manual check.
+Prepare an [offline source bundle](docs/offline-build.md) on a connected machine.
+It contains the locked NuGet packages and prebuilt browser assets. After
+transferring and extracting it on **Windows x64 with the .NET 10 SDK installed**:
 
-## Connect agents
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-offline.ps1
+dotnet app/AgenticView.Server.dll
+```
 
-The MCP endpoint is `/mcp`; authenticate with the ingestion key in an
-`Authorization: Bearer ...` header. Discover native schemas with `component_catalog`,
-then use `agent_register`, `agent_publish`, `agent_heartbeat`, and `agent_archive`.
+The offline build needs no Node.js or internet package restore. Web changes are
+built during bundle preparation. See the guide for key retrieval and verification.
 
-See the [HTTP protocol](docs/protocol.md), [TypeScript client](clients/client.ts),
-and [language examples](examples). A coding agent can publish a plan, modified-file
-tree, and diff in one batch, inside its existing card.
+The optional [Windows host](docs/desktop.md) opens a dedicated fullscreen window
+with custom controls and the same signal icon as the web title. It requires the
+Windows Desktop and WebView2 runtimes; closing the window leaves the server running.
 
-Trusted embeds execute scripts and can load external resources. They run in
-sandboxed documents with a state-only bridge; the bridge exposes no installation
-credentials or command APIs. Settings can pause embedded views.
+## Connect an agent
 
-## Deployment and data
+Connect through **MCP over Streamable HTTP** at `/mcp`, or use the HTTP API.
+MCP exposes `component_catalog`, `agent_register`, `agent_publish`,
+`agent_heartbeat` and `agent_archive`.
 
-The default bind is `127.0.0.1:4317`. Configure `AV_HOST`, `AV_PORT`, and
-`AV_PUBLIC_URL` for remote access behind HTTPS. `AV_ALLOW_HTTP=1` explicitly allows
-HTTP on a trusted private network. `AV_DATA_DIR` selects the local database and
-credential directory; separate installations use separate data.
+After [registering a run](docs/protocol.md), send a batch like this to
+`POST /api/agents/{runId}/publish`, using the run's private token in an
+`Authorization: Bearer <runToken>` header:
 
-Archives preserve the current retained view. Bounded appends report trimmed items;
-archives are not an unlimited sample history. SQLite uses WAL with
-`synchronous=NORMAL`: ordinary service restarts preserve committed data, while
-power-loss guarantees are weaker than `FULL`. Archives remain retained; the
-initial interface supports inspection and export.
+```json
+{
+  "sequence": 1,
+  "operations": [{
+    "op": "upsert",
+    "component": {
+      "id": "plan",
+      "title": "Current work",
+      "kind": "markdown",
+      "data": { "text": "- [x] Inspect the inputs\n- [ ] Validate the result" }
+    }
+  }]
+}
+```
 
-Repository content is source and synthetic examples. Credentials, real telemetry,
-private infrastructure details, and local configuration stay outside version
-control. See the [design](docs/design.md) and [MIT license](LICENSE).
+Batches are atomic and sequenced. Retry an uncertain delivery with the same
+sequence and body. The [protocol](docs/protocol.md) covers authentication,
+heartbeats, child registration and cleanup. Start from the
+[TypeScript client](clients/client.ts) or the [language examples](examples).
+
+## Local by default
+
+The server binds to `127.0.0.1:4317`. `AV_DATA_DIR` selects its local database,
+archives and credentials; use separate data directories for separate installations.
+Remote access requires an explicit public URL and HTTPS, or an explicit trusted
+private-network HTTP configuration. See the [deployment design](docs/design.md).
+
+Viewer access, installation ingestion and individual run writes use separate
+credentials. Agent content remains untrusted. Embedded views have a sandboxed,
+state-only bridge, and settings can pause them.
+
+Archives preserve retained content, including reported append trimming. They are
+snapshots of a run's current evidence rather than an unlimited event history.
+Published source and examples contain synthetic data only.
+
+[Architecture and design](docs/design.md) · [Measured workloads and limits](docs/performance.md) · [MIT license](LICENSE)

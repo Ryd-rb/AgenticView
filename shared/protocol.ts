@@ -7,6 +7,19 @@ const tone = z.enum(['neutral', 'info', 'success', 'warning', 'error']);
 const base = { id: idSchema, title: z.string().max(160) };
 const entry = z.object({ time: z.string().max(80).optional(), level: z.enum(['debug', 'info', 'warn', 'error']).default('info'), message: z.string().max(16_384), source: z.string().max(160).optional() });
 const event = z.object({ time: z.string().max(80).optional(), title: z.string().max(200), detail: z.string().max(8_192).optional(), tone: tone.optional() });
+const columns = z.array(z.object({ key: idSchema, label: z.string().max(100) })).max(64);
+const rows = z.array(z.record(z.string().max(100), scalar)).max(2_000);
+const checklistItems = z.array(z.object({ id: idSchema, label: z.string().max(500), status: z.enum(['pending', 'active', 'completed', 'blocked']), detail: z.string().max(2_000).optional() })).max(200).refine(items => new Set(items.map(item => item.id)).size === items.length, 'Checklist IDs must be unique').describe('Task IDs must be unique and remain stable across updates.');
+const heatmapData = z.object({ columns: z.array(z.string().max(100)).min(1).max(32), rows: z.array(z.string().max(100)).min(1).max(64), cells: z.array(z.object({ row: z.number().int().min(0).max(63), column: z.number().int().min(0).max(31), value: z.number().finite() })).max(2_048), unit: z.string().max(80).optional() }).superRefine((data, context) => {
+  const seen = new Set<string>();
+  for (const cell of data.cells) { const key = `${cell.row}:${cell.column}`; if (cell.row >= data.rows.length || cell.column >= data.columns.length || seen.has(key)) context.addIssue({ code: 'custom', message: 'Heatmap coordinates must be unique and fit the declared dimensions' }); seen.add(key); }
+}).describe('Cell coordinates must be unique and fit the declared row and column dimensions.');
+const traceData = z.object({ spans: z.array(z.object({ id: idSchema, parentId: idSchema.optional(), name: z.string().max(200), startMs: z.number().finite().nonnegative(), durationMs: z.number().finite().nonnegative(), status: z.enum(['active', 'success', 'error']).default('success') })).max(500) }).superRefine((data, context) => {
+  const parents = new Map(data.spans.map(span => [span.id, span.parentId]));
+  if (parents.size !== data.spans.length) context.addIssue({ code: 'custom', message: 'Trace span IDs must be unique' });
+  for (const span of data.spans) { const seen = new Set<string>(); let id: string | undefined = span.id; while (id !== undefined) { if (seen.has(id) || !parents.has(id)) { context.addIssue({ code: 'custom', message: 'Trace parents must exist and be acyclic' }); break; } seen.add(id); id = parents.get(id); } }
+}).describe('Span IDs must be unique; every parent must exist and the parent graph must be acyclic.');
+const publicLink = z.string().max(2_048).refine(value => { try { const url = new URL(value); return !/\s/.test(value) && /^https?:\/\//i.test(value) && !/^https?:\/\/[^/?#]*@/i.test(value) && ['http:', 'https:'].includes(url.protocol) && !!url.hostname && !url.username && !url.password; } catch { return false; } }, 'Links must use HTTP(S) without user information').describe('Absolute HTTP(S) URL without user information.');
 export const componentSchema = z.discriminatedUnion('kind', [
   z.object({ ...base, kind: z.literal('metric'), data: z.object({ value: scalar, unit: z.string().max(80).optional(), change: z.string().max(160).optional(), history: z.array(z.number().finite()).max(512).optional(), tone: tone.optional() }) }),
   z.object({ ...base, kind: z.literal('chart'), data: z.object({ type: z.enum(['line', 'area', 'bar', 'scatter']).default('line'), series: z.array(z.object({ name: z.string().max(100), points: z.array(z.object({ x: z.union([z.string().max(100), z.number().finite()]), y: z.number().finite() })).max(2_048) })).max(12), xLabel: z.string().max(100).optional(), yLabel: z.string().max(100).optional() }) }),
@@ -22,6 +35,18 @@ export const componentSchema = z.discriminatedUnion('kind', [
   z.object({ ...base, kind: z.literal('tree'), data: z.object({ nodes: z.array(z.object({ id: idSchema, label: z.string().max(200), parentId: idSchema.optional(), detail: z.string().max(1_000).optional() })).max(1_000) }) }),
   z.object({ ...base, kind: z.literal('status'), data: z.object({ label: z.string().max(200), state: z.enum(['active', 'success', 'warning', 'error', 'idle']), detail: z.string().max(2_000).optional() }) }),
   z.object({ ...base, kind: z.literal('embed'), data: z.object({ html: z.string().max(524_288), height: z.number().int().min(120).max(1_200).default(300), state: z.json().optional() }) }),
+  z.object({ ...base, kind: z.literal('stat-grid'), data: z.object({ items: z.array(z.object({ label: z.string().max(160), value: scalar, unit: z.string().max(80).optional(), change: z.string().max(160).optional(), tone: tone.optional() })).max(24) }) }),
+  z.object({ ...base, kind: z.literal('checklist'), data: z.object({ items: checklistItems }) }),
+  z.object({ ...base, kind: z.literal('bar-list'), data: z.object({ items: z.array(z.object({ label: z.string().max(200), value: z.number().finite().nonnegative(), tone: tone.optional() })).max(100), unit: z.string().max(80).optional() }) }),
+  z.object({ ...base, kind: z.literal('histogram'), data: z.object({ buckets: z.array(z.object({ label: z.string().max(100), count: z.number().int().nonnegative() })).max(100), unit: z.string().max(80).optional() }) }),
+  z.object({ ...base, kind: z.literal('heatmap'), data: heatmapData }),
+  z.object({ ...base, kind: z.literal('gauge'), data: z.object({ value: z.number().finite(), min: z.number().finite().default(0), max: z.number().finite().default(100), unit: z.string().max(80).optional(), label: z.string().max(200).optional() }).refine(data => data.max > data.min, 'Gauge max must exceed min') }),
+  z.object({ ...base, kind: z.literal('query'), data: z.object({ query: text, language: z.string().max(40).default('sql'), source: z.string().max(160).optional(), state: z.enum(['running', 'success', 'error']).default('running'), error: z.string().max(8_192).optional(), durationMs: z.number().finite().nonnegative().optional(), totalRows: z.number().int().nonnegative().optional(), columns: columns.default([]), rows: rows.default([]) }).refine(data => data.rows.length === 0 || data.columns.length > 0, 'Query rows require columns') }),
+  z.object({ ...base, kind: z.literal('command'), data: z.object({ command: text, shell: z.string().max(40).optional(), directory: z.string().max(1_000).optional(), output: text.optional(), exitCode: z.number().int().min(-2_147_483_648).max(2_147_483_647).optional(), durationMs: z.number().finite().nonnegative().optional() }) }),
+  z.object({ ...base, kind: z.literal('trace'), data: traceData }),
+  z.object({ ...base, kind: z.literal('alert'), data: z.object({ tone: tone.default('info'), message: z.string().max(8_192), detail: text.optional() }) }),
+  z.object({ ...base, kind: z.literal('links'), data: z.object({ items: z.array(z.object({ label: z.string().max(200), url: publicLink, description: z.string().max(1_000).optional() })).max(100) }) }),
+  z.object({ ...base, kind: z.literal('comparison'), data: z.object({ items: z.array(z.object({ label: z.string().max(200), before: scalar, after: scalar })).max(100) }) }),
 ]);
 export type Component = z.infer<typeof componentSchema>;
 export type Layout = { x: number; y: number; width: number; height: number; locked: boolean; z: number; sizing?: 'content' | 'fixed'; automatic?: boolean };

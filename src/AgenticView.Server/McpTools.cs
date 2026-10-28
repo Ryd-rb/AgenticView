@@ -31,10 +31,11 @@ public sealed class McpTools(Hub hub)
     [McpServerTool(Name = "agent_archive", Idempotent = true, UseStructuredContent = true), Description("Retire your run, remove its live card, and retain its current bounded view in a compressed archive. Active child agents remain available independently.")]
     public JsonObject Archive(string runId, string runToken) => Invoke(() => { hub.AuthorizeArchive(runId, runToken); return hub.Archive(runId); });
 
-    [McpServerTool(Name = "component_catalog", ReadOnly = true, Idempotent = true, UseStructuredContent = true), Description("Discover all supported component kinds, input schemas and retention limits. Executable embeds are trusted code with external network access; their state bridge exposes no host credentials.")]
+    [McpServerTool(Name = "component_catalog", ReadOnly = true, Idempotent = true, UseStructuredContent = true), Description("Discover all supported component kinds, input schemas and retention limits. Prefer built-in typed components for tasks, queries, commands, traces and visualizations. Reserve embeds for views the native catalog cannot express. Executable embeds are agent-authored code with external network access; their state bridge exposes no host credentials.")]
     public JsonObject Catalog() => new()
     {
         ["schemaVersion"] = 1,
+        ["rendering"] = Json.Object(new { preferNative = true, native = "Typed components use the built-in renderer and a Built-in badge.", custom = "embed runs agent-authored HTML/scripts in an isolated document, with a Custom view badge and distinct frame." }),
         ["schema"] = JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "components.schema.json"))),
         ["limits"] = Json.Object(new { componentsPerRun = 64, liveRunBytes = 2_097_152, appendItems = 512, retainedRetryBatches = 256 }),
         ["cleanup"] = "Remove obsolete components or clear the view. Explicitly archive your run when finished. Automatic archiving is optional and disabled by default."

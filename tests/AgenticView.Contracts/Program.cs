@@ -6,6 +6,12 @@ using AgenticView.Server;
 using Microsoft.Data.Sqlite;
 using System.Diagnostics;
 
+if (args.Contains("--native-validation-probe"))
+{
+    var inputs=JsonNode.Parse(Console.In.ReadToEnd())!.AsArray(); var results=new JsonArray();
+    foreach(var input in inputs) { try { var component=(JsonObject)input!.DeepClone(); ComponentValidator.Validate(component); results.Add(new JsonObject { ["ok"]=true,["value"]=component }); } catch(HubError error) { results.Add(new JsonObject { ["ok"]=false,["status"]=error.Status }); } }
+    Console.WriteLine(results.ToJsonString()); return 0;
+}
 if (args.Contains("--layout-probe"))
 {
     Run((hub, _) => { var watch=Stopwatch.StartNew(); for(var i=0;i<100;i++) hub.Register(Input("probe-"+i)); watch.Stop(); Console.WriteLine(new JsonObject { ["synthetic"]=true,["registrations"]=100,["elapsedMs"]=watch.Elapsed.TotalMilliseconds,["layoutMs"]=hub.RegistrationLayoutMilliseconds }.ToJsonString()); });
@@ -15,6 +21,34 @@ if (args.Contains("--layout-probe"))
 var cases = new (string Name, Action Test)[]
 {
     ("efficient deterministic bin packing respects fixed obstacles", PackingContracts.Run),
+    ("native catalog persists defaults and checklist timing across transitions and recovery", () => Run((hub,directory)=>{
+        var a=Register(hub); var id=S(a,"runId");
+        var samples=new (string Kind,object Data)[]{
+            ("stat-grid",new{items=new[]{new{label="Rows",value=12}}}),
+            ("checklist",new{items=new[]{new{id="inspect",label="Inspect",status="pending"},new{id="old",label="Already done",status="completed"}}}),
+            ("bar-list",new{items=new[]{new{label="Batch",value=5}}}),
+            ("histogram",new{buckets=new[]{new{label="Fast",count=3}}}),
+            ("heatmap",new{columns=new[]{"A"},rows=new[]{"B"},cells=new[]{new{row=0,column=0,value=-2}}}),
+            ("gauge",new{value=42}),("query",new{query="select 1"}),
+            ("command",new{command="dotnet --version",exitCode=0}),
+            ("trace",new{spans=new[]{new{id="root",name="Root",startMs=0,durationMs=5}}}),
+            ("alert",new{message="Synthetic information"}),
+            ("links",new{items=new[]{new{label="Docs",url="https://example.com/docs"}}}),
+            ("comparison",new{items=new[]{new{label="Rows",before=1,after=2}}})};
+        Publish(hub,a,Batch(1,samples.Select(sample=>(object)new{op="upsert",component=new{id=sample.Kind,title=sample.Kind,kind=sample.Kind,data=sample.Data}}).ToArray()));
+        var view=hub.GetRun(id)!; Check(view["components"]!.AsObject().Count==12,"Native catalog did not persist");
+        Check(view["components"]!["gauge"]!["data"]!["max"]!.GetValue<int>()==100 && view["components"]!["query"]!["data"]!["language"]!.GetValue<string>()=="sql" && view["components"]!["alert"]!["data"]!["tone"]!.GetValue<string>()=="info","Native defaults not persisted");
+        var first=(JsonArray)view["taskTimes"]!["checklist"]!.DeepClone(); Check(first[0]!["startedAt"] is not null && first[1]!["startedAt"] is null && first[1]!["completedAt"] is not null,"Checklist initial observed times fabricated start or omitted finish");
+        object Checklist(params object[] items)=>new{op="upsert",component=new{id="checklist",title="Work",kind="checklist",data=new{items}}};
+        Publish(hub,a,Batch(2,Checklist(new{id="old",label="Already done",status="completed"},new{id="inspect",label="Inspect",status="pending"})));
+        var reordered=hub.GetRun(id)!["taskTimes"]!["checklist"]!.AsArray(); Check(reordered[1]!["key"]!.ToJsonString()==first[0]!["key"]!.ToJsonString() && reordered[1]!["startedAt"]!.ToJsonString()==first[0]!["startedAt"]!.ToJsonString() && reordered[1]!["line"]!.GetValue<int>()==2,"Checklist reorder lost timing identity");
+        Publish(hub,a,Batch(3,Checklist(new{id="inspect",label="Inspect renamed",status="completed"}))); var completed=(JsonObject)hub.GetRun(id)!["taskTimes"]!["checklist"]![0]!.DeepClone();
+        Publish(hub,a,Batch(4,Checklist(new{id="inspect",label="Inspect renamed",status="completed"}))); Check(JsonNode.DeepEquals(hub.GetRun(id)!["taskTimes"]!["checklist"]![0],completed),"Unchanged checklist completion changed times");
+        Publish(hub,a,Batch(5,Checklist(new{id="inspect",label="Inspect renamed",status="active"}))); var reopened=hub.GetRun(id)!["taskTimes"]!["checklist"]![0]!; Check(reopened["completedAt"] is null && reopened["startedAt"]!.ToJsonString()==reopened["updatedAt"]!.ToJsonString() && reopened["firstSeenAt"]!.ToJsonString()==first[0]!["firstSeenAt"]!.ToJsonString(),"Checklist reopen failed observed interval semantics");
+        var before=hub.GetRun(id)!.ToJsonString(); Throws(()=>Publish(hub,a,Batch(6,new{op="upsert",component=new{id="heatmap",title="Invalid",kind="heatmap",data=new{columns=new[]{"A"},rows=new[]{"B"},cells=new[]{new{row=1,column=0,value=1}}}}})),400); Check(hub.GetRun(id)!.ToJsonString()==before,"Invalid native input mutated run");
+        var retained=(JsonObject)hub.GetRun(id)!["taskTimes"]!.DeepClone(); hub.Archive(id); hub.Dispose(); using var restored=new Hub(directory,Keys()); restored.Restore(id); Check(restored.GetRun(id)!["components"]!.AsObject().Count==12 && JsonNode.DeepEquals(restored.GetRun(id)!["taskTimes"],retained),"Native catalog/checklist timing did not survive archive recovery");
+        restored.Publish(id,S(a,"runToken"),Batch(6,new{op="remove",componentId="checklist"})); Check(restored.GetRun(id)!["taskTimes"]!["checklist"] is null,"Checklist removal retained timing");
+    })),
     ("observed Markdown row times survive reorder, transitions, duplicates and recovery", () => Run((hub, directory) => {
         var a=Register(hub); var id=S(a,"runId"); long sequence=0;
         void Markdown(string text) => Publish(hub,a,Batch(++sequence,new{op="upsert",component=new{id="tasks",title="Tasks",kind="markdown",data=new{text}}}));

@@ -78,6 +78,17 @@ gaps below a minute, seconds below ten minutes, and minutes for longer gaps.
 Exact local times and observed intervals are available on hover. Status-colored
 borders identify active, stale, completed and failed runs, with a highlighted
 Archive action on completed cards.
+Elapsed task durations are visible beside the clock, using the same precision
+thresholds. Running duration labels share one one-second clock, pause in hidden
+documents, and release the timer when no running labels remain. Completion freezes
+the duration. A missing observed start remains unavailable.
+
+The visual system uses quiet neutral surfaces, a single restrained accent and
+consistent type, boundaries and control treatments. Plans lead each card; evidence
+uses compact native subcards. Native components have a Built-in caption, while
+agent-authored HTML has a Custom view caption and a warm frame. The empty canvas
+stays empty. No welcome panel or extra navigation surface occupies the world.
+See the [native catalog](native-components.md) for the 25 built-in kinds.
 Input regression tests include captured parent/child crossings, long bidirectional
 move sequences, capture loss, and live layout updates through the actual App in an
 in-memory DOM. These contracts complement manual physical-touch acceptance.

@@ -45,7 +45,7 @@ $sourceFiles = @(
     'src/AgenticView.Desktop/Program.cs', 'src/AgenticView.Desktop/DesktopOptions.cs',
     'src/AgenticView.Desktop/DesktopWindow.cs', 'src/AgenticView.Desktop/BridgePolicy.cs',
     'src/AgenticView.Desktop/BrandIcon.cs',
-    'scripts/build-offline.ps1', 'docs/design.md', 'docs/offline-build.md', 'docs/protocol.md', 'docs/performance.md', 'docs/desktop.md'
+    'scripts/build-offline.ps1', 'docs/design.md', 'docs/offline-build.md', 'docs/protocol.md', 'docs/performance.md', 'docs/desktop.md', 'docs/native-components.md'
 )
 foreach ($relative in $sourceFiles) { $file = Assert-PlainPath (Join-Path $repository $relative) $repository; if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Missing allowed source file: $relative" } }
 $packages = @{}

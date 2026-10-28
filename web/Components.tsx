@@ -1,12 +1,16 @@
 import { memo, useContext, useEffect, useRef, useState } from 'react';
 import { diffLines } from 'diff';
-import { Activity, Code2, FileText, Pause, ShieldCheck } from 'lucide-react';
+import { Activity, BarChart3, Braces, CheckSquare, Code2, Database, FileText, Gauge, GitCompareArrows, LayoutGrid, Link2, ListTree, Pause, ShieldCheck, Table2, Terminal, Timer, type LucideIcon } from 'lucide-react';
 import type { Component, TaskTiming } from '../shared/protocol.js';
 import { CardInteraction } from './CardInteraction.js';
 import { TaskMarkdown } from './TaskMarkdown.js';
 import { compactTime, exactTime } from '../shared/time-format.js';
+import { isTaskList } from '../shared/component-order.js';
+import { DataTable } from './DataTable.js';
+import { NativeView } from './NativeViews.js';
 
 const colors = ['#b4a2ff', '#70d6c3', '#e8be79', '#8bbbf5', '#e891b1'];
+const icons: Record<string, LucideIcon> = { metric: Activity, chart: BarChart3, table: Table2, code: Code2, diff: GitCompareArrows, logs: Terminal, timeline: Timer, tree: ListTree, json: Braces, checklist: CheckSquare, 'stat-grid': LayoutGrid, 'bar-list': BarChart3, histogram: BarChart3, heatmap: LayoutGrid, gauge: Gauge, query: Database, command: Terminal, trace: Activity, links: Link2, comparison: GitCompareArrows, embed: Braces };
 const stringify = (v: unknown) => typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v ?? '—');
 function Sparkline({ values }: { values: number[] }) {
   const min = Math.min(...values), span = Math.max(...values) - min || 1;
@@ -25,10 +29,6 @@ function Chart({ data }: { data: Extract<Component, { kind: 'chart' }>['data'] }
     {data.series.map((s, si) => { const points = s.points.map((p, i) => `${x(p.x)},${y(p.y)}`).join(' '); return <g key={s.name} fill={colors[si % colors.length]} stroke={colors[si % colors.length]}>
       {data.type === 'bar' ? s.points.map((p, i) => <rect key={i} x={x(p.x) - 3} y={Math.min(y(0), y(p.y))} width={Math.max(2, 250 / s.points.length / data.series.length)} height={Math.max(1, Math.abs(y(p.y) - y(0)))} stroke="none" />) : data.type === 'scatter' ? s.points.map((p, i) => <circle key={i} cx={x(p.x)} cy={y(p.y)} r="2.5" />) : <>{data.type === 'area' && s.points.length > 0 && <polygon points={`${x(s.points[0]!.x)},${y(0)} ${points} ${x(s.points[s.points.length - 1]!.x)},${y(0)}`} opacity=".1" stroke="none" />}<polyline points={points} fill="none" strokeWidth="2" vectorEffect="non-scaling-stroke" /></>}
     </g>; })}<text x="36" y="168">{all[0]?.x}</text><text x="376" y="168" textAnchor="end">{all[all.length - 1]?.x}</text><text x="210" y="180" textAnchor="middle">{data.xLabel}</text></svg><div className="legend">{data.series.map((s, i) => <span key={s.name}><i style={{ background: colors[i % colors.length] }} />{s.name}</span>)}</div></>;
-}
-function Table({ data }: { data: Extract<Component, { kind: 'table' }>['data'] }) {
-  const [page, setPage] = useState(0), count = 25, pages = Math.max(1, Math.ceil(data.rows.length / count)), current = Math.min(page, pages - 1);
-  return <><div className="table-scroll"><table><thead><tr>{data.columns.map(c => <th key={c.key}>{c.label}</th>)}</tr></thead><tbody>{data.rows.slice(current * count, (current + 1) * count).map((r, i) => <tr key={i}>{data.columns.map(c => <td key={c.key}>{stringify(r[c.key])}</td>)}</tr>)}</tbody></table></div><div className="pagination"><span>{data.totalRows ?? data.rows.length} rows</span><button disabled={!current} onClick={() => setPage(current - 1)}>Previous</button><span>{current + 1} / {pages}</span><button disabled={current + 1 === pages} onClick={() => setPage(current + 1)}>Next</button></div></>;
 }
 function Logs({ entries }: { entries: Extract<Component, { kind: 'logs' }>['data']['entries'] }) {
   const [scroll, setScroll] = useState(0); const row = 30, height = 210, start = Math.max(0, Math.floor(scroll / row) - 3), end = Math.min(entries.length, start + 16);
@@ -64,7 +64,7 @@ export const ComponentView = memo(function ComponentView({ component: c, embeds,
   switch (c.kind) {
     case 'metric': body = <div className={`metric tone-${c.data.tone ?? 'neutral'}`}><div><strong>{stringify(c.data.value)}</strong><span>{c.data.unit}</span></div>{c.data.change && <small>{c.data.change}</small>}{!!c.data.history?.length && <Sparkline values={c.data.history} />}</div>; break;
     case 'chart': body = <Chart data={c.data} />; break;
-    case 'table': body = <Table data={c.data} />; break;
+    case 'table': body = <DataTable data={c.data} />; break;
     case 'markdown': body = <TaskMarkdown text={c.data.text} tasks={taskTimes} updatedAt={updatedAt} />; break;
     case 'code': body = <><div className="code-language"><Code2 size={12} />{c.data.language || 'text'}</div><pre><code>{c.data.code}</code></pre></>; break;
     case 'diff': body = <pre className="diff">{diffLines(c.data.before, c.data.after).map((p, i) => <span className={p.added ? 'added' : p.removed ? 'removed' : ''} key={i}>{p.value}</span>)}</pre>; break;
@@ -76,6 +76,8 @@ export const ComponentView = memo(function ComponentView({ component: c, embeds,
     case 'tree': body = <Tree nodes={c.data.nodes} />; break;
     case 'status': body = <div className={`status-display ${c.data.state}`}><Activity size={17} /><div><strong>{c.data.label}</strong>{c.data.detail && <p>{c.data.detail}</p>}</div></div>; break;
     case 'embed': body = <Embed key={c.data.html} data={c.data} enabled={embeds} runId={runId} componentId={c.id} />; break;
+    default: body = <NativeView component={c} taskTimes={taskTimes} updatedAt={updatedAt} />;
   }
-  return <section className={`component component-${c.kind}`}><h3><FileText size={12} />{c.title || c.kind}{updatedAt !== undefined && <time className="component-time" dateTime={new Date(updatedAt).toISOString()} title={`Updated: ${exactTime(updatedAt)}`}>{compactTime(updatedAt)}</time>}</h3>{body}</section>;
+  const Icon = icons[c.kind] ?? FileText, custom = c.kind === 'embed';
+  return <section className={`component component-${c.kind} ${custom ? 'is-custom' : isTaskList(c) ? 'is-plan' : ''}`} data-origin={custom ? 'custom' : 'native'}><h3><Icon size={12} /><span className="component-title">{c.title || c.kind}</span><span className={`component-origin ${custom ? 'custom' : 'native'}`} title={custom ? 'Agent-authored HTML and scripts in an isolated document' : 'Built-in typed component rendered by AgenticView'}>{custom ? 'Custom view' : 'Built-in'}</span>{updatedAt !== undefined && <time className="component-time" dateTime={new Date(updatedAt).toISOString()} title={`Updated: ${exactTime(updatedAt)}`}>{compactTime(updatedAt)}</time>}</h3>{body}</section>;
 });

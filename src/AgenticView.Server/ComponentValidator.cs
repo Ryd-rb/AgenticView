@@ -106,6 +106,45 @@ public static class ComponentValidator
                 foreach (var id in parents.Keys) { var seen = new HashSet<string>(); string? current = id; while (current is not null) { if (!seen.Add(current)) Fail("Tree must not contain cycles."); if (!parents.TryGetValue(current, out current)) Fail("Tree parent is missing."); } } break;
             case "status": Text(data, "label", 200); Choice(data, "state", ["active", "success", "warning", "error", "idle"]); Text(data, "detail", 2000, false); break;
             case "embed": Text(data, "html", 524288); if (!data.ContainsKey("height")) data["height"] = 300; Number(data, "height", 120, 1200, true, true); break;
+            case "stat-grid":
+                foreach (var n in Array(data, "items", 24)) { var item = Object(n); Text(item, "label", 160); if (!item.ContainsKey("value")) Fail("value is required."); Scalar(item["value"]); Text(item, "unit", 80, false); Text(item, "change", 160, false); if (item.ContainsKey("tone")) Choice(item, "tone", ["neutral", "info", "success", "warning", "error"]); } break;
+            case "checklist":
+            {
+                var ids = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var n in Array(data, "items", 200)) { var item = Object(n); if (!ids.Add(Id(item, "id"))) Fail("Checklist IDs must be unique."); Text(item, "label", 500); Choice(item, "status", ["pending", "active", "completed", "blocked"]); Text(item, "detail", 2000, false); } break;
+            }
+            case "bar-list":
+                Text(data, "unit", 80, false); foreach (var n in Array(data, "items", 100)) { var item = Object(n); Text(item, "label", 200); Number(item, "value", 0); if (item.ContainsKey("tone")) Choice(item, "tone", ["neutral", "info", "success", "warning", "error"]); } break;
+            case "histogram":
+                Text(data, "unit", 80, false); foreach (var n in Array(data, "buckets", 100)) { var bucket = Object(n); Text(bucket, "label", 100); Number(bucket, "count", 0, 9_007_199_254_740_991d, true, true); } break;
+            case "heatmap":
+            {
+                Text(data, "unit", 80, false); var columns = Array(data, "columns", 32, 1); var rows = Array(data, "rows", 64, 1);
+                foreach (var label in columns.Concat(rows)) Text(new JsonObject { ["label"] = label?.DeepClone() }, "label", 100);
+                var coordinates = new HashSet<(int Row, int Column)>();
+                foreach (var n in Array(data, "cells", 2048)) { var cell = Object(n); var row = (int)Number(cell, "row", 0, 63, true, true); var column = (int)Number(cell, "column", 0, 31, true, true); Number(cell, "value"); if (row >= rows.Count || column >= columns.Count || !coordinates.Add((row, column))) Fail("Heatmap coordinates must be unique and fit the declared dimensions."); } break;
+            }
+            case "gauge":
+                Number(data, "value"); if (!data.ContainsKey("min")) data["min"] = 0; if (!data.ContainsKey("max")) data["max"] = 100; var minimum = Number(data, "min"); if (Number(data, "max") <= minimum) Fail("Gauge max must exceed min."); Text(data, "unit", 80, false); Text(data, "label", 200, false); break;
+            case "query":
+                Text(data, "query", 131072); if (!data.ContainsKey("language")) data["language"] = "sql"; Text(data, "language", 40); Text(data, "source", 160, false); Choice(data, "state", ["running", "success", "error"], "running"); Text(data, "error", 8192, false); Number(data, "durationMs", 0, double.MaxValue, false); Number(data, "totalRows", 0, 9_007_199_254_740_991d, false, true);
+                if (!data.ContainsKey("columns")) data["columns"] = new JsonArray(); if (!data.ContainsKey("rows")) data["rows"] = new JsonArray();
+                foreach (var n in Array(data, "columns", 64)) { var column = Object(n); Id(column, "key"); Text(column, "label", 100); }
+                var queryRows = Array(data, "rows", 2000); if (queryRows.Count > 0 && ((JsonArray)data["columns"]!).Count == 0) Fail("Query rows require columns.");
+                foreach (var row in queryRows) foreach (var cell in Object(row)) { if (cell.Key.Length > 100) Fail("Column key too long."); Scalar(cell.Value); } break;
+            case "command":
+                Text(data, "command", 131072); Text(data, "shell", 40, false); Text(data, "directory", 1000, false); Text(data, "output", 131072, false); Number(data, "exitCode", int.MinValue, int.MaxValue, false, true); Number(data, "durationMs", 0, double.MaxValue, false); break;
+            case "trace":
+            {
+                var spanParents = new Dictionary<string, string?>(StringComparer.Ordinal);
+                foreach (var n in Array(data, "spans", 500)) { var span = Object(n); var id = Id(span, "id"); var parent = Id(span, "parentId", false); if (!spanParents.TryAdd(id, parent.Length == 0 ? null : parent)) Fail("Trace span IDs must be unique."); Text(span, "name", 200); Number(span, "startMs", 0); Number(span, "durationMs", 0); Choice(span, "status", ["active", "success", "error"], "success"); }
+                foreach (var id in spanParents.Keys) { var seen = new HashSet<string>(StringComparer.Ordinal); string? current = id; while (current is not null) { if (!seen.Add(current) || !spanParents.TryGetValue(current, out current)) Fail("Trace parents must exist and be acyclic."); } } break;
+            }
+            case "alert": Choice(data, "tone", ["neutral", "info", "success", "warning", "error"], "info"); Text(data, "message", 8192); Text(data, "detail", 131072, false); break;
+            case "links":
+                foreach (var n in Array(data, "items", 100)) { var item = Object(n); Text(item, "label", 200); Text(item, "description", 1000, false); var url = Text(item, "url", 2048); if (url.Any(char.IsWhiteSpace) || !Regex.IsMatch(url, @"^https?://", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant) || Regex.IsMatch(url, @"^https?://[^/?#]*@", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant) || !Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https") || uri.Host.Length == 0 || uri.UserInfo.Length != 0) Fail("Links must use HTTP(S) without user information."); } break;
+            case "comparison":
+                foreach (var n in Array(data, "items", 100)) { var item = Object(n); Text(item, "label", 200); if (!item.ContainsKey("before") || !item.ContainsKey("after")) Fail("Comparison before and after are required."); Scalar(item["before"]); Scalar(item["after"]); } break;
             default: Fail("Unsupported component kind."); break;
         }
     }

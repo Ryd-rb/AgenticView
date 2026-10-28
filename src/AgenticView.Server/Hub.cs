@@ -128,6 +128,26 @@ public sealed class Hub : IDisposable
         }
         return rows;
     }
+    private static JsonArray ObserveChecklist(JsonArray items, JsonArray? previous, JsonArray? previousItems, long now)
+    {
+        var old = previous?.OfType<JsonObject>().ToDictionary(row => String(row, "key"), StringComparer.Ordinal) ?? new Dictionary<string, JsonObject>();
+        var priorItems = previousItems?.OfType<JsonObject>().ToDictionary(item => String(item, "id"), StringComparer.Ordinal) ?? new Dictionary<string, JsonObject>();
+        var rows = new JsonArray(); var line = 0;
+        foreach (var item in items.OfType<JsonObject>())
+        {
+            var id = String(item, "id"); var key = "checklist:" + id; var completed = String(item, "status") == "completed";
+            var row = old.TryGetValue(key, out var before) ? Clone(before) : new JsonObject { ["key"] = key, ["firstSeenAt"] = now, ["updatedAt"] = now };
+            row["line"] = ++line;
+            if (before is null) { if (completed) row["completedAt"] = now; else row["startedAt"] = now; }
+            else
+            {
+                if (!priorItems.TryGetValue(id, out var prior) || !JsonNode.DeepEquals(prior, item)) row["updatedAt"] = now;
+                if (completed != row.ContainsKey("completedAt")) { if (completed) row["completedAt"] = now; else { row.Remove("completedAt"); row["startedAt"] = now; } }
+            }
+            rows.Add(row);
+        }
+        return rows;
+    }
     private SqliteCommand Command(string sql, params object?[] values)
     {
         if (!commands.TryGetValue(sql, out var command)) { command = db.CreateCommand(); command.CommandText = sql; for (var i = 0; i < values.Length; i++) command.Parameters.AddWithValue("$p" + i, values[i] ?? DBNull.Value); command.Prepare(); commands[sql] = command; }
@@ -208,7 +228,7 @@ public sealed class Hub : IDisposable
                 var components = (JsonObject)view["components"]!;
                 switch (action)
                 {
-                    case "upsert": var component = Clone(ComponentValidator.Object(op["component"])); ComponentValidator.Validate(component); var cid = String(component, "id"); if (String(component, "kind") is "logs" or "timeline") ReceiptTimes((JsonArray)component["data"]![String(component, "kind") == "logs" ? "entries" : "events"]!, receipt); if (String(component, "kind") == "markdown") { var tasks = ObserveTasks(String((JsonObject)component["data"]!, "text"), taskTimes[cid] as JsonArray, now); if (tasks.Count > 0) taskTimes[cid] = tasks; else taskTimes.Remove(cid); } else taskTimes.Remove(cid); components[cid] = component; componentTimes[cid] = now; touched.Add(cid); break;
+                    case "upsert": var component = Clone(ComponentValidator.Object(op["component"])); ComponentValidator.Validate(component); var cid = String(component, "id"); if (String(component, "kind") is "logs" or "timeline") ReceiptTimes((JsonArray)component["data"]![String(component, "kind") == "logs" ? "entries" : "events"]!, receipt); if (String(component, "kind") is "markdown" or "checklist") { var tasks = String(component, "kind") == "markdown" ? ObserveTasks(String((JsonObject)component["data"]!, "text"), taskTimes[cid] as JsonArray, now) : ObserveChecklist((JsonArray)component["data"]!["items"]!, taskTimes[cid] as JsonArray, components[cid] is JsonObject prior && String(prior, "kind") == "checklist" ? prior["data"]?["items"] as JsonArray : null, now); if (tasks.Count > 0) taskTimes[cid] = tasks; else taskTimes.Remove(cid); } else taskTimes.Remove(cid); components[cid] = component; componentTimes[cid] = now; touched.Add(cid); break;
                     case "remove": var removedId = ComponentValidator.Id(op, "componentId"); components.Remove(removedId); componentTimes.Remove(removedId); taskTimes.Remove(removedId); break;
                     case "clear": view["components"] = new JsonObject(); componentTimes.Clear(); taskTimes.Clear(); break;
                     case "context": view["context"] = ComponentValidator.Text(op, "text", 8192); break;
