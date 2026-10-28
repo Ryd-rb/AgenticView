@@ -63,6 +63,16 @@ releases it; abandoned reservations expire. A layout PATCH may set
 `resolveOverlap:true` to find a nearby free position if concurrent arrivals
 occupied the requested location. Locked cards always retain position.
 
+Content interaction uses the viewer-only endpoint
+`POST /api/agents/{id}/layout/interaction` with
+`{"active":true,"leaseId":"opaque-view-id"}`. Renew every 10 seconds while contact
+continues; leases expire after 30 seconds. Send `active:false` on release. Admission,
+renewal and release are serialized per card. The response is
+`{active,leaseId,expiresAt}`, with a null expiry after release. These leases preserve
+geometry and layout flags, are independent of manual drag reservations, and release
+only the matching view's lease. IDs allow 1–128 ASCII letters/digits or `_ - : .`;
+at most 64 simultaneous leases may hold one card.
+
 ## Bounds
 
 Requests: 1 MiB, 256 operations. Runs: 64 components, 2 MiB. Appends: 512 items.

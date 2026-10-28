@@ -22,6 +22,7 @@ public sealed class Hub : IDisposable
     private readonly HashSet<string> removed = [];
     private readonly HashSet<string> freshLayouts = [];
     private readonly Dictionary<string, long> manualReservations = new();
+    private readonly Dictionary<(string RunId, string LeaseId), long> interactionReservations = new();
     private JsonObject settings;
     private long revision, updates, previousUpdates, totalBytes, archiveCount;
     private double rate;
@@ -205,6 +206,27 @@ public sealed class Hub : IDisposable
     }
     private void SaveView(Run run, JsonObject view) { var bytes = Size(view); if (bytes > MaxRunBytes || totalBytes - run.Bytes + bytes > MaxLiveBytes) throw new HubError(413, "Live data budget exceeded."); Execute("UPDATE runs SET payload=$p0 WHERE id=$p1", Serialize(Metadata(view)), String(view, "id")); totalBytes += bytes - run.Bytes; run.Bytes = bytes; run.View = view; }
     private IEnumerable<Run> EffectiveRoots() => runs.Values.Where(r => r.View["parentId"] is null || !runs.ContainsKey(String(r.View, "parentId")));
+    public JsonObject SetInteraction(string id, JsonObject input)
+    {
+        lock (gate)
+        {
+            if (!runs.ContainsKey(id)) throw new HubError(404, "Run unavailable.");
+            if (input["active"] is not JsonValue flag || !flag.TryGetValue<bool>(out var active)) throw new HubError(400, "active must be a boolean.");
+            if (input["leaseId"] is not JsonValue lease || !lease.TryGetValue<string>(out var leaseId) || leaseId.Length is < 1 or > 128 || leaseId.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not ('_' or '-' or ':' or '.'))) throw new HubError(400, "leaseId must contain 1-128 ASCII letters, digits, underscores, hyphens, colons or periods.");
+            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            foreach (var key in interactionReservations.Where(pair => pair.Value <= now).Select(pair => pair.Key).ToArray()) interactionReservations.Remove(key);
+            var keyForLease = (id, leaseId);
+            long? expiresAt = null;
+            if (active)
+            {
+                if (!interactionReservations.ContainsKey(keyForLease) && interactionReservations.Keys.Count(key => key.RunId == id) >= 64) throw new HubError(429, "Too many interaction leases for this run.");
+                expiresAt = now + 30_000; interactionReservations[keyForLease] = expiresAt.Value;
+            }
+            else interactionReservations.Remove(keyForLease);
+            packingDirty = true;
+            return new JsonObject { ["active"] = active, ["leaseId"] = leaseId, ["expiresAt"] = expiresAt };
+        }
+    }
     public JsonObject MarkManual(string id)
     {
         lock (gate)
@@ -254,7 +276,7 @@ public sealed class Hub : IDisposable
             if (promoted.Any(child => Size(child.View) > MaxRunBytes) || totalBytes - run.Bytes + promoted.Sum(child => Size(child.View) - child.Run.Bytes) > MaxLiveBytes) throw new HubError(413, "Promoted child layout exceeds the live data budget.");
             Transaction(() => { Execute("INSERT INTO archives VALUES($p0,$p1,$p2)", id, Serialize(summary), compressed); Execute("INSERT INTO archive_batches SELECT run_id,sequence,digest FROM batches WHERE run_id=$p0", id); Execute("DELETE FROM runs WHERE id=$p0", id); foreach (var child in promoted) Execute("UPDATE runs SET payload=$p0 WHERE id=$p1", Serialize(Metadata(child.View)), String(child.View, "id")); });
             foreach (var child in promoted) { totalBytes += Size(child.View) - child.Run.Bytes; child.Run.Bytes = Size(child.View); child.Run.View = child.View; Queue(child.View); }
-            runs.Remove(id); totalBytes -= run.Bytes; archiveCount++; pending.Remove(id); removed.Add(id); manualReservations.Remove(id); freshLayouts.Remove(id); packingDirty = true; compactPacking = true; revision++; return summary;
+            runs.Remove(id); totalBytes -= run.Bytes; archiveCount++; pending.Remove(id); removed.Add(id); manualReservations.Remove(id); foreach (var key in interactionReservations.Keys.Where(key => key.RunId == id).ToArray()) interactionReservations.Remove(key); freshLayouts.Remove(id); packingDirty = true; compactPacking = true; revision++; return summary;
         }
     }
     // Recovery keeps the same identity and credentials; only placement may change to avoid live cards.
@@ -312,7 +334,9 @@ public sealed class Hub : IDisposable
     private JsonObject PackCards(bool all, double aspect)
     {
         var roots = EffectiveRoots().ToArray();
-        bool Movable(Run run) { var layout = (JsonObject)run.View["layout"]!; return !ComponentValidator.Boolean(layout, "locked") && !manualReservations.ContainsKey(String(run.View, "id")); }
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var interactingRuns = interactionReservations.Where(pair => pair.Value > now).Select(pair => pair.Key.RunId).ToHashSet();
+        bool Movable(Run run) { var layout = (JsonObject)run.View["layout"]!; var id = String(run.View, "id"); return !ComponentValidator.Boolean(layout, "locked") && !manualReservations.ContainsKey(id) && !interactingRuns.Contains(id); }
         var movable = roots.Where(Movable).ToArray(); var fixedCards = roots.Where(r => !Movable(r)).ToArray();
         var packed = CanvasPacking.PackStable(movable.Select(r => { var l = (JsonObject)r.View["layout"]!; var id = String(r.View, "id"); return new PositionedPackingItem(id, N(l, "x"), N(l, "y"), N(l, "width"), N(l, "height"), Integer(r.View, "createdAt"), !freshLayouts.Contains(id)); }).ToArray(), fixedCards.Select(r => { var l = (JsonObject)r.View["layout"]!; return new PackingRect(N(l, "x"), N(l, "y"), N(l, "width"), N(l, "height")); }).ToArray(), aspect, all);
         var changed = new List<(Run Run, JsonObject View, long Bytes)>();
@@ -358,6 +382,7 @@ public sealed class Hub : IDisposable
         {
             if (disposed) return; rate = updates - previousUpdates; previousUpdates = updates; var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             foreach (var id in manualReservations.Where(pair => pair.Value <= now).Select(pair => pair.Key).ToArray()) { manualReservations.Remove(id); packingDirty = true; }
+            foreach (var key in interactionReservations.Where(pair => pair.Value <= now).Select(pair => pair.Key).ToArray()) { interactionReservations.Remove(key); packingDirty = true; }
             foreach (var run in runs.Values.ToArray())
             {
                 var inactive = now - Integer(run.View, "lastSeen");

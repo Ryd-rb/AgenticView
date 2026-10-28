@@ -15,6 +15,31 @@ if (args.Contains("--layout-probe"))
 var cases = new (string Name, Action Test)[]
 {
     ("efficient deterministic bin packing respects fixed obstacles", PackingContracts.Run),
+    ("interaction leases preserve layout, isolate views and release without changing manual reservations", () => Run((hub, _) => {
+        var a=Register(hub); hub.Flush(); var id=S(a,"runId"); var original=hub.GetRun(id)!["layout"]!.DeepClone();
+        var admitted=hub.SetInteraction(id,Json.Object(new{active=true,leaseId="view-a"}));
+        Check(admitted["active"]!.GetValue<bool>() && admitted["expiresAt"]!.GetValue<long>()>DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),"Lease admission did not return expiry");
+        Check(JsonNode.DeepEquals(original,hub.GetRun(id)!["layout"]),"Interaction admission changed geometry or automatic flag");
+        Check(hub.PackLayout(Json.Object(new{mode="all"}))["arranged"]!.GetValue<int>()==0,"Packing ignored active interaction lease");
+        hub.SetInteraction(id,Json.Object(new{active=true,leaseId="view-a"}));
+        hub.SetInteraction(id,Json.Object(new{active=true,leaseId="view-b"}));
+        hub.SetInteraction(id,Json.Object(new{active=false,leaseId="view-a"}));
+        hub.SetInteraction(id,Json.Object(new{active=false,leaseId="view-a"}));
+        Check(hub.PackLayout(Json.Object(new{mode="all"}))["arranged"]!.GetValue<int>()==0,"Releasing one view removed another view lease");
+        var released=hub.SetInteraction(id,Json.Object(new{active=false,leaseId="view-b"})); Check(released["expiresAt"] is null,"Release retained expiry");
+        Check(hub.PackLayout(Json.Object(new{mode="all"}))["arranged"]!.GetValue<int>()==1,"Released interactions still blocked Arrange all");
+        var manual=hub.MarkManual(id); hub.SetInteraction(id,Json.Object(new{active=true,leaseId="view-a"})); hub.SetInteraction(id,Json.Object(new{active=false,leaseId="view-a"}));
+        Check(hub.PackLayout(Json.Object(new{mode="all"}))["arranged"]!.GetValue<int>()==0,"Interaction release removed header manual reservation");
+        hub.SetInteraction(id,Json.Object(new{active=true,leaseId="view-b"})); hub.SetLayout(id,manual);
+        Check(hub.PackLayout(Json.Object(new{mode="all"}))["arranged"]!.GetValue<int>()==0,"Header release removed independent interaction lease");
+        hub.SetInteraction(id,Json.Object(new{active=false,leaseId="view-b"}));
+        Check(hub.PackLayout(Json.Object(new{mode="all"}))["arranged"]!.GetValue<int>()==1,"Independent releases did not restore packing");
+        Throws(()=>hub.SetInteraction(id,Json.Object(new{active=true,leaseId=""})),400);
+        Throws(()=>hub.SetInteraction(id,Json.Object(new{active=true,leaseId=new string('a',129)})),400);
+        Throws(()=>hub.SetInteraction(id,Json.Object(new{active=true,leaseId="invalid lease"})),400);
+        Throws(()=>hub.SetInteraction(id,Json.Object(new{active="yes",leaseId="view"})),400);
+        Throws(()=>hub.SetInteraction("missing",Json.Object(new{active=true,leaseId="view"})),404);
+    })),
     ("default packing includes all cards, preserves older positions, sizes and locks", () => Run((hub, directory) => {
         var a=Register(hub); var b=hub.Register(Input("b")); var c=hub.Register(Input("c")); hub.Flush();
         var manual=(JsonObject)hub.GetRun(S(a,"runId"))!["layout"]!.DeepClone(); manual["x"]=-1500; manual["y"]=-1500; manual["automatic"]=false; hub.SetLayout(S(a,"runId"),manual);

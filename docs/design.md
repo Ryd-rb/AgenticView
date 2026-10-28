@@ -49,10 +49,16 @@ direction first reveals obscured scroll regions within their parents, working fr
 the outermost viewport inward, then resumes the child scroll. Recovery stops once
 the child fits instead of restoring unnecessary old offsets. A region larger than
 its viewport reveals the requested edge, since it cannot fit entirely.
+Captured drags hit-test the current contact position, so entering or leaving a
+nested scroll region changes the route without requiring a new touch. Activating
+or touching a card suspends automatic follow-fit. During contact, its geometry is
+reserved and live layout updates are deferred; the latest layout is reconciled on
+release. Active content is retained even outside the viewport. Explicit main-view
+navigation still cancels the local contact.
 Ctrl/Command-wheel and two-finger pinch
 zoom the active card before component handlers can consume them.
 From an overview, zoom-in on a selected card first increases main-view scale to
-the card's fit threshold, then applies remaining zoom to its content. Zoom-out reverses the chain:
+200%, then applies remaining zoom to its content. Zoom-out reverses the chain:
 content reaches its fit boundary before remaining zoom returns to the main view.
 Wheel, card zoom buttons and continuous two-finger pinches share this routing.
 Wheel zoom stays anchored under the pointer; pinch zoom stays anchored under the
@@ -62,6 +68,9 @@ the main-view translation consumes the difference to preserve the anchor. Pendin
 camera updates use geometry projected from the last committed DOM transform.
 Markdown task lists use compact static checks aligned with the first text line;
 task items omit bullets while ordinary list items retain them.
+Input regression tests include captured parent/child crossings, long bidirectional
+move sequences, capture loss, and live layout updates through the actual App in an
+in-memory DOM. These contracts complement manual physical-touch acceptance.
 
 The optional C# Windows desktop host opens the monitor in a dedicated fullscreen
 WebView2 window with no system title bar. Custom top-right controls minimize,

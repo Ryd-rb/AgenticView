@@ -24,6 +24,8 @@
   main-view/card handoffs; never recenter a card during a zoom gesture.
 - Chain nested scrolling at bounds. On reversal, reveal obscured children through
   their parent viewports before scrolling them; apply independently on both axes.
+- Route captured touch movement using the current physical hit region. Keep local
+  contacts alive through telemetry; defer layout changes and culling until release.
 - Keep the page within the viewport, with the settings cog fixed at bottom left.
   Automatically bin pack all unlocked cards, favor older positions and close gaps.
   Preserve sizes and active gestures. Provide Arrange all beside zoom.

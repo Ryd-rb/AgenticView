@@ -21,9 +21,10 @@ for (const [key, value] of Object.entries({ clientWidth: 400, clientHeight: 300,
 }
 prototype.getBoundingClientRect = () => new dom.DOMRect(0, 0, 400, 300);
 const captured = new Set<number>();
-prototype.setPointerCapture = pointer => { captured.add(pointer); };
-prototype.hasPointerCapture = pointer => captured.has(pointer);
-prototype.releasePointerCapture = pointer => { captured.delete(pointer); };
+const captureOwners = new Map<number, EventTarget>();
+prototype.setPointerCapture = function (pointer) { captured.add(pointer); captureOwners.set(pointer, this as unknown as EventTarget); };
+prototype.hasPointerCapture = function (pointer) { return captureOwners.get(pointer) === this as unknown as EventTarget; };
+prototype.releasePointerCapture = function (pointer) { if (captureOwners.get(pointer) === this as unknown as EventTarget) { captured.delete(pointer); captureOwners.delete(pointer); } };
 after(() => { dom.happyDOM.abort(); dom.happyDOM.close(); });
 
 async function mount(children: React.ReactNode, active = true, panPastEdge?: (x: number, y: number) => void, zoomRouting: Pick<React.ComponentProps<typeof CardSurface>, 'zoomBeforeCard' | 'zoomPastCard' | 'canvasCamera' | 'getCanvasCamera' | 'getCanvasBounds'> = {}) {
@@ -33,7 +34,7 @@ async function mount(children: React.ReactNode, active = true, panPastEdge?: (x:
   await act(() => root.render(render(active)));
   return { host, store, viewport: host.querySelector<HTMLElement>('.card-content-scroll')!,
     async active(enabled: boolean) { await act(() => root.render(render(enabled))); },
-    async close() { await act(() => root.unmount()); host.remove(); captured.clear(); } };
+    async close() { await act(() => root.unmount()); host.remove(); captured.clear(); captureOwners.clear(); } };
 }
 function wheel(target: Element, init: WheelEventInit) {
   // Happy DOM's WheelEvent derives from UIEvent; supply the real MouseEvent modifier contract.
@@ -42,9 +43,75 @@ function wheel(target: Element, init: WheelEventInit) {
   target.dispatchEvent(event); return event;
 }
 function pointer(target: Element, type: string, x: number, y: number, id = 1, pointerType = 'touch') {
-  const event = new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: id, pointerType, button: 0 }); target.dispatchEvent(event); return event;
+  const event = new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: id, pointerType, button: 0 }); (type === 'pointerdown' ? target : captureOwners.get(id) ?? target).dispatchEvent(event); return event;
 }
 const grid = () => createElement('div', { className: 'grid', style: { overflowX: 'auto', overflowY: 'auto' } }, createElement('span', null, 'Grid evidence'));
+
+test('a captured drag follows the current hit region from parent into child and back without losing movement', async () => {
+  const view = await mount(createElement('div', { className: 'parent-scroll', style: { overflowY: 'auto' } }, grid()));
+  const originalHitTest = document.elementFromPoint; let hit: Element;
+  try {
+    const parent = view.host.querySelector<HTMLElement>('.parent-scroll')!, child = view.host.querySelector<HTMLElement>('.grid')!;
+    hit = parent; document.elementFromPoint = () => hit;
+    await act(() => { pointer(parent, 'pointerdown', 100, 200); pointer(parent, 'pointermove', 100, 180); });
+    assert.equal(parent.scrollTop, 20); assert.equal(child.scrollTop, 0);
+    hit = child;
+    await act(() => { pointer(child, 'pointermove', 100, 160); pointer(child, 'pointermove', 100, 140); });
+    assert.equal(child.scrollTop, 40); assert.equal(parent.scrollTop, 20); assert.equal(captured.has(1), true);
+    hit = parent;
+    await act(() => { pointer(parent, 'pointermove', 100, 120); }); assert.equal(parent.scrollTop, 40); assert.equal(child.scrollTop, 40);
+    await act(() => { pointer(parent, 'pointerup', 100, 120); }); assert.equal(captured.size, 0);
+  } finally { document.elementFromPoint = originalHitTest; await view.close(); }
+});
+
+test('320 captured moves across nested scroll targets conserve both axes without interruption', async () => {
+  const view = await mount(createElement('div', { className: 'parent-scroll', style: { overflowX: 'auto', overflowY: 'auto' } }, grid()));
+  const originalHitTest = document.elementFromPoint; let hit: Element;
+  try {
+    const parent = view.host.querySelector<HTMLElement>('.parent-scroll')!, child = view.host.querySelector<HTMLElement>('.grid')!;
+    parent.scrollLeft = parent.scrollTop = child.scrollLeft = child.scrollTop = 200;
+    hit = parent; document.elementFromPoint = () => hit;
+    let x = 200, y = 200;
+    await act(() => { pointer(parent, 'pointerdown', x, y); pointer(parent, 'pointermove', x - 5, y - 5); }); x -= 5; y -= 5;
+    await act(() => {
+      for (let step = 0; step < 320; step++) {
+        hit = Math.floor(step / 10) % 2 ? parent : child;
+        const dx = Math.floor(step / 40) % 2 ? 1 : -1, dy = Math.floor(step / 20) % 2 ? -1 : 1;
+        const left = parent.scrollLeft + child.scrollLeft, top = parent.scrollTop + child.scrollTop;
+        x += dx; y += dy; pointer(hit, 'pointermove', x, y);
+        assert.equal(parent.scrollLeft + child.scrollLeft - left, -dx, `horizontal movement at step ${step}`);
+        assert.equal(parent.scrollTop + child.scrollTop - top, -dy, `vertical movement at step ${step}`);
+        assert.equal(captured.has(1), true, `capture at step ${step}`);
+      }
+    });
+    await act(() => { pointer(hit!, 'pointerup', x, y); }); assert.equal(captured.size, 0);
+  } finally { document.elementFromPoint = originalHitTest; await view.close(); }
+});
+
+test('unexpected capture loss recovers an active contact but never resurrects a cancelled one', async () => {
+  const view = await mount(grid());
+  try {
+    const target = view.host.querySelector('.grid')!;
+    await act(() => { pointer(target, 'pointerdown', 100, 200); pointer(target, 'pointermove', 100, 160); });
+    const owner = captureOwners.get(1)!; assert.ok(owner);
+    await act(() => { captureOwners.delete(1); owner.dispatchEvent(new PointerEvent('lostpointercapture', { bubbles: true, pointerId: 1, pointerType: 'touch' })); });
+    assert.equal(captureOwners.get(1), owner);
+    const before = (target as HTMLElement).scrollTop;
+    await act(() => { pointer(target, 'pointermove', 100, 120); }); assert.ok((target as HTMLElement).scrollTop > before);
+    await act(() => { window.dispatchEvent(new Event('agenticview:canvas-navigation')); owner.dispatchEvent(new PointerEvent('lostpointercapture', { bubbles: true, pointerId: 1, pointerType: 'touch' })); });
+    assert.equal(captureOwners.has(1), false); assert.equal(captured.size, 0);
+  } finally { await view.close(); }
+});
+
+test('disabled Markdown task checks remain draggable scroll content', async () => {
+  const view = await mount(createElement('div', { className: 'markdown' }, createElement('input', { type: 'checkbox', disabled: true, checked: true, readOnly: true })));
+  try {
+    const check = view.host.querySelector('input')!;
+    await act(() => { pointer(check, 'pointerdown', 100, 200); pointer(check, 'pointermove', 100, 160); });
+    assert.equal(view.viewport.scrollTop, 40); assert.equal(captured.has(1), true);
+    await act(() => { pointer(check, 'pointerup', 100, 160); }); assert.equal(captured.size, 0);
+  } finally { await view.close(); }
+});
 
 function closeTo(actual: number, expected: number) { assert.ok(Math.abs(actual - expected) < 1e-8, `${actual} != ${expected}`); }
 async function anchoredFixture(start: Camera = { x: 37, y: -61, zoom: .25 }) {

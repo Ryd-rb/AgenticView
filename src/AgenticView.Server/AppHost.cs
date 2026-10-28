@@ -58,7 +58,7 @@ public static class AppHost
             }
         });
         app.UseRateLimiter();
-        app.MapGet("/health", () => new { status = "ok", version = "0.1.7", runtime = ".NET 10" });
+        app.MapGet("/health", () => new { status = "ok", version = "0.1.8", runtime = ".NET 10" });
         app.MapGet("/api/session", (HttpContext c) => new { authenticated = Authentication.Viewer(c.Request, config.Secrets) });
         app.MapPost("/api/login", (Func<HttpContext, Task<IResult>>)(async c =>
         {
@@ -75,7 +75,8 @@ public static class AppHost
         app.MapPost("/api/agents/{id}/archive", (string id, HttpContext c) => { if (!Authentication.Viewer(c.Request, config.Secrets)) hub.AuthorizeArchive(id, Authentication.Bearer(c.Request)); return hub.Archive(id); });
         app.MapPatch("/api/agents/{id}/layout", async (string id, HttpContext c) => hub.SetLayout(id, await Body(c)));
         app.MapPost("/api/agents/{id}/layout/manual", (string id) => hub.MarkManual(id));
-        app.MapPost("/api/layout/pack", async (HttpContext c) => hub.PackLayout(await Body(c)));
+        app.MapPost("/api/agents/{id}/layout/interaction", async (string id, HttpContext c) => hub.SetInteraction(id, await Body(c)));
+        app.MapPost("/api/layout/pack", (Func<HttpContext, Task<JsonObject>>)(async c => hub.PackLayout(await Body(c))));
         app.MapPut("/api/settings", (Func<HttpContext, Task<JsonObject>>)(async c => hub.SetSettings(await Body(c))));
         app.MapGet("/api/connection", () => new { mcpUrl = authority + "/mcp", ingestUrl = authority + "/api/agents/register", credentialHelp = "Run dotnet run --project src/AgenticView.Server -- --keys on the server with the same AV_DATA_DIR. Give agents only the ingestion key; every run receives its own write token." });
         app.MapGet("/api/archives", (int? offset, int? limit) => hub.Archives(Math.Max(0, offset ?? 0), Math.Clamp(limit ?? 1000, 1, 1000)));

@@ -35,6 +35,25 @@ test('viewer/producer boundaries, origin checks and login cookies', async () => 
   const session = await f.call('/api/session', '', undefined, 'GET', { Cookie: 'av_session=forged.9999999999999.invalid' }); assert.equal((await session.json()).authenticated, false);
 } finally { await f.close(); } });
 
+test('interaction leases require viewer access and release independently without changing geometry', async () => { const f = await fixture(); try {
+  async function read(response: Response, label: string) { const body = await response.text(); assert.ok(body.length, `${label} returned empty body with status ${response.status}`); return JSON.parse(body); }
+  const registration = await f.call('/api/agents/register', secrets.ingestToken, { requestId: 'interaction', registrationKey, agentId: 'interaction', name: 'Synthetic interaction' }); assert.equal(registration.status, 201, 'interaction test registration');
+  const created = await read(registration, 'registration');
+  const endpoint = `/api/agents/${created.runId}/layout/interaction`;
+  for (const token of ['', secrets.ingestToken, created.runToken]) assert.equal((await f.call(endpoint, token, { active: true, leaseId: 'view-a' })).status, 401);
+  assert.equal((await f.call(endpoint, secrets.viewerToken, { active: true, leaseId: 'view-a' }, 'POST', { Origin: 'https://untrusted.example.invalid' })).status, 403);
+  assert.equal((await f.call(endpoint, secrets.viewerToken, { active: true })).status, 400);
+  const before = (await read(await f.call('/api/snapshot', secrets.viewerToken), 'snapshot before')).agents[0].layout;
+  const first = await f.call(endpoint, secrets.viewerToken, { active: true, leaseId: 'view-a' }); assert.equal(first.status, 200); assert.ok((await read(first, 'admission')).expiresAt > Date.now());
+  assert.deepEqual((await read(await f.call('/api/snapshot', secrets.viewerToken), 'snapshot after')).agents[0].layout, before);
+  await f.call(endpoint, secrets.viewerToken, { active: true, leaseId: 'view-b' });
+  await f.call(endpoint, secrets.viewerToken, { active: false, leaseId: 'view-a' });
+  assert.equal((await read(await f.call('/api/layout/pack', secrets.viewerToken, { mode: 'all' }), 'pack while held')).arranged, 0);
+  const released = await f.call(endpoint, secrets.viewerToken, { active: false, leaseId: 'view-b' }); assert.equal((await read(released, 'release')).expiresAt, null);
+  assert.equal((await f.call(endpoint, secrets.viewerToken, { active: false, leaseId: 'view-b' })).status, 200);
+  assert.equal((await read(await f.call('/api/layout/pack', secrets.viewerToken, { mode: 'all' }), 'pack after release')).arranged, 1);
+} finally { await f.close(); } });
+
 test('real HTTP ingest, SSE patch, trusted embed policy and compressed archive export', async () => { const f = await fixture(); const controller = new AbortController(); try {
   const create = await f.call('/api/agents/register', secrets.ingestToken, { requestId: 'run', registrationKey, agentId: 'synthetic', name: 'Synthetic' }); assert.equal(create.status, 201); const credentials = await create.json();
   const stream = await fetch(f.url + '/api/events', { headers: { Authorization: `Bearer ${secrets.viewerToken}` }, signal: controller.signal }); const reader = stream.body!.getReader(); const first = new TextDecoder().decode((await reader.read()).value); assert.match(first, /event: snapshot/);
