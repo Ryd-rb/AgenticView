@@ -18,6 +18,7 @@ public static class AppHost
         builder.WebHost.ConfigureKestrel(k => { k.Limits.MaxRequestBodySize = 1_048_576; k.Limits.MaxRequestHeadersTotalSize = 16_384; k.Limits.RequestHeadersTimeout = TimeSpan.FromSeconds(10); });
         builder.Services.ConfigureHttpJsonOptions(o => { o.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase; o.SerializerOptions.MaxDepth = 48; });
         builder.Services.AddSingleton(config);
+        builder.Services.AddSingleton<WebAssets>();
         builder.Services.AddSingleton(new Hub(config.DataDir, config.Secrets));
         builder.Services.AddHostedService<HubTicker>();
         builder.Services.AddRateLimiter(o => { o.RejectionStatusCode = 429; o.AddPolicy("login", c => RateLimitPartition.GetFixedWindowLimiter(c.Connection.RemoteIpAddress?.ToString() ?? "local", _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 })); });
@@ -39,7 +40,8 @@ public static class AppHost
                 context.Response.Headers["Referrer-Policy"] = "no-referrer";
                 context.Response.Headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()";
                 context.Response.Headers.ContentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'";
-                var path = context.Request.Path.Value ?? "/";
+                // ASP.NET routes ignore case and accept a trailing slash; auth must agree.
+                var path = (context.Request.Path.Value ?? "/").TrimEnd('/').ToLowerInvariant();
                 if (path.StartsWith("/mcp", StringComparison.Ordinal) || path == "/api/agents/register")
                 {
                     if (!Authentication.Equal(Authentication.Bearer(context.Request), config.Secrets.IngestToken)) throw new HubError(401, "A valid ingestion key is required.");
@@ -57,7 +59,7 @@ public static class AppHost
             }
         });
         app.UseRateLimiter();
-        app.MapGet("/health", () => new { status = "ok", version = "0.1.11", runtime = ".NET 10" });
+        app.MapGet("/health", () => new { status = "ok", version = "0.1.12", runtime = ".NET 10" });
         app.MapGet("/api/session", (HttpContext c) => new { authenticated = Authentication.Viewer(c.Request, config.Secrets) });
         app.MapPost("/api/login", (Func<HttpContext, Task<IResult>>)(async c =>
         {
@@ -110,16 +112,7 @@ public static class AppHost
             finally { hub.Patched -= Patch; hub.CloseViewer(); }
         });
         app.MapMcp("/mcp");
-        app.MapGet("/{**asset}", async (string? asset, HttpContext c) =>
-        {
-            if ((asset ?? "").StartsWith("api/", StringComparison.Ordinal)) return Results.NotFound(new { error = "API route not found." });
-            var root = Path.GetFullPath(config.WebRoot);
-            var path = Path.GetFullPath(Path.Combine(root, string.IsNullOrEmpty(asset) ? "index.html" : asset));
-            if (!path.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) || !File.Exists(path)) return Results.NotFound(new { error = "Web asset not found. Build the frontend first." });
-            c.Response.Headers.CacheControl = path.EndsWith("index.html", StringComparison.Ordinal) ? "no-cache" : "public,max-age=3600";
-            var contentType = Path.GetExtension(path) switch { ".html" => "text/html; charset=utf-8", ".js" => "text/javascript; charset=utf-8", ".css" => "text/css; charset=utf-8", ".svg" => "image/svg+xml", _ => "application/octet-stream" };
-            return Results.Bytes(await File.ReadAllBytesAsync(path, c.RequestAborted), contentType);
-        });
+        app.MapMethods("/{**asset}", new[] { "GET", "HEAD" }, (string? asset, HttpContext c, WebAssets assets) => assets.Get(asset, c));
         return app;
     }
     private static bool IsProducerRoute(string path) => path.StartsWith("/api/agents/", StringComparison.Ordinal) && (path.EndsWith("/publish", StringComparison.Ordinal) || path.EndsWith("/heartbeat", StringComparison.Ordinal) || path.EndsWith("/archive", StringComparison.Ordinal));

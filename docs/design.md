@@ -90,6 +90,12 @@ agent-authored HTML has a Custom view caption and a warm frame. The empty canvas
 stays empty. No welcome panel or extra navigation surface occupies the world.
 See the [native catalog](native-components.md) for the 31 built-in kinds.
 
+Unchanged card content is reused during canvas navigation. A shared agent-tree
+index invalidates only affected branches, and telemetry deltas preserve unchanged
+component and timing references. Cached formatters keep clocks inexpensive.
+Public static assets negotiate Brotli/gzip, revalidate with ETags and cache
+fingerprinted files immutably; these optimizations never buffer the SSE stream.
+
 The monitoring icon beside the bottom-left cog opens a draggable world card.
 It shows heartbeat-based run states, accepted update/batch/payload rates, five
 minutes of bounded history, live component inventory, active publishers and

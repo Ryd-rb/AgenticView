@@ -1,5 +1,38 @@
 # Initial capacity measurement
 
+## UI responsiveness and loading
+
+The UI now retains unchanged agent branches, component maps and timing rows,
+memoizes card content and lifecycle labels, and reuses date/number formatters.
+Statistics-only patches avoid rebuilding the agent collection; offscreen changes
+invalidate only their ancestor branch. Child lookup is indexed rather than
+rescanning the full population during navigation.
+
+A bounded Node/V8 profile exercised the actual React App with Happy DOM: 1,000
+synthetic agents, 200 root cards, six metrics per agent, and 80 events per workload
+after warmup. The median of three recorded passes was:
+
+| Workload | Before wall time | After wall time | Reduction |
+| --- | ---: | ---: | ---: |
+| Canvas navigation | 931 ms | 269 ms | 71.1% |
+| Changing statistics only | 2,157 ms | 167 ms | 92.3% |
+| Offscreen telemetry | 2,136 ms | 232 ms | 89.1% |
+
+These are in-memory React development/DOM costs, **not browser layout, painting,
+frame rate, physical input or end-to-end latency**. V8 sampled stacks identified
+repeated lifecycle timestamp formatting and render work. Raw CPU profiles, exact
+baseline source and repeats are retained privately. Reproduce with
+`pnpm exec tsx scripts/ui-bench.ts`; `AV_UI_BENCH_DIR` and `AV_UI_BENCH_FRAMES`
+select output and a bounded event count.
+
+Static HTML/JS/CSS transfer was separately measured over real HTTP: the original
+543,283 body bytes became 184,059 bytes with Brotli in the final build (66.1% fewer). Gzip and identity
+are also negotiated. Fingerprinted assets use immutable caching; HTML revalidates,
+and matching representation ETags return 304 without a body. The 64 MiB server
+cache has an 8 MiB per-file threshold. Compression has a cold-request cost and
+these byte measurements do not establish browser load timing. API and SSE
+responses retain their existing uncompressed delivery behavior.
+
 ## Monitoring and ingestion pass
 
 An instrumented baseline and candidate were alternated for three paired runs on

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
 import { act, createElement } from 'react';
 import { App } from '../web/App.tsx';
-import type { AgentView, Snapshot } from '../shared/protocol.ts';
+import type { AgentView, Snapshot, Patch } from '../shared/protocol.ts';
 import type { MonitoringSnapshot } from '../shared/monitoring.ts';
 
 // Actual App event/lifecycle contracts in memory; no browser or physical touch claims.
@@ -54,6 +54,7 @@ class Stream extends dom.EventTarget {
   constructor(_url: string) { super(); Stream.current = this; }
   close() {}
   snapshot(value: Snapshot) { this.dispatchEvent(new dom.MessageEvent('snapshot', { data: JSON.stringify(value) })); }
+  patch(value: Patch) { this.dispatchEvent(new dom.MessageEvent('patch', { data: JSON.stringify(value) })); }
 }
 const leaseRequests: { active: boolean; leaseId: string }[] = []; let admission: Promise<void> | undefined;
 let releaseAcknowledgement: Promise<void> | undefined, packHook: (() => void) | undefined;
@@ -92,10 +93,10 @@ function pointer(hitTarget: Element, type: string, y: number) {
   const target = type === 'pointerdown' ? hitTarget : captures.get(11) ?? hitTarget;
   target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 11, button: 0, clientX: 100, clientY: y }));
 }
-async function mount(layout = agent.layout) {
+async function mount(layout = agent.layout, initial?: Snapshot) {
   const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
   await act(async () => { root.render(createElement(App)); await Promise.resolve(); });
-  await act(() => { Stream.current.snapshot(snapshot(layout)); });
+  await act(() => { Stream.current.snapshot(initial ?? snapshot(layout)); });
   const target = host.querySelector<HTMLElement>('.markdown p')!; assert.ok(target);
   await act(() => { target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })); });
   return { host, target, async close() { await act(() => root.unmount()); host.remove(); captures.clear(); } };
@@ -348,4 +349,50 @@ test('monitoring is a movable utility world card with isolated polling and globa
     await act(async () => { for (const callback of polls.values()) callback(); await settle(); });
     assert.equal(requestPaths.filter(path => path === '/api/monitoring').length, received);
   } finally { await view.close(); globalThis.setTimeout = setTimer; globalThis.clearTimeout = clearTimer; if (ownNow) Object.defineProperty(performance, 'now', ownNow); else Reflect.deleteProperty(performance, 'now'); }
+});
+
+test('live memoized descendants update and promote without interrupting selected parent touch', async()=>{
+  const child:AgentView={...agent,id:'child',agentId:'child',name:'Synthetic child',parentId:agent.id,components:{}};
+  const grandchild:AgentView={...agent,id:'grandchild',agentId:'grandchild',name:'Synthetic grandchild',parentId:child.id,
+    components:{content:{id:'content',title:'Nested evidence',kind:'markdown',data:{text:'Original grandchild evidence'}}}};
+  const initial=snapshot(); initial.agents=[agent,child,grandchild]; initial.stats={...initial.stats,active:3};
+  const view=await mount(agent.layout,initial);
+  try {
+    const parent=view.host.querySelector<HTMLElement>('[data-card-id="agent"]')!;
+    const geometry=()=>({left:parent.style.left,top:parent.style.top,width:parent.style.width,height:parent.style.height});
+    const original=geometry(),world=view.host.querySelector<HTMLElement>('.world')!,camera=world.style.transform;
+    assert.ok(parent.textContent?.includes('Original grandchild evidence'));
+    await act(()=>{pointer(view.target,'pointerdown',200);pointer(view.target,'pointermove',180);});
+    const owner=captures.get(11); assert.equal(Boolean(owner),true,'parent local content owns capture');
+    const updated={id:'content',title:'Nested evidence',kind:'markdown',data:{text:'Updated grandchild evidence'}} as const;
+    await act(()=>{Stream.current.patch({revision:2,changes:[{id:grandchild.id,components:[updated]}],removed:[],stats:initial.stats});});
+    assert.equal(parent.textContent?.includes('Updated grandchild evidence'),true,'grandchild component patch propagates through memoized ancestors');
+    assert.equal(parent.textContent?.includes('Original grandchild evidence'),false);
+    assert.equal(captures.get(11)===owner,true,'nested content patch retains capture owner');
+    const {components:_,...childMeta}=child;
+    await act(()=>{Stream.current.patch({revision:3,changes:[{id:child.id,meta:{...childMeta,status:'completed',completedAt:10000,updatedAt:10000}}],removed:[],stats:{...initial.stats,active:2}});});
+    const completed=[...parent.querySelectorAll<HTMLElement>('.child-card')].find(card=>card.querySelector('header strong')?.textContent===child.name)!;
+    assert.equal(Boolean(completed),true);
+    assert.equal(completed.classList.contains('status-completed'),true);
+    const archive=completed.querySelector<HTMLButtonElement>('header button.archive-completed');
+    assert.equal(archive?.textContent?.includes('Archive'),true,'completed child exposes prominent archive action');
+    const time=completed.querySelector<HTMLTimeElement>('.child-times time[title^="Completed:"]');
+    assert.equal(time?.dateTime,new Date(10000).toISOString(),'completed child footer receives completion timestamp');
+    assert.equal(captures.get(11)===owner,true);
+    const {components:__,...grandMeta}=grandchild;
+    await act(()=>{Stream.current.patch({revision:4,changes:[{id:grandchild.id,meta:{...grandMeta,parentId:null,layout:{...grandchild.layout,x:520,y:0}}}],removed:[child.id],stats:{...initial.stats,active:2}});});
+    const promoted=view.host.querySelector<HTMLElement>('[data-card-id="grandchild"]');
+    assert.equal(Boolean(promoted),true,'grandchild becomes a root world card');
+    assert.equal(promoted?.style.left,'520px'); assert.equal(promoted?.style.top,'0px');
+    assert.equal(promoted?.textContent?.includes('Updated grandchild evidence'),true,'promotion retains latest component delta');
+    assert.equal(parent.querySelector('.child-card'),null,'removed child and promoted descendant leave parent subtree');
+    assert.equal(parent.textContent?.includes('Updated grandchild evidence'),false);
+    assert.deepEqual(geometry(),original,'selected parent geometry survives subtree removal and new root layout');
+    assert.equal(world.style.transform,camera,'live nested changes cannot navigate camera');
+    assert.equal(captures.get(11)===owner,true,'promotion preserves original parent capture');
+    const scroller=parent.querySelector<HTMLElement>('.card-content-scroll')!,before=scroller.scrollTop;
+    await act(()=>{pointer(document.body,'pointermove',140);});
+    assert.ok(scroller.scrollTop>before,'same captured contact continues scrolling after all tree changes');
+    await act(()=>{pointer(document.body,'pointerup',140);}); assert.equal(captures.has(11),false);
+  } finally {await view.close();}
 });

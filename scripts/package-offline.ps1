@@ -40,7 +40,7 @@ $sourceFiles = @(
     'src/AgenticView.Server/AgenticView.Server.csproj', 'src/AgenticView.Server/packages.lock.json',
     'src/AgenticView.Server/Program.cs', 'src/AgenticView.Server/AppHost.cs', 'src/AgenticView.Server/Configuration.cs',
     'src/AgenticView.Server/McpTools.cs', 'src/AgenticView.Server/Hub.cs', 'src/AgenticView.Server/ComponentValidator.cs',
-    'src/AgenticView.Server/Demo.cs', 'src/AgenticView.Server/demo.json', 'src/AgenticView.Server/CanvasPacking.cs', 'src/AgenticView.Server/MonitoringState.cs',
+    'src/AgenticView.Server/Demo.cs', 'src/AgenticView.Server/demo.json', 'src/AgenticView.Server/CanvasPacking.cs', 'src/AgenticView.Server/MonitoringState.cs', 'src/AgenticView.Server/WebAssets.cs',
     'src/AgenticView.Desktop/AgenticView.Desktop.csproj', 'src/AgenticView.Desktop/packages.lock.json',
     'src/AgenticView.Desktop/Program.cs', 'src/AgenticView.Desktop/DesktopOptions.cs',
     'src/AgenticView.Desktop/DesktopWindow.cs', 'src/AgenticView.Desktop/BridgePolicy.cs',

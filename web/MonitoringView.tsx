@@ -3,9 +3,11 @@ import type { Component } from '../shared/protocol.js';
 import type { MonitoringSnapshot } from '../shared/monitoring.js';
 import { ComponentView } from './Components.js';
 
-const number = (value: number, digits = 1) => new Intl.NumberFormat(undefined, { maximumFractionDigits: digits }).format(value);
+const numberFormatters = new Map<number, Intl.NumberFormat>();
+const number = (value: number, digits = 1) => { let formatter = numberFormatters.get(digits); if (!formatter) { formatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: digits }); numberFormatters.set(digits, formatter); } return formatter.format(value); };
 const bytes = (value: number) => value >= 1024 ** 3 ? `${number(value / 1024 ** 3)} GiB` : value >= 1024 ** 2 ? `${number(value / 1024 ** 2)} MiB` : value >= 1024 ? `${number(value / 1024)} KiB` : `${number(value, 0)} B`;
-const clock = (value: number) => new Date(value).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+const clockFormatter = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+const clock = (value: number) => clockFormatter.format(value);
 
 export function MonitoringView() {
   const [snapshot, setSnapshot] = useState<MonitoringSnapshot>(), [error, setError] = useState(''), [paused, setPaused] = useState(() => typeof document !== 'undefined' && document.visibilityState === 'hidden');

@@ -18,6 +18,8 @@ C# · .NET 10 · React · MIT
 
 - **Keep your place.** Pan and zoom around the canvas. Selected cards hold their
   position and size while reports arrive; new runs appear without moving your view.
+- **Stay responsive.** Unchanged card content is reused while you navigate and
+  receive updates. Compressed assets and conditional caching reduce loading work.
 - **Look closer.** Activate a card to explore its content. Nested tables, logs and
   code scroll within their bounds, with movement continuing through the surrounding
   card and canvas. Mouse, keyboard and touch inputs share the same navigation model.

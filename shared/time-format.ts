@@ -6,7 +6,8 @@ export function compactTime(timestamp: number, spacingMs?: number): string {
   const precision = spacingMs === undefined ? 'second' : timePrecision(Math.max(0, spacingMs));
   return pad(date.getHours()) + ':' + pad(date.getMinutes()) + (precision === 'minute' ? '' : ':' + pad(date.getSeconds()) + (precision === 'millisecond' ? '.' + pad(date.getMilliseconds(), 3) : ''));
 }
-export function exactTime(timestamp: number): string { return new Date(timestamp).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 }); }
+const exactFormatter = new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
+export function exactTime(timestamp: number): string { return exactFormatter.format(timestamp); }
 
 /** Match task clock precision without turning elapsed time into a wall-clock date. */
 export function compactDuration(durationMs: number): string {

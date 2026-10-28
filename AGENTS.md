@@ -48,6 +48,8 @@
   Card zoom and pan must stay within content fit and native scroll boundaries.
 - Use readable working text and strong contrast without increasing fixed card
   dimensions. Avoid forced bitmap layers that soften text under nested transforms.
+- Reuse unchanged agent branches and telemetry state; navigation and stats updates
+  must not rebuild every card. Keep asset compression/caching separate from SSE.
 - Support a dedicated Windows fullscreen window with no system title bar and
   custom minimize, maximize/restore and close controls; reuse the title's signal
   icon and keep desktop dependencies offline-ready.
