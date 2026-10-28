@@ -78,10 +78,12 @@ try {
     $env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE = '1'
     Push-Location -LiteralPath $bundleRoot
     try {
-        & dotnet restore $project --configfile $configuration --packages $env:NUGET_PACKAGES --locked-mode --no-http-cache '-p:NuGetAudit=false' '-p:RestoreIgnoreFailedSources=false' "-p:RestoreSources=$feed" '-p:RestoreFallbackFolders=' '-p:RestoreAdditionalProjectSources=' '-p:RestoreAdditionalProjectFallbackFolders=' '-p:UseAppHost=false'
+        & dotnet restore $project --configfile $configuration --packages $env:NUGET_PACKAGES --locked-mode --no-http-cache '-p:NuGetAudit=false' '-p:RestoreIgnoreFailedSources=false' "-p:RestoreSources=$feed" '-p:RestoreFallbackFolders=' '-p:RestoreAdditionalProjectSources=' '-p:RestoreAdditionalProjectFallbackFolders=' '-p:UseAppHost=true'
         if ($LASTEXITCODE -ne 0) { throw 'Offline locked restore failed. The cache and diagnostics were retained.' }
-        & dotnet publish $project --no-restore --no-self-contained --configuration Release --output $application '-p:NuGetAudit=false' '-p:UseAppHost=false'
+        & dotnet publish $project --no-restore --no-self-contained --configuration Release --output $application '-p:NuGetAudit=false' '-p:UseAppHost=true'
         if ($LASTEXITCODE -ne 0) { throw 'Offline publish failed. Sources, cache and any partial output were retained.' }
+        $helperName = if ($env:OS -eq 'Windows_NT') { 'AgenticView.Server.exe' } else { 'AgenticView.Server' }
+        if (!(Test-Path -LiteralPath (Join-Path $application $helperName) -PathType Leaf)) { throw 'The offline output is missing the SSH password helper apphost.' }
         if (!$ServerOnly -and $env:OS -eq 'Windows_NT') {
             $desktopProject = Assert-BundlePath (Join-Path $bundleRoot 'src/AgenticView.Desktop/AgenticView.Desktop.csproj')
             $desktopOutput = Assert-BundlePath (Join-Path $application 'desktop')
