@@ -16,6 +16,12 @@
   version checks and history belong to the configured adapter; SQLite is optional.
   Million-row tables must use bounded pages and provider-side filtering/sorting,
   never load or mount the full dataset in the browser.
+- Keep reusable permanent application definitions in the creating project's
+  repository as versioned `.agenticview.json` source. Export authored templates,
+  never live telemetry or credentials. Use logical connector bindings and supply
+  installation-specific values on import. Support manual and agent import/export.
+  Prompt delivery supports inboxes and optional connector-owned webhooks with
+  local secrets; confirmations remain configurable per action.
 - Support typed native components and agent-authored views under explicit embed
   rules. Prefer and expand native components so agents rarely need custom HTML.
   Distinguish Built-in components from Custom views with persistent origin labels

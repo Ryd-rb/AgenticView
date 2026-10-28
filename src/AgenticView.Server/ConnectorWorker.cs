@@ -41,7 +41,7 @@ public static class ConnectorWorker
                     } catch(Exception error) when(!cancellation.IsCancellationRequested) {
                         // Do not return process arguments, connection strings, stack traces or machine paths.
                         var message=error is ConnectorFailure ? error.Message : error is OperationCanceledException ? "Execution deadline expired; verify the target before retrying." : "Local handler failed. Inspect the private connector configuration and target.";
-                        completion=Json.Object(new {invocationId=Json.String(job,"id"),claimToken=Json.String(job,"claimToken"),state="failed",error=message});
+                        completion=Json.Object(new {invocationId=Json.String(job,"id"),claimToken=Json.String(job,"claimToken"),state=error is ConnectorUncertainFailure or OperationCanceledException?"unknown":"failed",error=message});
                     }
                     // Retry only acknowledgement. The command is never rerun after a lost HTTP response.
                     var acknowledged=false;
@@ -57,6 +57,7 @@ public static class ConnectorWorker
         using var response=await client.SendAsync(request,cancellation); response.EnsureSuccessStatusCode(); return JsonNode.Parse(await response.Content.ReadAsStringAsync(cancellation))!;
     }
     public static Task<JsonObject> Execute(JsonObject profile,JsonObject job,CancellationToken cancellation) => Json.String(profile,"type") switch {
+        "webhook"=>WebhookHandler.Send(profile,job,cancellation),
         "process" when (Json.String(profile,"kind").Length>0 ? Json.String(profile,"kind")==Json.String(job,"kind") : Json.String(job,"kind") is "command" or "custom")=>Process(profile,job,cancellation),
         "log-file" when Json.String(job,"kind")=="logs"=>ReadLog(profile,ComponentValidator.Object(job["input"]),cancellation),
         "sqlite-table" when Json.String(job,"kind")== (Json.String(profile,"operation") switch { "read"=>"query","edit"=>"edit","history"=>"history",_=>"" })=>Task.FromResult(Database(profile,job)),
@@ -188,4 +189,5 @@ public static class ConnectorWorker
         return Json.Object(new{row=afterRow});
     }
 }
-public sealed class ConnectorFailure(string message) : Exception(message);
+public class ConnectorFailure(string message) : Exception(message);
+public sealed class ConnectorUncertainFailure(string message) : ConnectorFailure(message);

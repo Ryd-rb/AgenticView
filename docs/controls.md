@@ -101,6 +101,51 @@ The worker makes outbound requests, claims one job at a time and retries only it
 acknowledgement. `--once` processes one poll for testing. Independent high-volume
 sources can use separate connector IDs.
 
+### Optional prompt webhooks
+
+Use the existing agent inbox for polling, or point a prompt action at a connector
+handler of type `webhook`. The connector's local profile owns the destination and
+secret environment references; the hub never performs arbitrary outbound calls.
+Confirmation remains a per-action choice for either delivery method.
+
+```json
+{
+  "type": "webhook",
+  "url": "https://example.com/agent/inbox",
+  "signingKeyEnv": "AV_AGENT_WEBHOOK_SIGNING_KEY",
+  "bearerTokenEnv": "AV_AGENT_WEBHOOK_BEARER",
+  "timeoutSeconds": 10,
+  "maxResponseBytes": 65536
+}
+```
+
+Configure the action as `kind: "prompt"`, target the connector and name this
+handler. A profile may explicitly declare `kind: "custom"` for notifications.
+Webhook profiles do not execute command/edit/query actions.
+
+Requests contain `schemaVersion`, `invocationId`, `runId`, `actionId`, `kind`,
+`input` and `createdAt`. They exclude run/connector keys, claim tokens and the local
+profile. `Idempotency-Key` and `X-AgenticView-Invocation-Id` identify the invocation.
+With a signing key, `X-AgenticView-Signature` is `sha256=` plus the lowercase
+HMAC-SHA256 of `timestamp + "." + rawRequestBytes`; timestamp is the
+`X-AgenticView-Timestamp` Unix-seconds header. The receiver should verify the
+signature, clock skew and invocation deduplication before accepting a prompt.
+
+Delivery defaults to one attempt. Only receivers that durably deduplicate IDs
+should use `idempotent: true` and `maxAttempts` (2–3). Retries preserve identical
+body bytes, ID, timestamp and signature. They cover transient 429/502/503/504 and
+transport failures. Explicit rejection and redirects never cause a resend.
+HTTPS is the remote default; private HTTP requires `allowHttp: true` in the local
+profile. Loopback HTTP is available for local development.
+
+A 2xx response acknowledges prompt delivery, including 202; it does not claim the
+agent's resulting task finished. Optional response bodies are bounded (default
+64 KiB, maximum 256 KiB). Slow/oversized bodies cannot resend an acknowledged
+prompt. Unverifiable delivery becomes `unknown`, with no automatic replay.
+No additional packages are required for this connector handler.
+
+For reusable application cards, see [portable application definitions](applications.md).
+
 | Local handler | Behavior |
 | --- | --- |
 | `process` | Fixed executable, argument list and optional working directory. `{field}` substitutes a whole data argument using `ArgumentList`; no shell source is assembled. Use fixed script files for PowerShell/Python adapters. Output drains continuously, retaining 32,768 characters per stream. |

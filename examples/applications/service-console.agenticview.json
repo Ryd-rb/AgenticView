@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "service-console",
+  "version": "1.0.0",
+  "name": "Service console",
+  "description": "A reusable console with an agent-defined status source and operator action.",
+  "permanent": true,
+  "bindings": [{"id":"service","label":"Service connector","description":"A local worker providing service-status and service-restart handlers."}],
+  "actions": [
+    {"id":"status","label":"Read status","kind":"query","target":"service","handler":"service-status"},
+    {"id":"restart","label":"Restart service","kind":"command","target":"service","handler":"service-restart","confirmation":"Restart the configured service?"}
+  ],
+  "components": [
+    {"id":"about","title":"About this application","kind":"markdown","data":{"text":"Status comes from your configured connector. Use the action below when a restart is needed."}},
+    {"id":"status","title":"Live service status","kind":"table","data":{"columns":[{"key":"name","label":"Service"},{"key":"state","label":"State"}],"rows":[],"sourceAction":"status","pageSize":25}},
+    {"id":"actions","title":"Service actions","kind":"action-panel","data":{"actionIds":["restart"]}}
+  ],
+  "layout": {"width":640,"height":640,"sizing":"fixed"}
+}

@@ -189,6 +189,10 @@ public sealed class Hub : IDisposable
     {
         lock (gate) { var run = Authorize(id, token); var view = Clone(run.View); view["application"] = application.DeepClone(); view["name"] = application["name"]!.DeepClone(); view["role"] = "Application"; view["status"] = "active"; view.Remove("completedAt"); SaveView(run, view); Queue(view); revision++; return Metadata(view); }
     }
+    public void SetApplicationSize(string id,string token,JsonObject size)
+    {
+        lock(gate) { var run=Authorize(id,token); var view=Clone(run.View); var layout=Clone((JsonObject)view["layout"]!); layout["width"]=size["width"]!.DeepClone(); layout["height"]=size["height"]!.DeepClone(); layout["sizing"]=size["sizing"]!.DeepClone(); view["layout"]=FreePosition(layout,EffectiveRoots().Where(r=>String(r.View,"id")!=id).Select(r=>(JsonObject)r.View["layout"]!).ToList()); SaveView(run,view); Queue(view); packingDirty=true; revision++; }
+    }
     public JsonObject Register(JsonObject raw)
     {
         lock (gate)

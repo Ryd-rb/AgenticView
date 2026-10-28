@@ -4,6 +4,7 @@
   "url": "http://127.0.0.1:4317/",
   "registrationKey": "replace-with-a-private-random-recovery-key-before-registering",
   "handlers": {
+    "agent-hook": {"type":"webhook","url":"https://example.com/agent/inbox","signingKeyEnv":"AV_AGENT_WEBHOOK_SIGNING_KEY","bearerTokenEnv":"AV_AGENT_WEBHOOK_BEARER","timeoutSeconds":10,"maxResponseBytes":65536},
     "row-service-edit": {"type":"process","kind":"edit","executable":"python","arguments":["row-service.py"],"input":"json-stdin","output":"json"},
     "row-service-query": {"type":"process","kind":"query","executable":"python","arguments":["row-service.py"],"input":"json-stdin","output":"json"},
     "sdk-version": {"type":"process","executable":"dotnet","arguments":["--version"]},

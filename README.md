@@ -43,6 +43,11 @@ C# · .NET 10 · React · MIT
   bounded log tails or page through millions of source rows. Generic add/edit/delete
   callbacks send full rows to your scripts or services; persistence and history
   belong to your adapter. See [application cards and controls](docs/controls.md).
+- **Share the application.** Agents can keep versioned `.agenticview.json`
+  definitions in their own repositories. Import them through an agent or the
+  settings card, binding reusable controls to local workers. Definitions exclude
+  installed credentials and automatically captured telemetry. See
+  [portable applications](docs/applications.md).
 
 AgenticView has no LLM dependency. The hub records and routes configured actions;
 execution belongs to the owning agent or a connector with local profiles.

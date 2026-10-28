@@ -6,7 +6,7 @@ using Microsoft.Data.Sqlite;
 namespace AgenticView.Server;
 
 /// <summary>Durable, bounded-message dispatch. Only a connector or the owning agent executes an action.</summary>
-public sealed class ControlStore : IDisposable
+public sealed partial class ControlStore : IDisposable
 {
     private readonly object gate = new();
     private readonly SqliteConnection db;
@@ -21,6 +21,8 @@ public sealed class ControlStore : IDisposable
             PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
             CREATE TABLE IF NOT EXISTS configurations(run_id TEXT PRIMARY KEY,payload TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS connectors(id TEXT PRIMARY KEY,proof TEXT NOT NULL,payload TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS application_definitions(run_id TEXT PRIMARY KEY,payload TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS application_imports(request_id TEXT PRIMARY KEY,digest TEXT NOT NULL,run_id TEXT NOT NULL,complete INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS invocations(id TEXT PRIMARY KEY,run_id TEXT NOT NULL,request_id TEXT NOT NULL,digest TEXT NOT NULL,target TEXT NOT NULL,state TEXT NOT NULL,created INTEGER NOT NULL,payload TEXT NOT NULL,UNIQUE(run_id,request_id));
             CREATE INDEX IF NOT EXISTS inbox ON invocations(target,state,created);
             CREATE INDEX IF NOT EXISTS action_history ON invocations(run_id,created DESC);
@@ -51,7 +53,19 @@ public sealed class ControlStore : IDisposable
     public JsonObject Configure(string id,string token,JsonObject input)
     {
         hub.VerifyRun(id,token); Budget(input,131072);
-        var actions=ComponentValidator.Array(input,"actions",64); var seen=new HashSet<string>();
+        var actions=ComponentValidator.Array(input,"actions",64); ValidateActions(actions);
+        JsonObject? application=null;
+        if(input["application"] is not null) { application=Clone(ComponentValidator.Object(input["application"])); ComponentValidator.Text(application,"name",160,true,1); ComponentValidator.Text(application,"description",2000,false); }
+        application ??= hub.GetRun(id)?["application"] as JsonObject;
+        var config=Json.Object(new {version=Hash(Canonical(input)),actions});
+        if(application is not null) config["application"]=application.DeepClone();
+        if(application is not null) hub.MakeApplication(id,token,application);
+        lock(gate) { Execute("INSERT INTO configurations VALUES($p0,$p1) ON CONFLICT(run_id) DO UPDATE SET payload=excluded.payload",id,Json.Text(config)); }
+        return Clone(config);
+    }
+    private static void ValidateActions(JsonArray actions)
+    {
+        var seen=new HashSet<string>();
         foreach(var node in actions) {
             var action=ComponentValidator.Object(node); var aid=ComponentValidator.Id(action,"id"); if(!seen.Add(aid)) throw new HubError(400,"Duplicate action ID.");
             ComponentValidator.Text(action,"label",160,true,1); ComponentValidator.Text(action,"description",2000,false);
@@ -60,14 +74,6 @@ public sealed class ControlStore : IDisposable
             ComponentValidator.Text(action,"confirmation",2000,false);
             ValidateFields(action);
         }
-        JsonObject? application=null;
-        if(input["application"] is not null) { application=Clone(ComponentValidator.Object(input["application"])); ComponentValidator.Text(application,"name",160,true,1); ComponentValidator.Text(application,"description",2000,false); }
-        application ??= hub.GetRun(id)?["application"] as JsonObject;
-        var config=Json.Object(new {version=Hash(Canonical(input)),actions});
-        if(application is not null) config["application"]=application.DeepClone();
-        lock(gate) { Execute("INSERT INTO configurations VALUES($p0,$p1) ON CONFLICT(run_id) DO UPDATE SET payload=excluded.payload",id,Json.Text(config)); }
-        if(application is not null) hub.MakeApplication(id,token,application);
-        return Clone(config);
     }
     private static void ValidateFields(JsonObject action)
     {
@@ -149,7 +155,7 @@ public sealed class ControlStore : IDisposable
     }
     public JsonObject Complete(string id,string token,bool agent,JsonObject input)
     {
-        if(agent) hub.VerifyRun(id,token); Budget(input); var invocation=ComponentValidator.Id(input,"invocationId"); var claim=ComponentValidator.Text(input,"claimToken",128); var state=ComponentValidator.Text(input,"state",20); if(state is not ("succeeded" or "failed")) throw new HubError(400,"Completion must succeed or fail.");
+        if(agent) hub.VerifyRun(id,token); Budget(input); var invocation=ComponentValidator.Id(input,"invocationId"); var claim=ComponentValidator.Text(input,"claimToken",128); var state=ComponentValidator.Text(input,"state",20); if(state is not ("succeeded" or "failed" or "unknown")) throw new HubError(400,"Completion must succeed, fail or report an unknown outcome.");
         if(input["error"] is not null) ComponentValidator.Text(input,"error",4000,false);
         lock(gate) {
             if(!agent) ConnectorAuth(id,token);

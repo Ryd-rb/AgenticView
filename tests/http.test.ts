@@ -99,4 +99,6 @@ test('published monitor serves its HTML and compiled script from the C# process'
   const html = await response.text(); assert.match(html, /AgenticView/);
   const script = /src="([^"]+\.js)"/.exec(html)?.[1]; assert.ok(script);
   const asset = await fetch(f.url + script); assert.equal(asset.status, 200); assert.match(asset.headers.get('content-type') || '', /javascript/);
+  const library = /(?:\.\/|\/assets\/)ApplicationLibrary-[a-zA-Z0-9_-]+\.js/.exec(await asset.text())?.[0]; assert.ok(library, 'Application editor stays in a deferred module');
+  const deferred = await fetch(new URL(library, new URL(script, f.url))); assert.equal(deferred.status, 200); assert.match(deferred.headers.get('content-type') || '', /javascript/); assert.match(await deferred.text(), /Portable applications/);
 } finally { await f.close(); } });

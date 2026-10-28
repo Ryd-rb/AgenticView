@@ -1,0 +1,22 @@
+.application-library { min-width: 0; font-size: 13px; line-height: 1.5; color: #e5e8f0; }
+.application-library h2 { margin: 0 0 8px; }
+.application-library h3 { margin: 0; }
+.application-library p { overflow-wrap: anywhere; }
+.application-library .control-field { display: flex; flex-direction: column; gap: 4px; margin: 12px 0; }
+.application-library input, .application-library textarea { font: inherit; color: inherit; background: #161d2c; border: 1px solid #46516a; border-radius: 5px; padding: 8px; min-width: 0; max-width: 100%; box-sizing: border-box; }
+.application-library textarea { width: 100%; resize: vertical; min-height: 120px; font-family: ui-monospace, monospace; font-size: 12px; }
+.application-library :focus-visible { outline: 2px solid #aebfff; outline-offset: 2px; }
+.application-library [role=alert] { color: #ffb1b8; }
+.application-library .control-caption, .application-library small { color: #b5bfd3; }
+.application-library .control-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.application-preview { padding: 12px; border: 1px solid #46516a; border-radius: 7px; margin: 12px 0; }
+.application-preview > strong { display: inline-block; margin-right: 10px; font-size: 15px; overflow-wrap: anywhere; }
+.application-permanent { display: inline-block; color: #a4e3ca; border: 1px solid #47796a; border-radius: 20px; font-size: 11px; padding: 1px 7px; }
+.application-custom { padding: 8px; background: #332c20; border-left: 3px solid #e3bc72; color: #f4d38f; }
+.application-success { color: #a4e3ca; }
+.application-installed { border-top: 1px solid #384259; padding-top: 18px; margin-top: 22px; }
+.application-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; border-bottom: 1px solid #384259; padding: 12px 0; }
+.application-row > div { min-width: 0; }
+.application-row strong, .application-row small { display: block; overflow-wrap: anywhere; }
+.application-row p { margin: 4px 0; }
+.application-row a { flex-shrink: 0; white-space: nowrap; }

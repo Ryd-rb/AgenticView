@@ -1,5 +1,6 @@
 import { randomUUID, randomBytes } from 'node:crypto';
 import type { Component, Operation, RegisterInput } from '../shared/protocol.ts';
+import type { ApplicationManifest } from '../shared/application-manifest.ts';
 
 export class AgenticViewClient {
   private sequence = 0;
@@ -13,6 +14,9 @@ export class AgenticViewClient {
   }
   /** Resume with credentials held privately by the calling application. */
   static resume(url: string, runId: string, runToken: string, sequence: number) { return new AgenticViewClient(url, runId, runToken, sequence); }
+  static async importApplication(url:string,ingestionKey:string,manifest:ApplicationManifest,bindings:Record<string,string>,identity:{requestId:string;registrationKey:string}) { const result=await request<{runId:string;runToken:string;sequence:number}>(url,'/api/applications/import',ingestionKey,{manifest,bindings,...identity}); return new AgenticViewClient(url,result.runId,result.runToken,result.sequence); }
+  defineApplication(manifest:ApplicationManifest) { return request<ApplicationManifest>(this.url,`/api/agents/${this.runId}/application`,this.runToken,manifest,'PUT'); }
+  exportApplication() { return request<ApplicationManifest>(this.url,`/api/agents/${this.runId}/application`,this.runToken,undefined,'GET'); }
   childDeclaration() { return { parentId: this.runId, parentToken: this.runToken }; }
   publish(operations: Operation[]) {
     const copy = structuredClone(operations);
@@ -34,7 +38,7 @@ export class AgenticViewClient {
   configure(actions: ActionDefinition[], application?: { name: string; description?: string }) { return request(this.url, `/api/agents/${this.runId}/controls`, this.runToken, { actions, ...(application ? { application } : {}) }, 'PUT'); }
   /** Claims one action. Execute once, then retry only its acknowledgement if delivery is uncertain. */
   pollActions() { return request<ActionJob[]>(this.url, `/api/agents/${this.runId}/actions/poll`, this.runToken, {}); }
-  completeAction(job: ActionJob, state: 'succeeded' | 'failed', result?: Record<string, unknown>, error?: string) { return request(this.url, `/api/agents/${this.runId}/actions/complete`, this.runToken, { invocationId: job.id, claimToken: job.claimToken, state, ...(result ? { result } : {}), ...(error ? { error } : {}) }); }
+  completeAction(job: ActionJob, state: 'succeeded' | 'failed' | 'unknown', result?: Record<string, unknown>, error?: string) { return request(this.url, `/api/agents/${this.runId}/actions/complete`, this.runToken, { invocationId: job.id, claimToken: job.claimToken, state, ...(result ? { result } : {}), ...(error ? { error } : {}) }); }
   heartbeat() { return request(this.url, `/api/agents/${this.runId}/heartbeat`, this.runToken, {}); }
   startHeartbeat(onError: (error: unknown) => void = () => {}) { this.stopHeartbeat(); this.heartbeatTimer = setInterval(() => { void this.heartbeat().catch(onError); }, 15_000); this.heartbeatTimer.unref(); return this; }
   stopHeartbeat() { if (this.heartbeatTimer) clearInterval(this.heartbeatTimer); this.heartbeatTimer = undefined; }

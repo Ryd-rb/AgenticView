@@ -6,4 +6,5 @@ import './theme.css';
 import './extended-native.css';
 import './monitoring.css';
 import './control-views.css';
+import './application-library.css';
 createRoot(document.getElementById('root')!).render(<React.StrictMode><App /></React.StrictMode>);

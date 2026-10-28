@@ -276,6 +276,7 @@ var cases = new (string Name, Action Test)[]
     }))
 };
 cases = cases.Concat(ControlContracts.Cases()).ToArray();
+cases = cases.Append(("known webhook acknowledgements survive parent cancellation without replay",(Action)WebhookContracts.AcknowledgementSurvivesBodyCancellation)).ToArray();
 var failed=0;
 foreach(var (name, action) in cases) { try { action(); Console.WriteLine("PASS "+name); } catch(Exception error) { failed++; Console.Error.WriteLine("FAIL "+name+": "+error); } }
 Console.WriteLine($"{cases.Length-failed}/{cases.Length} C# contracts passed"); return failed==0?0:1;

@@ -48,6 +48,7 @@ public static class AppHost
                 {
                     if (!Authentication.Equal(Authentication.Bearer(context.Request), config.Secrets.IngestToken)) throw new HubError(401, "A valid ingestion key is required.");
                 }
+                else if(path=="/api/applications/import") { if(!Authentication.Viewer(context.Request,config.Secrets) && !Authentication.Equal(Authentication.Bearer(context.Request),config.Secrets.IngestToken)) throw new HubError(401,"Application import requires viewer or ingestion access."); }
                 else if (path.StartsWith("/api/", StringComparison.Ordinal) && path is not ("/api/login" or "/api/logout" or "/api/session") && !IsProducerRoute(path) && !Authentication.Viewer(context.Request, config.Secrets)) throw new HubError(401, "Sign in with your viewer key.");
                 await next(context);
             }
@@ -61,7 +62,7 @@ public static class AppHost
             }
         });
         app.UseRateLimiter();
-        app.MapGet("/health", () => new { status = "ok", version = "0.2.0", runtime = ".NET 10" });
+        app.MapGet("/health", () => new { status = "ok", version = "0.3.0", runtime = ".NET 10" });
         app.MapGet("/api/session", (HttpContext c) => new { authenticated = Authentication.Viewer(c.Request, config.Secrets) });
         app.MapPost("/api/login", (Func<HttpContext, Task<IResult>>)(async c =>
         {
@@ -77,6 +78,11 @@ public static class AppHost
         app.MapPost("/api/agents/{id}/publish", async (string id, HttpContext c) => hub.Publish(id, Authentication.Bearer(c.Request), await Body(c)));
         app.MapPost("/api/agents/{id}/heartbeat", (string id, HttpContext c) => hub.Heartbeat(id, Authentication.Bearer(c.Request)));
         app.MapPut("/api/agents/{id}/controls", async (string id, HttpContext c) => controls.Configure(id, Authentication.Bearer(c.Request), await Body(c)));
+        app.MapPut("/api/agents/{id}/application", async(string id,HttpContext c)=>controls.DefineApplication(id,Authentication.Bearer(c.Request),await Body(c)));
+        app.MapGet("/api/agents/{id}/application", (string id,HttpContext c)=>{hub.VerifyRun(id,Authentication.Bearer(c.Request)); return controls.ExportApplication(id);});
+        app.MapGet("/api/applications", (int? offset,int? limit)=>controls.Applications(offset??0,limit??25));
+        app.MapGet("/api/applications/{id}/export", (string id,HttpContext c)=>{c.Response.Headers.CacheControl="no-store";return Results.File(System.Text.Encoding.UTF8.GetBytes(Json.Text(controls.ExportApplication(id))),"application/json",$"{SafeId(id)}.agenticview.json");});
+        app.MapPost("/api/applications/import",async(HttpContext c)=>{var result=controls.ImportApplication(await Body(c));if(!Authentication.Equal(Authentication.Bearer(c.Request),config.Secrets.IngestToken))result.Remove("runToken");return result;});
         app.MapPost("/api/agents/{id}/actions/poll", (string id, HttpContext c) => controls.Poll(id, Authentication.Bearer(c.Request), true));
         app.MapPost("/api/agents/{id}/actions/complete", async (string id, HttpContext c) => controls.Complete(id, Authentication.Bearer(c.Request), true, await Body(c)));
         app.MapPost("/api/connectors/register", (Func<HttpContext, Task<IResult>>)(async c => Results.Json(controls.RegisterConnector(await Body(c)), statusCode: 201)));
@@ -127,7 +133,7 @@ public static class AppHost
         app.MapMethods("/{**asset}", new[] { "GET", "HEAD" }, (string? asset, HttpContext c, WebAssets assets) => assets.Get(asset, c));
         return app;
     }
-    private static bool IsProducerRoute(string path) => path.StartsWith("/api/agents/", StringComparison.Ordinal) && (path.EndsWith("/publish", StringComparison.Ordinal) || path.EndsWith("/heartbeat", StringComparison.Ordinal) || path.EndsWith("/archive", StringComparison.Ordinal) || path.EndsWith("/controls", StringComparison.Ordinal) || path.EndsWith("/actions/poll", StringComparison.Ordinal) || path.EndsWith("/actions/complete", StringComparison.Ordinal)) || path.StartsWith("/api/connectors/", StringComparison.Ordinal) && (path.EndsWith("/poll", StringComparison.Ordinal) || path.EndsWith("/complete", StringComparison.Ordinal));
+    private static bool IsProducerRoute(string path) => path.StartsWith("/api/agents/", StringComparison.Ordinal) && (path.EndsWith("/publish", StringComparison.Ordinal) || path.EndsWith("/heartbeat", StringComparison.Ordinal) || path.EndsWith("/archive", StringComparison.Ordinal) || path.EndsWith("/controls", StringComparison.Ordinal) || path.EndsWith("/application", StringComparison.Ordinal) || path.EndsWith("/actions/poll", StringComparison.Ordinal) || path.EndsWith("/actions/complete", StringComparison.Ordinal)) || path.StartsWith("/api/connectors/", StringComparison.Ordinal) && (path.EndsWith("/poll", StringComparison.Ordinal) || path.EndsWith("/complete", StringComparison.Ordinal));
     private static string SafeId(string value) => value.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_') ? value : throw new HubError(400, "Invalid archive identifier.");
     private static async Task<JsonObject> Body(HttpContext c)
     {
