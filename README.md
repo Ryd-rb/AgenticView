@@ -6,6 +6,10 @@ A self-hosted observation hub that brings agent plans, evidence and progress int
 one freeform workspace. Follow a run, inspect its children, and keep useful
 results in local archives.
 
+![Illustrative AgenticView demo: a wide canvas of synthetic agents zooms into investigation, coding and live monitoring cards](docs/media/agenticview-demo.gif)
+
+*Illustrative animation with synthetic investigation and coding data. [Generation source](scripts/render-readme-demo.py).*
+
 C# · .NET 10 · React · MIT
 
 [Get started](#get-started) · [Connect an agent](#connect-an-agent) · [Offline builds](docs/offline-build.md) · [Windows desktop](docs/desktop.md)
@@ -17,7 +21,7 @@ C# · .NET 10 · React · MIT
 - **Look closer.** Activate a card to explore its content. Nested tables, logs and
   code scroll within their bounds, with movement continuing through the surrounding
   card and canvas. Mouse, keyboard and touch inputs share the same navigation model.
-- **Choose the right view.** Use 25 built-in types: task lists, query results,
+- **Choose the right view.** Use 31 built-in types: task lists, query results,
   commands, traces, charts, heatmaps, comparisons, code, diffs and more. Native
   components handle display and interaction; custom HTML is an escape hatch with
   a distinct frame and **Custom view** label. See the [native catalog](docs/native-components.md).
@@ -26,6 +30,9 @@ C# · .NET 10 · React · MIT
   changes easier to scan. Exact observed times remain available on hover.
 - **Keep the evidence.** Inspect, restore or export compressed local archives from
   the bottom-left settings cog. Automatic archiving is optional and off by default.
+- **Watch the hub.** The monitoring icon beside settings opens a world card with
+  agent counts, update and payload rates, recent curves, component activity and
+  server health. Larger working text stays within the existing card sizes.
 
 AgenticView observes work that agents report. It has no LLM dependency and does
 not execute their tasks.

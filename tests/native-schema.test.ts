@@ -52,6 +52,32 @@ for (const url of ['javascript:alert(1)', 'file:///test', 'https://user:pass@exa
 add('comparison scalar types', 'comparison', { items: [{ label: 'State', before: null, after: true }, { label: 'Rows', before: 1, after: 'two' }] });
 add('comparison missing before', 'comparison', { items: [{ label: 'A', after: 1 }] }, false);
 add('comparison nested scalar', 'comparison', { items: [{ label: 'A', before: [], after: 1 }] }, false);
+add('service topology cycle is valid', 'service-map', { nodes: [{ id: 'a', label: 'API' }, { id: 'b', label: 'Store', state: 'success' }], edges: [{ from: 'a', to: 'b' }, { from: 'b', to: 'a' }] });
+add('service map maximum', 'service-map', { nodes: Array.from({ length: 100 }, (_, i) => ({ id: 'n' + i, label: 'Service' })), edges: Array.from({ length: 200 }, (_, i) => ({ from: 'n' + (i % 100), to: 'n' + ((i + 1) % 100) })) });
+add('service map missing reference', 'service-map', { nodes: [{ id: 'a', label: 'API' }], edges: [{ from: 'a', to: 'missing' }] }, false);
+add('service map duplicate node', 'service-map', { nodes: [{ id: 'a', label: 'A' }, { id: 'a', label: 'B' }], edges: [] }, false);
+add('service map overflow', 'service-map', { nodes: Array.from({ length: 101 }, (_, i) => ({ id: 'n' + i, label: 'Service' })), edges: [] }, false);
+add('http observation', 'http', { method: 'PATCH', url: 'https://example.com/observe', statusCode: 599, durationMs: 0, requestBody: '{}', responseBody: 'Reported response' });
+add('http minimum status', 'http', { method: 'HEAD', url: 'http://localhost:4317/', statusCode: 100 });
+for (const data of [{ method: 'get', url: 'https://example.com/' }, { method: 'GET', url: 'https://name@example.com/' }, { method: 'GET', url: 'javascript:run()' }, { method: 'GET', url: 'https://example.com/', statusCode: 600 }, { method: 'GET', url: 'https://example.com/', durationMs: -1 }]) add('http invalid ' + JSON.stringify(data), 'http', data, false);
+add('stack maximum', 'stacktrace', { frames: Array.from({ length: 1000 }, (_, i) => ({ method: 'Frame' + i, file: 'synthetic.cs', line: i + 1 })) });
+add('stack nonpositive line', 'stacktrace', { frames: [{ method: 'Frame', line: 0 }] }, false);
+add('stack fractional line', 'stacktrace', { frames: [{ method: 'Frame', line: .5 }] }, false);
+add('stack overflow', 'stacktrace', { frames: Array.from({ length: 1001 }, () => ({ method: 'Frame' })) }, false);
+add('test results maximum', 'test-results', { items: Array.from({ length: 1000 }, (_, i) => ({ id: 'test-' + i, label: 'Test', state: 'passed', durationMs: 0 })) });
+add('test duplicate id', 'test-results', { items: [{ id: 'a', label: 'A', state: 'passed' }, { id: 'a', label: 'B', state: 'failed' }] }, false);
+add('test invalid state', 'test-results', { items: [{ id: 'a', label: 'A', state: 'success' }] }, false);
+add('test negative duration', 'test-results', { items: [{ id: 'a', label: 'A', state: 'passed', durationMs: -1 }] }, false);
+add('gantt maximum dates', 'gantt', { items: [{ id: 'early', label: 'Early', start: 0, end: 8640000000000000 }, { id: 'late', label: 'Late', start: 8640000000000000 }] });
+add('gantt maximum items', 'gantt', { items: Array.from({ length: 200 }, (_, i) => ({ id: 'i' + i, label: 'Interval', start: i, end: i + 1 })) });
+add('gantt reversed', 'gantt', { items: [{ id: 'a', label: 'A', start: 2, end: 1 }] }, false);
+add('gantt duplicate id', 'gantt', { items: [{ id: 'a', label: 'A', start: 1 }, { id: 'a', label: 'A', start: 2 }] }, false);
+add('gantt date overflow', 'gantt', { items: [{ id: 'a', label: 'A', start: 8640000000000001 }] }, false);
+add('gantt negative date', 'gantt', { items: [{ id: 'a', label: 'A', start: -1 }] }, false);
+add('breakdown finite extreme', 'breakdown', { items: [{ label: 'A', value: Number.MAX_VALUE }, { label: 'B', value: Number.MAX_VALUE }], unit: 'samples' });
+add('breakdown maximum items', 'breakdown', { items: Array.from({ length: 100 }, () => ({ label: 'A', value: 1 })) });
+add('breakdown negative', 'breakdown', { items: [{ label: 'A', value: -1 }] }, false);
+add('breakdown overflow', 'breakdown', { items: Array.from({ length: 101 }, () => ({ label: 'A', value: 1 })) }, false);
 
 test('native catalog schema accepts boundaries and rejects invalid relationships', () => {
   for (const item of cases) assert.equal(componentSchema.safeParse(item.input).success, item.valid, item.name);

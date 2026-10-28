@@ -4,6 +4,7 @@ import { Window } from 'happy-dom';
 import { act, createElement } from 'react';
 import { App } from '../web/App.tsx';
 import type { AgentView, Snapshot } from '../shared/protocol.ts';
+import type { MonitoringSnapshot } from '../shared/monitoring.ts';
 
 // Actual App event/lifecycle contracts in memory; no browser or physical touch claims.
 const dom = new Window({ url: 'http://localhost/', settings: { disableIframePageLoading: true, enableJavaScriptEvaluation: false } });
@@ -57,8 +58,18 @@ class Stream extends dom.EventTarget {
 const leaseRequests: { active: boolean; leaseId: string }[] = []; let admission: Promise<void> | undefined;
 let releaseAcknowledgement: Promise<void> | undefined, packHook: (() => void) | undefined;
 const requestOrder: string[] = [];
+const requestPaths: string[] = [];
+function monitoringSnapshot(): MonitoringSnapshot {
+  const time = Date.now();
+  return { sampledAt: time, uptimeSeconds: 60, active: 1, stale: 0, completed: 0, errors: 0, liveAgents: 1, archived: 0, components: 1, viewerStreams: 1, liveBytes: 1024,
+    acceptedBatches: 1, acceptedOperations: 1, acceptedPayloadBytes: 200, duplicateBatches: 0, rejectedPublishes: 0, updatesPerSecond: 1, batchesPerSecond: 1, bytesPerSecond: 200, publishP95Ms: 1, cpuPercent: 2, workingSetBytes: 1024, managedHeapBytes: 512,
+    history: [{ time, active: 1, stale: 0, updatesPerSecond: 1, batchesPerSecond: 1, bytesPerSecond: 200, cpuPercent: 2 }],
+    kinds: [{ kind: 'metric', components: 1, operations: 1, updatesPerSecond: 1 }], agents: [], stages: [] };
+}
 Object.assign(globalThis, { EventSource: Stream, fetch: async (input: string, init?: RequestInit) => {
+  requestPaths.push(input);
   const body = init?.body ? JSON.parse(String(init.body)) : {};
+  if (input === '/api/monitoring') return new Response(JSON.stringify(monitoringSnapshot()), { status: 200, headers: { 'Content-Type': 'application/json' } });
   if (input.endsWith('/layout/interaction')) {
     leaseRequests.push(body); requestOrder.push(`lease:${body.active}:request`);
     if (body.active && admission) await admission;
@@ -287,4 +298,54 @@ test('selected-card zoom reaches 200 percent in the main view before content zoo
     await act(() => { zoom(1.2); });
     assert.ok(Math.abs(scale(outer) - 2) < 1e-8); assert.ok(Math.abs(scale(inner) - 1.2) < 1e-8);
   } finally { await view.close(); }
+});
+
+test('monitoring is a movable utility world card with isolated polling and global canvas authority', async () => {
+  const view = await mount(); const setTimer = globalThis.setTimeout, clearTimer = globalThis.clearTimeout;
+  const ownNow = Object.getOwnPropertyDescriptor(performance, 'now'), now = performance.now.bind(performance); let elapsed = 0;
+  Object.defineProperty(performance, 'now', { configurable: true, value: () => now() + elapsed });
+  let nextTimer = 950000; const polls = new Map<number, () => void>(); requestPaths.length = 0;
+  globalThis.setTimeout = ((callback: () => void, delay?: number, ...args: unknown[]) => { if (delay === 1000) { polls.set(++nextTimer, callback); return nextTimer; } return setTimer(callback, delay, ...args); }) as typeof setTimeout;
+  globalThis.clearTimeout = ((id: number) => { if (!polls.delete(id)) clearTimer(id); }) as typeof clearTimeout;
+  const settle = () => new Promise<void>(resolve => setImmediate(resolve));
+  const utility = (id: string) => view.host.querySelector<HTMLElement>(`[data-card-id="${id}"]`)!;
+  const rect = (node: HTMLElement) => ({ x: parseFloat(node.style.left), y: parseFloat(node.style.top), width: parseFloat(node.style.width), height: parseFloat(node.style.height) });
+  const key = (node: Element, value: string) => node.dispatchEvent(new KeyboardEvent('keydown', { key: value, bubbles: true, cancelable: true }));
+  try {
+    await act(async () => { document.querySelector<HTMLButtonElement>('button[aria-label="Hub monitoring"]')!.click(); await settle(); });
+    assert.ok(utility('monitoring')); assert.ok(utility('monitoring').classList.contains('is-active'));
+    assert.match(utility('monitoring').textContent!, /Accepted traffic|Run states/);
+    assert.equal(requestPaths.filter(path => path === '/api/monitoring').length, 1); assert.equal(polls.size, 1);
+    await act(() => { document.querySelector<HTMLButtonElement>('button[aria-label="Workspace settings"]')!.click(); });
+    await act(() => { document.querySelector<HTMLButtonElement>('button[aria-label="Fit all cards"]')!.click(); });
+    assert.ok(utility('settings')); assert.ok(utility('monitoring'));
+    const a = rect(utility('settings')), b = rect(utility('monitoring'));
+    assert.ok(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y, 'utility cards coexist without overlap');
+    let header = utility('monitoring').querySelector<HTMLElement>('.card-header')!;
+    await act(() => { key(header, 'Enter'); }); assert.ok(utility('monitoring').classList.contains('is-active'));
+    const beforeKeyboard = rect(utility('monitoring'));
+    await act(() => { key(header, 'ArrowUp'); });
+    assert.notDeepEqual(rect(utility('monitoring')), beforeKeyboard, 'header keyboard moves the utility card');
+    header = utility('monitoring').querySelector<HTMLElement>('.card-header')!;
+    const beforeTouch = rect(utility('monitoring'));
+    await act(() => { pointer(header, 'pointerdown', 200); pointer(header, 'pointermove', 160); pointer(header, 'pointerup', 160); });
+    assert.notDeepEqual(rect(utility('monitoring')), beforeTouch, 'touch header drag moves the utility card');
+    header = utility('monitoring').querySelector<HTMLElement>('.card-header')!;
+    const beforeMouse = rect(utility('monitoring'));
+    await act(() => { for (const [type, x, y] of [['pointerdown', 100, 200], ['pointermove', 130, 180], ['pointerup', 130, 180]] as const) { const owner = type === 'pointerdown' ? header : captures.get(21) ?? header; owner.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'mouse', pointerId: 21, button: 0, clientX: x, clientY: y })); } });
+    assert.notDeepEqual(rect(utility('monitoring')), beforeMouse, 'mouse header drag moves the utility card');
+    const content = utility('monitoring').querySelector<HTMLElement>('.monitoring-heading h2')!;
+    await act(() => { pointer(content, 'pointerdown', 200); }); assert.equal(captures.has(11), true);
+    await act(() => { document.querySelector<HTMLButtonElement>('button[aria-label="Fit all cards"]')!.click(); }); assert.equal(captures.has(11), false, 'global Fit all cancels local monitoring gesture');
+    const world = view.host.querySelector<HTMLElement>('.world')!, beforeCanvas = world.style.transform;
+    await act(() => { key(view.host.querySelector('.canvas')!, 'ArrowLeft'); });
+    assert.notEqual(world.style.transform, beforeCanvas, 'canvas keyboard retains navigation authority');
+    assert.equal(requestPaths.some(path => /^\/api\/agents\/(monitoring|settings)\//.test(path)), false, 'utility IDs never use producer layout or interaction APIs');
+    const received = requestPaths.filter(path => path === '/api/monitoring').length;
+    elapsed += 1000; // Advance past deliberate post-drag ghost-click suppression without sleeping.
+    await act(() => { utility('monitoring').querySelector<HTMLButtonElement>('[aria-label="Close monitoring"]')!.click(); });
+    assert.equal(Boolean(utility('monitoring')), false, 'monitoring card closes'); assert.ok(utility('settings')); assert.equal(polls.size, 0, 'closing utility stops polling');
+    await act(async () => { for (const callback of polls.values()) callback(); await settle(); });
+    assert.equal(requestPaths.filter(path => path === '/api/monitoring').length, received);
+  } finally { await view.close(); globalThis.setTimeout = setTimer; globalThis.clearTimeout = clearTimer; if (ownNow) Object.defineProperty(performance, 'now', ownNow); else Reflect.deleteProperty(performance, 'now'); }
 });

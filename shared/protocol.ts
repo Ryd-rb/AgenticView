@@ -20,6 +20,13 @@ const traceData = z.object({ spans: z.array(z.object({ id: idSchema, parentId: i
   for (const span of data.spans) { const seen = new Set<string>(); let id: string | undefined = span.id; while (id !== undefined) { if (seen.has(id) || !parents.has(id)) { context.addIssue({ code: 'custom', message: 'Trace parents must exist and be acyclic' }); break; } seen.add(id); id = parents.get(id); } }
 }).describe('Span IDs must be unique; every parent must exist and the parent graph must be acyclic.');
 const publicLink = z.string().max(2_048).refine(value => { try { const url = new URL(value); return !/\s/.test(value) && /^https?:\/\//i.test(value) && !/^https?:\/\/[^/?#]*@/i.test(value) && ['http:', 'https:'].includes(url.protocol) && !!url.hostname && !url.username && !url.password; } catch { return false; } }, 'Links must use HTTP(S) without user information').describe('Absolute HTTP(S) URL without user information.');
+const serviceMapData = z.object({ nodes: z.array(z.object({ id: idSchema, label: z.string().max(200), state: z.enum(['active', 'success', 'warning', 'error', 'idle']).optional(), detail: z.string().max(1_000).optional() })).max(100), edges: z.array(z.object({ from: idSchema, to: idSchema, label: z.string().max(160).optional() })).max(200) }).superRefine((data, context) => {
+  const ids = new Set(data.nodes.map(node => node.id));
+  if (ids.size !== data.nodes.length || data.edges.some(edge => !ids.has(edge.from) || !ids.has(edge.to))) context.addIssue({ code: 'custom', message: 'Service node IDs must be unique and edge endpoints must exist' });
+}).describe('Service node IDs are unique and all edge endpoints refer to declared nodes; cycles are allowed.');
+const resultItems = z.array(z.object({ id: idSchema, label: z.string().max(500), state: z.enum(['passed', 'failed', 'skipped', 'running', 'pending']), durationMs: z.number().finite().nonnegative().optional(), detail: z.string().max(8_192).optional() })).max(1_000).refine(items => new Set(items.map(item => item.id)).size === items.length, 'Test IDs must be unique');
+const instant = z.number().finite().min(0).max(8_640_000_000_000_000);
+const ganttItems = z.array(z.object({ id: idSchema, label: z.string().max(200), start: instant, end: instant.optional(), group: z.string().max(160).optional(), tone: tone.optional() }).refine(item => item.end === undefined || item.end >= item.start, 'Timeline end must not precede start')).max(200).refine(items => new Set(items.map(item => item.id)).size === items.length, 'Timeline IDs must be unique');
 export const componentSchema = z.discriminatedUnion('kind', [
   z.object({ ...base, kind: z.literal('metric'), data: z.object({ value: scalar, unit: z.string().max(80).optional(), change: z.string().max(160).optional(), history: z.array(z.number().finite()).max(512).optional(), tone: tone.optional() }) }),
   z.object({ ...base, kind: z.literal('chart'), data: z.object({ type: z.enum(['line', 'area', 'bar', 'scatter']).default('line'), series: z.array(z.object({ name: z.string().max(100), points: z.array(z.object({ x: z.union([z.string().max(100), z.number().finite()]), y: z.number().finite() })).max(2_048) })).max(12), xLabel: z.string().max(100).optional(), yLabel: z.string().max(100).optional() }) }),
@@ -47,6 +54,12 @@ export const componentSchema = z.discriminatedUnion('kind', [
   z.object({ ...base, kind: z.literal('alert'), data: z.object({ tone: tone.default('info'), message: z.string().max(8_192), detail: text.optional() }) }),
   z.object({ ...base, kind: z.literal('links'), data: z.object({ items: z.array(z.object({ label: z.string().max(200), url: publicLink, description: z.string().max(1_000).optional() })).max(100) }) }),
   z.object({ ...base, kind: z.literal('comparison'), data: z.object({ items: z.array(z.object({ label: z.string().max(200), before: scalar, after: scalar })).max(100) }) }),
+  z.object({ ...base, kind: z.literal('service-map'), data: serviceMapData }),
+  z.object({ ...base, kind: z.literal('http'), data: z.object({ method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']), url: publicLink, statusCode: z.number().int().min(100).max(599).optional(), durationMs: z.number().finite().nonnegative().optional(), requestBody: text.optional(), responseBody: text.optional() }) }),
+  z.object({ ...base, kind: z.literal('stacktrace'), data: z.object({ exception: z.string().max(200).optional(), message: z.string().max(8_192).optional(), frames: z.array(z.object({ method: z.string().max(1_000), file: z.string().max(1_000).optional(), line: z.number().int().positive().optional(), module: z.string().max(200).optional() })).max(1_000) }) }),
+  z.object({ ...base, kind: z.literal('test-results'), data: z.object({ items: resultItems }) }),
+  z.object({ ...base, kind: z.literal('gantt'), data: z.object({ items: ganttItems }) }),
+  z.object({ ...base, kind: z.literal('breakdown'), data: z.object({ items: z.array(z.object({ label: z.string().max(200), value: z.number().finite().nonnegative(), tone: tone.optional() })).max(100), unit: z.string().max(80).optional() }) }),
 ]);
 export type Component = z.infer<typeof componentSchema>;
 export type Layout = { x: number; y: number; width: number; height: number; locked: boolean; z: number; sizing?: 'content' | 'fixed'; automatic?: boolean };

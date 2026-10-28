@@ -131,3 +131,28 @@ th,td { border-bottom-color: var(--border); }
 .native-comparison th[scope=row] { position: static; color: var(--muted); background: transparent; }.native-comparison .has-change td:last-child { color: #b8d4c7; background: #88baa608; }
 @media(hover:none) { .agent-card:not(.is-active):not(:hover):not(:focus-within) .card-actions .icon-button:not(.archive-completed) { opacity: .7; } }
 @media(max-width:650px) { .component-origin.native { font-size: 7px; }.connection-status .update-rate { display: none; } }
+
+/* Readable at the normal canvas scale; retain fixed card and component bounds. */
+:root { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 16px; color: #e9ecf2; -webkit-font-smoothing: auto; }
+.world,.card-content-plane,.card-scroll-extent>.card-content-plane { will-change: auto; }
+.agent-title strong { font-size: 16px; }.agent-title>span { font-size: 12px; color: #acb5c5; }
+.agent-context,.markdown { font-size: 14px; line-height: 1.6; color: #cdd3df; }
+.component h3 { font-size: 13px; color: #c1c9d8; }.component h3>svg { width: 13px; height: 13px; }
+.component-origin,.component-origin.native { font-size: 10px; color: #99a6ba; }.component-origin.custom { color: #e0bd84; }
+.component h3 .component-time,.task-meta,.task-meta .task-time { font-size: 11px; color: #a7b1c2; }.task-duration { color: #bcc6d6; }
+pre { font-size: 14px; line-height: 1.6; color: #d1d8e4; }.markdown :not(pre)>code { font-size: 13px; }
+table { font-size: 14px; line-height: 1.35; }th { font-size: 12px; color: #b1bdd0; }td { color: #d1d8e4; }
+.log-row { font-size: 13px; }.log-row time,.log-row b { font-size: 11px; color: #a4b0c3; }.log-row>span { color: #cad3e1; }
+.chart text { font-size: 11px; fill: #aebbd0; }.legend { font-size: 11px; color: #afbbce; }
+.keyvalue { font-size: 13px; }.timeline time { font-size: 11px; }.timeline strong { font-size: 14px; }.timeline p { font-size: 13px; }
+.child-card>header strong { font-size: 14px; }.section-label { font-size: 11px; }.card-footer>code,.run-times { font-size: 11px; color: #a4b0c3; }
+.connection-status,.viewport-controls .zoom-value { font-size: 13px; }.canvas-help { font-size: 12px; color: #a2aec1; }
+.native-checklist,.native-alert,.native-links a,.native-bars li>div,.trace-label { font-size: 14px; }
+.native-checklist p,.native-meta,.native-note,.command-directory,.native-duration,.native-stats dt,.native-stats small,.native-stats>div>span,.native-bars small,.gauge-range span,.native-links p { font-size: 12px; }
+.native-heatmap th,.native-heatmap td,.native-histogram>div,.native-histogram small { font-size: 11px; }
+.task-meta .task-duration.is-running { color: #bdcfc7; }
+.bottom-left { gap: 8px; }.bottom-left .canvas-help { margin-left: 10px; }
+.monitoring-toggle.active { color: #bad9cf; border-color: #88baa66b; background: #1c2927; }
+.viewport-hud .viewport-controls { max-width: calc(100% - 144px); }
+.viewport-controls button,.card-local-controls { font-size: 13px; }.card-activation-hint { font-size: 12px; }
+.card-footer>span { font-size: 10px; letter-spacing: .3px; }.card-footer>.run-times { font-size: 11px; letter-spacing: 0; }

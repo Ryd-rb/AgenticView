@@ -1,6 +1,6 @@
 import { memo, useContext, useEffect, useRef, useState } from 'react';
 import { diffLines } from 'diff';
-import { Activity, BarChart3, Braces, CheckSquare, Code2, Database, FileText, Gauge, GitCompareArrows, LayoutGrid, Link2, ListTree, Pause, ShieldCheck, Table2, Terminal, Timer, type LucideIcon } from 'lucide-react';
+import { Activity, BarChart3, Braces, CheckSquare, Code2, Database, FileText, Gauge, GitCompareArrows, LayoutGrid, Link2, ListTree, Pause, ShieldCheck, Table2, Terminal, Timer, Network, Globe, Layers, ListChecks, CalendarRange, ChartPie, type LucideIcon } from 'lucide-react';
 import type { Component, TaskTiming } from '../shared/protocol.js';
 import { CardInteraction } from './CardInteraction.js';
 import { TaskMarkdown } from './TaskMarkdown.js';
@@ -10,7 +10,7 @@ import { DataTable } from './DataTable.js';
 import { NativeView } from './NativeViews.js';
 
 const colors = ['#b4a2ff', '#70d6c3', '#e8be79', '#8bbbf5', '#e891b1'];
-const icons: Record<string, LucideIcon> = { metric: Activity, chart: BarChart3, table: Table2, code: Code2, diff: GitCompareArrows, logs: Terminal, timeline: Timer, tree: ListTree, json: Braces, checklist: CheckSquare, 'stat-grid': LayoutGrid, 'bar-list': BarChart3, histogram: BarChart3, heatmap: LayoutGrid, gauge: Gauge, query: Database, command: Terminal, trace: Activity, links: Link2, comparison: GitCompareArrows, embed: Braces };
+const icons: Record<string, LucideIcon> = { metric: Activity, chart: BarChart3, table: Table2, code: Code2, diff: GitCompareArrows, logs: Terminal, timeline: Timer, tree: ListTree, json: Braces, checklist: CheckSquare, 'stat-grid': LayoutGrid, 'bar-list': BarChart3, histogram: BarChart3, heatmap: LayoutGrid, gauge: Gauge, query: Database, command: Terminal, trace: Activity, links: Link2, comparison: GitCompareArrows, 'service-map': Network, http: Globe, stacktrace: Layers, 'test-results': ListChecks, gantt: CalendarRange, breakdown: ChartPie, embed: Braces };
 const stringify = (v: unknown) => typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v ?? '—');
 function Sparkline({ values }: { values: number[] }) {
   const min = Math.min(...values), span = Math.max(...values) - min || 1;

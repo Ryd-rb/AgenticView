@@ -18,6 +18,7 @@ public sealed class Hub : IDisposable
     private readonly SqliteConnection db;
     private readonly Secrets secrets;
     private readonly Dictionary<string, SqliteCommand> commands = new();
+    private readonly string?[] componentUpsertSql = new string?[65];
     private readonly Dictionary<string, Run> runs = new();
     private readonly Dictionary<string, Pending> pending = new();
     private readonly HashSet<string> removed = [];
@@ -25,7 +26,7 @@ public sealed class Hub : IDisposable
     private readonly Dictionary<string, long> manualReservations = new();
     private readonly Dictionary<(string RunId, string LeaseId), long> interactionReservations = new();
     private JsonObject settings;
-    private long revision, updates, previousUpdates, totalBytes, archiveCount;
+    private long revision, updates, totalBytes, archiveCount;
     private double rate;
     private bool settingsDirty, disposed, packingDirty;
     private bool compactPacking;
@@ -33,6 +34,10 @@ public sealed class Hub : IDisposable
     private SqliteTransaction? transaction;
     private long registrationLayoutTicks;
     private int nextSlot;
+    private readonly MonitoringState monitoring = new();
+    public JsonObject Monitoring() { lock (gate) return monitoring.Snapshot(runs.Values.Select(r => r.View), totalBytes, archiveCount); }
+    public bool OpenViewer() => monitoring.OpenViewer();
+    public void CloseViewer() => monitoring.CloseViewer();
     public double RegistrationLayoutMilliseconds { get { lock (gate) return registrationLayoutTicks * 1000.0 / Stopwatch.Frequency; } }
     private sealed class Run(JsonObject view, string tokenHash, long bytes)
     { public JsonObject View = view; public string TokenHash = tokenHash; public long Bytes = bytes; }
@@ -86,7 +91,8 @@ public sealed class Hub : IDisposable
     private static bool Equal(string left, string right) => CryptographicOperations.FixedTimeEquals(SHA256.HashData(Encoding.UTF8.GetBytes(left)), SHA256.HashData(Encoding.UTF8.GetBytes(right)));
     private string Token(string id) => Convert.ToBase64String(HMACSHA256.HashData(Encoding.UTF8.GetBytes(secrets.RunSecret), Encoding.UTF8.GetBytes("run:" + id))).TrimEnd('=').Replace('+', '-').Replace('/', '_');
     private static JsonNode? Canonical(JsonNode? node) => node switch { JsonObject obj => new JsonObject(obj.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => KeyValuePair.Create(p.Key, Canonical(p.Value)))), JsonArray array => new JsonArray(array.Select(Canonical).ToArray()), _ => node?.DeepClone() };
-    private static string Digest(JsonObject obj) => Hash(Serialize(Canonical(obj)!));
+    private static string Digest(JsonObject obj) => Digest(obj, out _);
+    private static string Digest(JsonObject obj, out int bytes) { var encoded = JsonSerializer.SerializeToUtf8Bytes(Canonical(obj), Json); bytes = encoded.Length; return Convert.ToHexStringLower(SHA256.HashData(encoded)); }
     private static JsonObject Metadata(JsonObject view) => new(view.Where(pair => pair.Key != "components").Select(pair => KeyValuePair.Create(pair.Key, pair.Value?.DeepClone())));
     private static void ReceiptTimes(JsonArray entries, string receipt)
     {
@@ -156,6 +162,14 @@ public sealed class Hub : IDisposable
     }
     private object? Scalar(string sql, params object?[] values) => Command(sql, values).ExecuteScalar();
     private void Execute(string sql, params object?[] values) => Command(sql, values).ExecuteNonQuery();
+    private void UpsertComponents(string runId, JsonObject components, IEnumerable<string> touched)
+    {
+        var changed = touched.Select(id => components[id]).OfType<JsonObject>().ToArray(); if (changed.Length == 0) return;
+        var values = new object?[1 + changed.Length * 2]; values[0] = runId;
+        for (var i = 0; i < changed.Length; i++) { values[1 + i * 2] = String(changed[i], "id"); values[2 + i * 2] = Serialize(changed[i]); }
+        var sql = componentUpsertSql[changed.Length] ??= "INSERT INTO components VALUES " + string.Join(',', Enumerable.Range(0, changed.Length).Select(i => $"($p0,$p{1 + i * 2},$p{2 + i * 2})")) + " ON CONFLICT(run_id,id) DO UPDATE SET payload=excluded.payload";
+        Execute(sql, values);
+    }
     private void Transaction(Action action)
     {
         using var current = db.BeginTransaction(); transaction = current;
@@ -201,18 +215,25 @@ public sealed class Hub : IDisposable
     private JsonObject Registration(string id, JsonObject view) => new() { ["runId"] = id, ["runToken"] = Token(id), ["heartbeatSeconds"] = 15, ["sequence"] = Integer(view, "sequence") };
     public JsonObject Publish(string id, string token, JsonObject raw)
     {
+        var start = Stopwatch.GetTimestamp();
+        try { return PublishCore(id, token, raw, start); }
+        catch { lock (gate) monitoring.Rejected(); throw; }
+    }
+    private JsonObject PublishCore(string id, string token, JsonObject raw, long start)
+    {
         lock (gate)
         {
+            var entered = Stopwatch.GetTimestamp();
             ComponentValidator.Budget(raw); var recovering = !runs.ContainsKey(id);
             Run run;
             if (recovering) { AuthorizeArchive(id, token); var archived = ReadArchive(id); run = new Run(archived, Hash(token), Size(archived)); }
             else run = Authorize(id, token);
             var sequence = (long)ComponentValidator.Number(raw, "sequence", 1, 9007199254740991, true, true);
-            var operations = ComponentValidator.Array(raw, "operations", 256, 1); var hash = Digest(raw);
+            var operations = ComponentValidator.Array(raw, "operations", 256, 1); var authorized = Stopwatch.GetTimestamp(); var hash = Digest(raw, out var payloadBytes); var digested = Stopwatch.GetTimestamp();
             if (sequence <= Integer(run.View, "sequence"))
             {
                 var previous = Scalar(recovering ? "SELECT digest FROM archive_batches WHERE run_id=$p0 AND sequence=$p1" : "SELECT digest FROM batches WHERE run_id=$p0 AND sequence=$p1", id, sequence) as string;
-                if (previous is not null && Equal(previous, hash)) { if (recovering) Restore(id); return new JsonObject { ["sequence"] = Integer(run.View, "sequence"), ["duplicate"] = true, ["trimmed"] = 0, ["restored"] = recovering }; }
+                if (previous is not null && Equal(previous, hash)) { if (recovering) Restore(id); monitoring.Duplicate(); return new JsonObject { ["sequence"] = Integer(run.View, "sequence"), ["duplicate"] = true, ["trimmed"] = 0, ["restored"] = recovering }; }
                 throw new HubError(409, "Sequence was already used or is outside the retry window. No new content accepted.");
             }
             if (sequence != Integer(run.View, "sequence") + 1) throw new HubError(409, $"Expected sequence {Integer(run.View, "sequence") + 1}.");
@@ -220,7 +241,7 @@ public sealed class Hub : IDisposable
             var view = Clone(run.View); view["lastSeen"] = now; view["updatedAt"] = now; view["sequence"] = sequence; if (String(view, "status") == "stale") view["status"] = "active";
             var componentTimes = view["componentTimes"] as JsonObject ?? new JsonObject(); if (view["componentTimes"] is null) view["componentTimes"] = componentTimes;
             var taskTimes = view["taskTimes"] as JsonObject ?? new JsonObject(); if (view["taskTimes"] is null) view["taskTimes"] = taskTimes;
-            var touched = new HashSet<string>(); var trimmed = 0;
+            var touched = new HashSet<string>(); var trimmed = 0; var copied = Stopwatch.GetTimestamp();
             foreach (var n in operations)
             {
                 var op = ComponentValidator.Object(n); var action = ComponentValidator.Text(op, "op", 32);
@@ -228,7 +249,7 @@ public sealed class Hub : IDisposable
                 var components = (JsonObject)view["components"]!;
                 switch (action)
                 {
-                    case "upsert": var component = Clone(ComponentValidator.Object(op["component"])); ComponentValidator.Validate(component); var cid = String(component, "id"); if (String(component, "kind") is "logs" or "timeline") ReceiptTimes((JsonArray)component["data"]![String(component, "kind") == "logs" ? "entries" : "events"]!, receipt); if (String(component, "kind") is "markdown" or "checklist") { var tasks = String(component, "kind") == "markdown" ? ObserveTasks(String((JsonObject)component["data"]!, "text"), taskTimes[cid] as JsonArray, now) : ObserveChecklist((JsonArray)component["data"]!["items"]!, taskTimes[cid] as JsonArray, components[cid] is JsonObject prior && String(prior, "kind") == "checklist" ? prior["data"]?["items"] as JsonArray : null, now); if (tasks.Count > 0) taskTimes[cid] = tasks; else taskTimes.Remove(cid); } else taskTimes.Remove(cid); components[cid] = component; componentTimes[cid] = now; touched.Add(cid); break;
+                    case "upsert": var component = Clone(ComponentValidator.Object(op["component"])); ComponentValidator.Validate(component, checkBudget: false); var cid = String(component, "id"); if (String(component, "kind") is "logs" or "timeline") ReceiptTimes((JsonArray)component["data"]![String(component, "kind") == "logs" ? "entries" : "events"]!, receipt); if (String(component, "kind") is "markdown" or "checklist") { var tasks = String(component, "kind") == "markdown" ? ObserveTasks(String((JsonObject)component["data"]!, "text"), taskTimes[cid] as JsonArray, now) : ObserveChecklist((JsonArray)component["data"]!["items"]!, taskTimes[cid] as JsonArray, components[cid] is JsonObject prior && String(prior, "kind") == "checklist" ? prior["data"]?["items"] as JsonArray : null, now); if (tasks.Count > 0) taskTimes[cid] = tasks; else taskTimes.Remove(cid); } else taskTimes.Remove(cid); components[cid] = component; componentTimes[cid] = now; touched.Add(cid); break;
                     case "remove": var removedId = ComponentValidator.Id(op, "componentId"); components.Remove(removedId); componentTimes.Remove(removedId); taskTimes.Remove(removedId); break;
                     case "clear": view["components"] = new JsonObject(); componentTimes.Clear(); taskTimes.Clear(); break;
                     case "context": view["context"] = ComponentValidator.Text(op, "text", 8192); break;
@@ -243,9 +264,11 @@ public sealed class Hub : IDisposable
                     default: throw new HubError(400, "Unsupported mutation operation.");
                 }
             }
+            var mutated = Stopwatch.GetTimestamp();
             if (((JsonObject)view["components"]!).Count > 64) throw new HubError(413, "A run can contain at most 64 components.");
             if (recovering) PrepareRestore(view);
             var bytes = Size(view); if (bytes > MaxRunBytes || totalBytes - (recovering ? 0 : run.Bytes) + bytes > MaxLiveBytes) throw new HubError(413, "Live data budget exceeded.");
+            var budgeted = Stopwatch.GetTimestamp();
             Transaction(() =>
             {
                 if (recovering) PersistRestore(view, run.TokenHash);
@@ -254,12 +277,14 @@ public sealed class Hub : IDisposable
                 if (!recovering)
                 {
                     foreach (var n in operations) { var op = (JsonObject)n!; if (String(op, "op") == "clear") Execute("DELETE FROM components WHERE run_id=$p0", id); if (String(op, "op") == "remove") Execute("DELETE FROM components WHERE run_id=$p0 AND id=$p1", id, String(op, "componentId")); }
-                    foreach (var cid in touched) if (view["components"]![cid] is JsonObject component) Execute("INSERT INTO components VALUES($p0,$p1,$p2) ON CONFLICT(run_id,id) DO UPDATE SET payload=excluded.payload", id, cid, Serialize(component));
+                    UpsertComponents(id, (JsonObject)view["components"]!, touched);
                 }
             });
+            var committed = Stopwatch.GetTimestamp(); var previousView = run.View;
             if (recovering) AcceptRestore(run, view);
-            else { totalBytes += bytes - run.Bytes; run.Bytes = bytes; run.View = view; foreach (var op in operations) Queue(view, (JsonObject)op!); }
+            else { totalBytes += bytes - run.Bytes; run.Bytes = bytes; run.View = view; QueueBatch(view, operations); }
             revision++; updates += operations.Count;
+            monitoring.Accepted(id, operations, view, previousView, payloadBytes, start, entered, authorized, digested, copied, mutated, budgeted, committed, Stopwatch.GetTimestamp());
             if (settings["archiveAfterCompletion"]!.GetValue<bool>() && String(view, "status") is "completed" or "error")
                 try { Archive(id); } catch { Console.Error.WriteLine("Automatic archive failed; accepted live state remains retained."); }
             return new JsonObject { ["sequence"] = sequence, ["duplicate"] = false, ["trimmed"] = trimmed, ["restored"] = recovering };
@@ -342,7 +367,7 @@ public sealed class Hub : IDisposable
             if (promoted.Any(child => Size(child.View) > MaxRunBytes) || totalBytes - run.Bytes + promoted.Sum(child => Size(child.View) - child.Run.Bytes) > MaxLiveBytes) throw new HubError(413, "Promoted child layout exceeds the live data budget.");
             Transaction(() => { Execute("INSERT INTO archives VALUES($p0,$p1,$p2)", id, Serialize(summary), compressed); Execute("INSERT INTO archive_batches SELECT run_id,sequence,digest FROM batches WHERE run_id=$p0", id); Execute("DELETE FROM runs WHERE id=$p0", id); foreach (var child in promoted) Execute("UPDATE runs SET payload=$p0 WHERE id=$p1", Serialize(Metadata(child.View)), String(child.View, "id")); });
             foreach (var child in promoted) { totalBytes += Size(child.View) - child.Run.Bytes; child.Run.Bytes = Size(child.View); child.Run.View = child.View; Queue(child.View); }
-            runs.Remove(id); totalBytes -= run.Bytes; archiveCount++; pending.Remove(id); removed.Add(id); manualReservations.Remove(id); foreach (var key in interactionReservations.Keys.Where(key => key.RunId == id).ToArray()) interactionReservations.Remove(key); freshLayouts.Remove(id); packingDirty = true; compactPacking = true; revision++; return summary;
+            runs.Remove(id); monitoring.Remove(id); totalBytes -= run.Bytes; archiveCount++; pending.Remove(id); removed.Add(id); manualReservations.Remove(id); foreach (var key in interactionReservations.Keys.Where(key => key.RunId == id).ToArray()) interactionReservations.Remove(key); freshLayouts.Remove(id); packingDirty = true; compactPacking = true; revision++; return summary;
         }
     }
     // Recovery keeps the same identity and credentials; only placement may change to avoid live cards.
@@ -424,7 +449,20 @@ public sealed class Hub : IDisposable
     public JsonObject Snapshot() { lock (gate) return new JsonObject { ["revision"] = revision, ["agents"] = new JsonArray(runs.Values.Select(r => (JsonNode)Clone(r.View)).ToArray()), ["settings"] = Clone(settings), ["stats"] = Stats() }; }
     private void Queue(JsonObject view, JsonObject? op = null)
     {
-        var id = String(view, "id"); if (!pending.TryGetValue(id, out var p)) pending[id] = p = new Pending(Metadata(view)); p.Meta = Metadata(view);
+        QueueOperation(QueueMetadata(view), view, op);
+    }
+    private Pending QueueMetadata(JsonObject view)
+    {
+        var id = String(view, "id"); var meta = Metadata(view);
+        if (!pending.TryGetValue(id, out var p)) pending[id] = p = new Pending(meta); else p.Meta = meta;
+        return p;
+    }
+    private void QueueBatch(JsonObject view, JsonArray operations)
+    {
+        var p = QueueMetadata(view); foreach (var op in operations.OfType<JsonObject>()) QueueOperation(p, view, op);
+    }
+    private static void QueueOperation(Pending p, JsonObject view, JsonObject? op)
+    {
         var action = op is null ? "" : String(op, "op");
         if (action == "clear") { p.Clear = true; p.Components.Clear(); p.Removed.Clear(); }
         if (action == "remove") { var cid = String(op!, "componentId"); p.Components.Remove(cid); p.Removed.Add(cid); }
@@ -446,7 +484,7 @@ public sealed class Hub : IDisposable
     {
         lock (gate)
         {
-            if (disposed) return; rate = updates - previousUpdates; previousUpdates = updates; var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            if (disposed) return; var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             foreach (var id in manualReservations.Where(pair => pair.Value <= now).Select(pair => pair.Key).ToArray()) { manualReservations.Remove(id); packingDirty = true; }
             foreach (var key in interactionReservations.Where(pair => pair.Value <= now).Select(pair => pair.Key).ToArray()) { interactionReservations.Remove(key); packingDirty = true; }
             foreach (var run in runs.Values.ToArray())
@@ -456,6 +494,7 @@ public sealed class Hub : IDisposable
                 if (settings["autoArchiveMinutes"] is not null && inactive >= N(settings, "autoArchiveMinutes") * 60000)
                     try { Archive(String(run.View, "id")); } catch { Console.Error.WriteLine("Automatic archive failed; live state remains retained."); }
             }
+            monitoring.Sample(now, runs.Values.Count(r => String(r.View, "status") == "active"), runs.Values.Count(r => String(r.View, "status") == "stale")); rate = monitoring.UpdateRate;
         }
     }
     private static double N(JsonObject obj, string key) => double.Parse(obj[key]!.ToJsonString(), System.Globalization.CultureInfo.InvariantCulture);
@@ -487,5 +526,5 @@ public sealed class Hub : IDisposable
         result["x"] = obstacles.Max(o => N(o, "x") + N(o, "width")) + 16; result["y"] = y;
         if (Math.Abs(N(result, "x")) > 1e7) throw new HubError(409, "No free layout position within canvas bounds."); return result;
     }
-    public void Dispose() { lock (gate) { if (disposed) return; disposed = true; foreach (var command in commands.Values) command.Dispose(); commands.Clear(); db.Dispose(); } }
+    public void Dispose() { lock (gate) { if (disposed) return; disposed = true; foreach (var command in commands.Values) command.Dispose(); commands.Clear(); db.Dispose(); monitoring.Dispose(); } }
 }

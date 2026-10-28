@@ -20,7 +20,39 @@ if (args.Contains("--layout-probe"))
 
 var cases = new (string Name, Action Test)[]
 {
+    ("monitoring is bounded and counts only accepted operations without content", () => Run((hub, _) => {
+        var a=Register(hub); var id=S(a,"runId");
+        var batch=Batch(1,new{op="upsert",component=Metric()},new{op="context",text="PRIVATE_SYNTHETIC_CONTEXT"});
+        Publish(hub,a,batch); Publish(hub,a,batch);
+        Throws(()=>Publish(hub,a,Batch(2,new{op="unsupported"})),400);
+        var first=hub.Monitoring(); Check(first["acceptedOperations"]!.GetValue<long>()==2 && first["acceptedBatches"]!.GetValue<long>()==1 && first["duplicateBatches"]!.GetValue<long>()==1 && first["rejectedPublishes"]!.GetValue<long>()==1,"Monitoring counted retries or rejected writes as accepted");
+        Check(first["components"]!.GetValue<long>()==1 && !first.ToJsonString().Contains("PRIVATE_SYNTHETIC_CONTEXT") && !first.ToJsonString().Contains(S(a,"runToken")),"Monitoring exposed content or credentials");
+        for(var i=0;i<305;i++) hub.Tick();
+        Check(hub.Monitoring()["history"]!.AsArray().Count==300,"Monitoring history is not bounded");
+        hub.Archive(id); var archived=hub.Monitoring(); Check(archived["agents"]!.AsArray().Count==0 && archived["components"]!.GetValue<long>()==0 && archived["acceptedOperations"]!.GetValue<long>()==2,"Archive did not release live monitoring state");
+    })),
+    ("UTF8 batch digests remain compatible with prior canonical JSON encoding", () => Run((hub, directory) => {
+        var a=Register(hub); var id=S(a,"runId");
+        JsonNode? Canon(JsonNode? node) => node switch { JsonObject obj => new JsonObject(obj.OrderBy(p=>p.Key,StringComparer.Ordinal).Select(p=>KeyValuePair.Create(p.Key,Canon(p.Value)))), JsonArray arr => new JsonArray(arr.Select(Canon).ToArray()), _ => node?.DeepClone() };
+        var raw=Batch(1,new{op="upsert",component=new{id="unicode",title="Café <&>",kind="json",data=new{value=new{number=-0d,unicode="α\n漢字",array=new object?[]{null,true,1.25,"\\quote\""}}}}});
+        Publish(hub,a,raw);
+        var expected=Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(Canon(raw)!.ToJsonString(new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)))));
+        using var connection=new SqliteConnection("Data Source="+Path.Combine(directory,"agenticview.sqlite")); connection.Open(); using var command=connection.CreateCommand(); command.CommandText="SELECT digest FROM batches WHERE run_id=$id AND sequence=1"; command.Parameters.AddWithValue("$id",id);
+        Check((string?)command.ExecuteScalar()==expected,"Canonical digest changed across encoding optimization");
+    })),
     ("efficient deterministic bin packing respects fixed obstacles", PackingContracts.Run),
+    ("six additional native evidence kinds validate and persist without execution", () => Run((hub,_)=>{
+        var a=Register(hub); var id=S(a,"runId"); var samples=new (string Kind,object Data)[]{
+            ("service-map",new{nodes=new[]{new{id="api",label="API"},new{id="db",label="Store"}},edges=new[]{new{from="api",to="db",label="Reads"}}}),
+            ("http",new{method="GET",url="https://example.com/report",statusCode=200,responseBody="Reported only"}),
+            ("stacktrace",new{exception="SyntheticError",frames=new[]{new{method="Inspect()",file="Synthetic.cs",line=10}}}),
+            ("test-results",new{items=new[]{new{id="check",label="Synthetic contract",state="passed",durationMs=12}}}),
+            ("gantt",new{items=new[]{new{id="work",label="Reported interval",start=1000,end=2000}}}),
+            ("breakdown",new{items=new[]{new{label="Read",value=3},new{label="Write",value=1}}})};
+        Publish(hub,a,Batch(1,samples.Select(sample=>(object)new{op="upsert",component=new{id=sample.Kind,title=sample.Kind,kind=sample.Kind,data=sample.Data}}).ToArray()));
+        var view=hub.GetRun(id)!; Check(view["components"]!.AsObject().Count==6,"Expanded native evidence not retained");
+        hub.Archive(id); var archive=hub.ReadArchive(id); foreach(var sample in samples) Check(archive["components"]![sample.Kind]!["kind"]!.GetValue<string>()==sample.Kind,"Archive lost native kind "+sample.Kind);
+    })),
     ("native catalog persists defaults and checklist timing across transitions and recovery", () => Run((hub,directory)=>{
         var a=Register(hub); var id=S(a,"runId");
         var samples=new (string Kind,object Data)[]{

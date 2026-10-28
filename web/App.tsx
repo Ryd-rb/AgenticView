@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Archive, ArrowDownToLine, ArrowLeft, ArrowUpRight, Check, ChevronDown, ChevronRight, Circle, Copy, Focus, LayoutGrid, Link2, Lock, Maximize2, Minus, Plus, Radio, RotateCcw, Settings as Cog, Unlock, X, Zap } from 'lucide-react';
+import { Activity, Archive, ArrowDownToLine, ArrowLeft, ArrowUpRight, Check, ChevronDown, ChevronRight, Circle, Copy, Focus, LayoutGrid, Link2, Lock, Maximize2, Minus, Plus, Radio, RotateCcw, Settings as Cog, Unlock, X, Zap } from 'lucide-react';
 import type { AgentView, ArchiveSummary, Layout, Patch, Settings, Snapshot } from '../shared/protocol.js';
 import { findFreePosition, isVisible, moveWithoutOverlap, resizeWithoutOverlap, fitToViewport, formatZoom, type Rect } from '../shared/canvas.js';
 import { ComponentView } from './Components.js';
@@ -14,6 +14,9 @@ import { installInputTrace } from './InputTrace.js';
 import { ArrivalTracker } from '../shared/arrivals.js';
 import { ArrivalHalo } from './ArrivalHalo.js';
 import { RunTimes } from './RunTimes.js';
+import { MonitoringView } from './MonitoringView.js';
+
+const isUtility = (id?: string | null) => id === 'settings' || id === 'monitoring';
 
 async function api<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const response = await fetch(path, { method, credentials: 'same-origin', headers: body === undefined ? undefined : { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -71,6 +74,7 @@ function Monitor() {
   const [auth, setAuth] = useState<boolean | null>(null), [snapshot, setSnapshot] = useState<Snapshot>(empty), [snapshotReady, setSnapshotReady] = useState(false), [online, setOnline] = useState(false), [notice, setNotice] = useState('');
   const [camera, setCamera] = useState<Camera>({ x: 72, y: 86, zoom: 1 }), [size, setSize] = useState({ width: innerWidth, height: innerHeight }), [settingsRect, setSettingsRect] = useState<Rect | null>(null), [layouts, setLayouts] = useState<Record<string, Layout>>({}), [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [packing, setPacking] = useState(false), arrivals = useRef(new ArrivalTracker());
+  const [monitoringRect, setMonitoringRect] = useState<Rect | null>(null), monitoringRef = useRef<Rect | null>(null);
   const [activeCard, setActiveCard] = useState<string | null>(null), activeCardRef = useRef<string | null>(null), spaceHeld = useRef(false);
   const cardCameras = useRef(new Map<string, Camera>());
   const touchPoints = useRef(new Map<number, { x: number; y: number; card: string | null }>());
@@ -93,6 +97,10 @@ function Monitor() {
   const [interactionRevision, setInteractionRevision] = useState(0);
   const cameraRef = useRef(camera), layoutRef = useRef(layouts), snapshotRef = useRef(snapshot), settingsRef = useRef(settingsRect);
   cameraRef.current = camera; layoutRef.current = layouts; snapshotRef.current = snapshot; settingsRef.current = settingsRect;
+  monitoringRef.current = monitoringRect;
+  function utilityRects(): [string, Rect][] { const entries: [string, Rect | null][] = [['settings', settingsRef.current], ['monitoring', monitoringRef.current]]; return entries.filter((entry): entry is [string, Rect] => entry[1] !== null); }
+  function worldRect(id: string): Rect | undefined | null { return id === 'settings' ? settingsRef.current : id === 'monitoring' ? monitoringRef.current : layoutRef.current[id]; }
+  function setUtilityRect(id: string, rect: Rect | null) { if (id === 'settings') { settingsRef.current = rect; setSettingsRect(rect); } else { monitoringRef.current = rect; setMonitoringRect(rect); } }
   const report = useCallback((message: string) => { setNotice(message); }, []);
   useEffect(() => installInputTrace(), []);
   useEffect(() => () => { const ids = new Set([...contentInteractions.current, ...(activeCardRef.current ? [activeCardRef.current] : [])]); activeCardRef.current = null; contentInteractions.current.clear(); for (const id of ids) leaseInteraction(id, false); }, []);
@@ -111,13 +119,14 @@ function Monitor() {
   const roots = rootAgents(snapshot.agents);
   const agentIds = snapshot.agents.map(agent => agent.id).join('|');
   useLayoutEffect(() => { if (snapshotReady) arrivals.current.sync(snapshot.agents.map(agent => agent.id)); }, [agentIds, snapshotReady]);
-  useEffect(() => { const ids = new Set(snapshot.agents.map(agent => agent.id)); ids.add('settings'); for (const id of cardCameras.current.keys()) if (!ids.has(id)) cardCameras.current.delete(id); for (const id of pendingContentHeights.current.keys()) if (!ids.has(id)) pendingContentHeights.current.delete(id); if (activeCardRef.current && !ids.has(activeCardRef.current)) activateCard(null); }, [snapshot.agents]);
+  useEffect(() => { const ids = new Set(snapshot.agents.map(agent => agent.id)); ids.add('settings'); ids.add('monitoring'); for (const id of cardCameras.current.keys()) if (!ids.has(id)) cardCameras.current.delete(id); for (const id of pendingContentHeights.current.keys()) if (!ids.has(id)) pendingContentHeights.current.delete(id); if (activeCardRef.current && !ids.has(activeCardRef.current)) activateCard(null); }, [snapshot.agents]);
   const movableCount = roots.filter(agent => !agent.layout.locked).length;
   const layoutSignature = roots.map(a => `${a.id}:${JSON.stringify(a.layout)}`).join('|');
   useEffect(() => {
     const previous = layoutRef.current, next: Record<string, Layout> = {}, occupied: Rect[] = [];
     // The ephemeral settings card yields to agent geometry, including locked cards.
     const held = (id: string) => activeDrag.current === id || contentInteractions.current.has(id) || activeCardRef.current === id;
+    occupied.push(...utilityRects().filter(([id]) => held(id)).map(([, rect]) => rect));
     for (const a of [...roots].sort((a, b) => Number(held(b.id)) - Number(held(a.id)) || Number(b.layout.locked) - Number(a.layout.locked))) {
       const existing = previous[a.id], remote = JSON.stringify(a.layout), changed = remoteLayouts.current[a.id] !== remote;
       const proposed = held(a.id) ? existing ?? a.layout : changed ? a.layout : existing ?? a.layout;
@@ -127,13 +136,14 @@ function Monitor() {
       if (placed.x !== proposed.x || placed.y !== proposed.y) persist(a.id, next[a.id]!);
     }
     layoutRef.current = next; setLayouts(next);
-    if (settingsRef.current && !held('settings')) {
-      const settings = findFreePosition(settingsRef.current, occupied);
-      if (settings.x !== settingsRef.current.x || settings.y !== settingsRef.current.y) { settingsRef.current = settings; setSettingsRect(settings); }
+    for (const [id, rect] of utilityRects()) {
+      if (held(id)) continue;
+      const placed = findFreePosition(rect, occupied); occupied.push(placed);
+      if (placed.x !== rect.x || placed.y !== rect.y) setUtilityRect(id, placed);
     }
   }, [layoutSignature, size.width, size.height, interactionRevision]);
   function leaseInteraction(id: string, active: boolean) {
-    if (id === 'settings') return;
+    if (isUtility(id)) return;
     const previous = interactionWrites.current.get(id) ?? Promise.resolve();
     const next = previous.catch(() => {}).then(async () => {
       if ((contentInteractions.current.has(id) || activeCardRef.current === id) !== active) return;
@@ -153,9 +163,9 @@ function Monitor() {
     leaseInteraction(id, active || activeCardRef.current === id);
     setInteractionRevision(revision => revision + 1);
   }
-  function obstacles(id?: string): Rect[] { return [...Object.entries(layoutRef.current).filter(([key]) => key !== id).map(([, value]) => value), ...(settingsRef.current && id !== 'settings' ? [settingsRef.current] : [])]; }
+  function obstacles(id?: string): Rect[] { return [...Object.entries(layoutRef.current).filter(([key]) => key !== id).map(([, value]) => value), ...utilityRects().filter(([key]) => key !== id).map(([, rect]) => rect)]; }
   function reserveManual(id: string) {
-    if (id === 'settings' || manualWrites.current.has(id)) return;
+    if (isUtility(id) || manualWrites.current.has(id)) return;
     const request = api<Layout>(`/api/agents/${encodeURIComponent(id)}/layout/manual`, 'POST', {}); manualWrites.current.set(id, request);
     void request.catch(error => report(error.message));
   }
@@ -208,12 +218,12 @@ function Monitor() {
   }
   function dragCard(e: React.PointerEvent<HTMLElement>, id: string) {
     if (e.button !== 0 || e.pointerType === 'touch' || activeCardRef.current !== id || spaceHeld.current || e.altKey || (e.target as HTMLElement).closest('button,a,input')) return;
-    const initial = id === 'settings' ? settingsRef.current : layoutRef.current[id];
-    if (!initial || id !== 'settings' && (initial as Layout).locked) return;
+    const initial = worldRect(id);
+    if (!initial || !isUtility(id) && (initial as Layout).locked) return;
     e.stopPropagation(); const element = e.currentTarget; element.setPointerCapture(e.pointerId); let moved = false;
     const pointer = { x: e.clientX, y: e.clientY }, zoom = cameraRef.current.zoom; let last = initial;
-    const move = (event: PointerEvent) => { if (!moved && Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) < 4) return; if (!moved) { moved = true; reserveManual(id); activeDrag.current = id; } last = moveWithoutOverlap(initial, { x: initial.x + (event.clientX - pointer.x) / zoom, y: initial.y + (event.clientY - pointer.y) / zoom }, obstacles(id)); if (id === 'settings') setSettingsRect(last); else setLayouts(previous => ({ ...previous, [id]: { ...previous[id]!, ...last, automatic: false } })); };
-    const up = () => { mouseCleanup.current = null; activeDrag.current = null; element.removeEventListener('pointermove', move); element.removeEventListener('pointerup', up); element.removeEventListener('pointercancel', up); if (moved && id !== 'settings') persist(id, { ...layoutRef.current[id]!, ...last, automatic: false }); };
+    const move = (event: PointerEvent) => { if (!moved && Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) < 4) return; if (!moved) { moved = true; reserveManual(id); activeDrag.current = id; } last = moveWithoutOverlap(initial, { x: initial.x + (event.clientX - pointer.x) / zoom, y: initial.y + (event.clientY - pointer.y) / zoom }, obstacles(id)); if (isUtility(id)) setUtilityRect(id, last); else setLayouts(previous => ({ ...previous, [id]: { ...previous[id]!, ...last, automatic: false } })); };
+    const up = () => { mouseCleanup.current = null; activeDrag.current = null; element.removeEventListener('pointermove', move); element.removeEventListener('pointerup', up); element.removeEventListener('pointercancel', up); if (moved && !isUtility(id)) persist(id, { ...layoutRef.current[id]!, ...last, automatic: false }); };
     mouseCleanup.current = up;
     element.addEventListener('pointermove', move); element.addEventListener('pointerup', up); element.addEventListener('pointercancel', up);
   }
@@ -240,14 +250,14 @@ function Monitor() {
     if (id && activeCardRef.current !== id) { activateCard(id); e.preventDefault(); e.stopPropagation(); }
     else if (!id) activateCard(null);
   }
-  function applyCamera(next: Camera, card?: string) { if (activeDrag.current) { const id = activeDrag.current; mouseCleanup.current?.(); if (id !== 'settings' && layoutRef.current[id]) persist(id, layoutRef.current[id]!); activeDrag.current = null; touchIntent.current = null; } dispatchEvent(new CustomEvent('agenticview:canvas-navigation', { detail: { card } })); cameraRef.current = next; setCamera(next); }
+  function applyCamera(next: Camera, card?: string) { if (activeDrag.current) { const id = activeDrag.current; mouseCleanup.current?.(); if (!isUtility(id) && layoutRef.current[id]) persist(id, layoutRef.current[id]!); activeDrag.current = null; touchIntent.current = null; } dispatchEvent(new CustomEvent('agenticview:canvas-navigation', { detail: { card } })); cameraRef.current = next; setCamera(next); }
   function panCardEdge(id: string, x: number, y: number) { const c = cameraRef.current; applyCamera({ ...c, x: c.x - x, y: c.y - y }, id); }
   function zoomBeforeCard(id: string, factor: number, anchor: { x: number; y: number }) { const result = zoomTowardScale(cameraRef.current, 2, factor, anchor); if (result.remaining !== factor) applyCamera(result.camera, id); return result.remaining; }
   function zoomPastCard(id: string, factor: number, anchor: { x: number; y: number }) { applyCamera(zoomAt(cameraRef.current, factor, anchor), id); }
   function zoom(amount: number, at = { x: size.width / 2, y: size.height / 2 }) { applyCamera(zoomAt(cameraRef.current, amount, at)); }
   function resetZoom() { zoom(1 / cameraRef.current.zoom); }
-  function fit() { applyCamera(fitToViewport([...Object.values(layoutRef.current), ...(settingsRef.current ? [settingsRef.current] : [])], size)); }
-  function focusCard(id: string) { const rect = id === 'settings' ? settingsRef.current : layoutRef.current[id]; if (rect) applyCamera(fitToViewport([rect], size, 80)); }
+  function fit() { applyCamera(fitToViewport([...Object.values(layoutRef.current), ...utilityRects().map(([, rect]) => rect)], size)); }
+  function focusCard(id: string) { const rect = worldRect(id); if (rect) applyCamera(fitToViewport([rect], size, 80)); }
   async function arrangeAll() {
     setPacking(true);
     try {
@@ -259,14 +269,31 @@ function Monitor() {
     } catch (error) { report((error as Error).message); } finally { setPacking(false); }
   }
   function openSettings() { if (settingsRect) { activateCard(null); setSettingsRect(null); return; } activateCard('settings'); const c = { ...cameraRef.current, zoom: Math.max(.8, cameraRef.current.zoom) }; const placed = findFreePosition({ x: (size.width / 2 - c.x) / c.zoom - 290, y: (size.height / 2 - c.y) / c.zoom - 290, width: 580, height: 610 }, obstacles()); setSettingsRect(placed); setCamera({ ...c, x: size.width / 2 - (placed.x + placed.width / 2) * c.zoom, y: size.height / 2 - (placed.y + placed.height / 2) * c.zoom }); }
-  function keyboard(e: React.KeyboardEvent, id: string) { if (e.target !== e.currentTarget) return; if (e.key === 'Enter' && activeCardRef.current !== id) { e.preventDefault(); e.stopPropagation(); activateCard(id); return; } if (activeCardRef.current !== id) return; if (e.key === 'Enter') { e.preventDefault(); focusCard(id); return; } if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return; const r = layoutRef.current[id]; if (!r || r.locked) return; e.preventDefault(); e.stopPropagation(); const d = e.shiftKey ? 80 : 20; const moved = moveWithoutOverlap(r, { x: r.x + (e.key === 'ArrowLeft' ? -d : e.key === 'ArrowRight' ? d : 0), y: r.y + (e.key === 'ArrowUp' ? -d : e.key === 'ArrowDown' ? d : 0) }, obstacles(id)); const next = { ...r, ...moved, automatic: false }; setLayouts(p => ({ ...p, [id]: next })); persist(id, next); }
+  function openMonitoring() {
+    if (monitoringRef.current) { activateCard(null); setUtilityRect('monitoring', null); return; }
+    const c = { ...cameraRef.current, zoom: Math.max(1, cameraRef.current.zoom) }, width = Math.max(480, Math.min(820, (size.width - 100) / c.zoom)), height = Math.max(420, Math.min(760, (size.height - 140) / c.zoom));
+    const placed = findFreePosition({ x: (size.width / 2 - c.x) / c.zoom - width / 2, y: (size.height / 2 - c.y) / c.zoom - height / 2, width, height }, obstacles());
+    setUtilityRect('monitoring', placed); activateCard('monitoring'); applyCamera({ ...c, x: size.width / 2 - (placed.x + width / 2) * c.zoom, y: size.height / 2 - (placed.y + height / 2) * c.zoom });
+  }
+  function keyboard(e: React.KeyboardEvent, id: string) {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === 'Enter' && activeCardRef.current !== id) { e.preventDefault(); e.stopPropagation(); activateCard(id); return; }
+    if (activeCardRef.current !== id) return;
+    if (e.key === 'Enter') { e.preventDefault(); focusCard(id); return; }
+    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
+    const rect = worldRect(id); if (!rect || !isUtility(id) && (rect as Layout).locked) return;
+    e.preventDefault(); e.stopPropagation(); const step = e.shiftKey ? 80 : 20;
+    const moved = moveWithoutOverlap(rect, { x: rect.x + (e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0), y: rect.y + (e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0) }, obstacles(id));
+    if (isUtility(id)) setUtilityRect(id, moved);
+    else { const next = { ...layoutRef.current[id]!, ...moved, automatic: false }; layoutRef.current = { ...layoutRef.current, [id]: next }; setLayouts(layoutRef.current); persist(id, next); }
+  }
   function canvasKeyboard(e: React.KeyboardEvent) {
     if (e.defaultPrevented) return;
     if (e.key === 'Escape' && activeCardRef.current) { e.preventDefault(); activateCard(null); return; }
     const protectedTarget = !!(e.target as Element).closest('input,textarea,select,button,a,[contenteditable]:not([contenteditable="false"]),[role="textbox"],.resize-handle');
     const action = canvasKey(e.key, protectedTarget, e.altKey || e.ctrlKey || e.metaKey); if (!action) return;
     e.preventDefault(); const c = cameraRef.current, step = e.shiftKey ? 180 : 60;
-    if (action === 'fit') fit(); else if (action === 'reset') resetZoom(); else if (action === 'in') zoom(1.2); else if (action === 'out') zoom(1 / 1.2); else if (action === 'escape') setSettingsRect(null);
+    if (action === 'fit') fit(); else if (action === 'reset') resetZoom(); else if (action === 'in') zoom(1.2); else if (action === 'out') zoom(1 / 1.2); else if (action === 'escape') { setUtilityRect('settings', null); setUtilityRect('monitoring', null); }
     else applyCamera({ ...c, x: c.x + (action === 'left' ? step : action === 'right' ? -step : 0), y: c.y + (action === 'up' ? step : action === 'down' ? -step : 0) });
   }
   function touchStart(e: React.PointerEvent<HTMLDivElement>) {
@@ -280,12 +307,12 @@ function Monitor() {
     else touches.current.start(e.pointerId, point, cameraRef.current);
     if (touches.current.count >= 2) {
       mouseCleanup.current?.();
-      if (activeDrag.current && activeDrag.current !== 'settings' && layoutRef.current[activeDrag.current]) persist(activeDrag.current, layoutRef.current[activeDrag.current]!);
+      if (activeDrag.current && !isUtility(activeDrag.current) && layoutRef.current[activeDrag.current]) persist(activeDrag.current, layoutRef.current[activeDrag.current]!);
       activeDrag.current = null; touchIntent.current = null; lastTap.current = null; suppressClickUntil.current = performance.now() + 700; e.preventDefault(); return;
     }
     const inactive = !!id && activeCardRef.current !== id;
     const controls = !inactive && !!target.closest('button,a,input,textarea,select,[contenteditable]:not([contenteditable="false"])');
-    const rect = id === 'settings' ? settingsRef.current : id ? layoutRef.current[id] : undefined;
+    const rect = id ? worldRect(id) : undefined;
     let scroll: HTMLElement | undefined;
     if (!controls) {
       let cursor = target instanceof HTMLElement ? target : target.parentElement;
@@ -296,7 +323,7 @@ function Monitor() {
       }
       scroll ??= target.closest<HTMLElement>('.card-body,.settings-content,.child-body') ?? undefined;
     }
-    const canDrag = !inactive && !!rect && !!target.closest('.card-header') && (id === 'settings' || !(rect as Layout).locked);
+    const canDrag = !inactive && !!rect && !!target.closest('.card-header') && (isUtility(id) || !(rect as Layout).locked);
     const kind: TouchIntent['kind'] = inactive || spaceHeld.current || e.altKey ? 'pan' : controls ? target.closest('.resize-handle') ? 'resize' : 'tap' : canDrag ? 'drag' : scroll ? 'scroll' : !id ? 'pan' : 'tap';
     touchIntent.current = { pointer: e.pointerId, kind, origin: point, last: point, camera: { ...cameraRef.current }, id: controls && kind !== 'resize' ? undefined : id, rect: rect ?? undefined, scroll, moved: false };
   }
@@ -316,7 +343,7 @@ function Monitor() {
     if (intent.id && intent.rect && (intent.kind === 'drag' || intent.kind === 'resize')) {
       if (activeDrag.current !== intent.id) reserveManual(intent.id); activeDrag.current = intent.id;
       const next = intent.kind === 'drag' ? moveWithoutOverlap(intent.rect, { x: intent.rect.x + dx / intent.camera.zoom, y: intent.rect.y + dy / intent.camera.zoom }, obstacles(intent.id)) : resizeWithoutOverlap(intent.rect, { width: Math.max(320, Math.min(1600, intent.rect.width + dx / intent.camera.zoom)), height: Math.max(240, Math.min(1600, intent.rect.height + dy / intent.camera.zoom)) }, obstacles(intent.id));
-      if (intent.id === 'settings') { settingsRef.current = next; setSettingsRect(next); }
+      if (isUtility(intent.id)) { setUtilityRect(intent.id!, next); }
       else { layoutRef.current = { ...layoutRef.current, [intent.id]: { ...layoutRef.current[intent.id]!, ...next, automatic: false, ...(intent.kind === 'resize' ? { sizing: 'fixed' as const } : {}) } }; setLayouts(layoutRef.current); }
     }
     intent.last = point;
@@ -326,7 +353,7 @@ function Monitor() {
     if (e.pointerType !== 'touch' || !touches.current.pointers.has(e.pointerId)) return;
     const intent = touchIntent.current;
     if (intent?.pointer === e.pointerId) {
-      if (intent.moved) { suppressClickUntil.current = performance.now() + 400; if (intent.id && ['drag', 'resize'].includes(intent.kind) && intent.id !== 'settings') persist(intent.id, layoutRef.current[intent.id]!); }
+      if (intent.moved) { suppressClickUntil.current = performance.now() + 400; if (intent.id && ['drag', 'resize'].includes(intent.kind) && !isUtility(intent.id)) persist(intent.id, layoutRef.current[intent.id]!); }
       else if (!cancelled && intent.id) {
         if (activeCardRef.current !== intent.id) { activateCard(intent.id); suppressClickUntil.current = performance.now() + 400; }
         else {
@@ -351,18 +378,25 @@ function Monitor() {
       if (e.shiftKey && !e.ctrlKey && !e.metaKey) { const c = cameraRef.current; applyCamera({ ...c, x: c.x - delta - e.deltaX }); }
       else zoom(Math.exp(Math.max(-4, Math.min(4, -delta * .0015))), { x: e.clientX, y: e.clientY });
     };
-    const clear = () => { const id = activeDrag.current; if (id && id !== 'settings' && layoutRef.current[id]) persist(id, layoutRef.current[id]!); touches.current.clear(); touchPoints.current.clear(); touchIntent.current = null; activeDrag.current = null; spaceHeld.current = false; mouseCleanup.current?.(); };
+    const clear = () => { const id = activeDrag.current; if (id && !isUtility(id) && layoutRef.current[id]) persist(id, layoutRef.current[id]!); touches.current.clear(); touchPoints.current.clear(); touchIntent.current = null; activeDrag.current = null; spaceHeld.current = false; mouseCleanup.current?.(); };
     const key = (event: KeyboardEvent) => { if (event.code === 'Space' && (event.type === 'keyup' || !(event.target instanceof Element) || !event.target.closest('input,textarea,select,button,[contenteditable=true]'))) { spaceHeld.current = event.type === 'keydown'; if (spaceHeld.current) { event.preventDefault(); dispatchEvent(new Event('agenticview:canvas-navigation')); } } };
-    const leaseTimer = setInterval(() => { for (const id of new Set([...contentInteractions.current, ...(activeCardRef.current ? [activeCardRef.current] : [])])) leaseInteraction(id, true); const id = activeDrag.current; if (id && id !== 'settings') void api('/api/agents/' + encodeURIComponent(id) + '/layout/manual', 'POST', {}).catch(error => report(error.message)); }, 10_000); element.addEventListener('wheel', wheel, { passive: false, capture: true }); window.addEventListener('blur', clear); window.addEventListener('keydown', key); window.addEventListener('keyup', key);
+    const leaseTimer = setInterval(() => { for (const id of new Set([...contentInteractions.current, ...(activeCardRef.current ? [activeCardRef.current] : [])])) leaseInteraction(id, true); const id = activeDrag.current; if (id && !isUtility(id)) void api('/api/agents/' + encodeURIComponent(id) + '/layout/manual', 'POST', {}).catch(error => report(error.message)); }, 10_000); element.addEventListener('wheel', wheel, { passive: false, capture: true }); window.addEventListener('blur', clear); window.addEventListener('keydown', key); window.addEventListener('keyup', key);
     return () => { clearInterval(leaseTimer); element.removeEventListener('wheel', wheel, true); window.removeEventListener('blur', clear); window.removeEventListener('keydown', key); window.removeEventListener('keyup', key); clear(); };
   }, [auth, size.width, size.height]);
   if (auth === null) return <div className="boot"><Radio size={22} /><span>Connecting to AgenticView</span></div>;
   if (!auth) return <Login complete={() => setAuth(true)} />;
   const viewport: Rect = { x: -camera.x / camera.zoom - 150, y: -camera.y / camera.zoom - 150, width: size.width / camera.zoom + 300, height: size.height / camera.zoom + 300 };
+  function monitoringCard(rect: Rect) {
+    return <article className={`world-card monitoring-card ${activeCard === 'monitoring' ? 'is-active' : ''}`} data-card-id="monitoring" style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height, zIndex: 100001 }} onDoubleClick={e => { if (!(e.target as HTMLElement).closest('button,a,input,select,textarea')) focusCard('monitoring'); }}>
+      <header className="card-header" onPointerDown={e => dragCard(e, 'monitoring')} tabIndex={0} onKeyDown={e => keyboard(e, 'monitoring')} aria-label="Hub monitoring"><div className="settings-icon"><Activity size={18} /></div><div className="agent-title"><strong>Hub monitoring</strong><span>Live telemetry · current installation</span></div><button className="icon-button" title="Close monitoring" aria-label="Close monitoring" onClick={() => { activateCard(null); setUtilityRect('monitoring', null); }}><X size={17} /></button></header>
+      <CardSurface id="monitoring" onInteractionChange={active => contentInteraction('monitoring', active)} store={cardCameras.current} active={activeCard === 'monitoring'} deactivate={() => activateCard(null)} canvasOwnsPointer={id => touches.current.pointers.has(id)} forceCanvas={() => spaceHeld.current} panPastEdge={(x, y) => panCardEdge('monitoring', x, y)} canvasCamera={camera} getCanvasCamera={() => cameraRef.current} getCanvasBounds={() => canvasElement.current!.getBoundingClientRect()} zoomBeforeCard={(factor, anchor) => zoomBeforeCard('monitoring', factor, anchor)} zoomPastCard={(factor, anchor) => zoomPastCard('monitoring', factor, anchor)}><MonitoringView /></CardSurface>
+    </article>;
+  }
   return <main className={`app ${snapshot.settings.reducedMotion ? 'reduced-motion' : ''}`}><div ref={canvasElement} className="canvas" tabIndex={0} onKeyDown={canvasKeyboard} onPointerDownCapture={canvasPointerDown} onPointerMoveCapture={touchMove} onPointerUpCapture={e => touchEnd(e, false)} onPointerCancelCapture={e => touchEnd(e, true)} onClickCapture={canvasClick} onPointerDown={pan} style={{ backgroundPosition: `${camera.x}px ${camera.y}px`, backgroundSize: `${Math.max(12, 24 * camera.zoom)}px ${Math.max(12, 24 * camera.zoom)}px`, backgroundImage: camera.zoom < .1 ? 'none' : undefined }} aria-label="Agent canvas. Drag the background to pan. Use zoom controls to navigate.">
     <div className="world" style={{ transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})` }}>{roots.map(agent => { const layout = layouts[agent.id]; if (!layout || !isVisible(layout, viewport) && !contentInteractions.current.has(agent.id) && activeDrag.current !== agent.id) return null; const isCollapsed = collapsed.has(agent.id); return <article className={`world-card agent-card status-${agent.status} ${layout.locked ? 'locked' : ''} ${activeCard === agent.id ? 'is-active' : ''}`} key={agent.id} data-card-id={agent.id} title={`${agent.name} · double-click or double-tap to focus`} onDoubleClick={e => { if (!(e.target as HTMLElement).closest('button,a,input,select,textarea')) focusCard(agent.id); }} style={{ left: layout.x, top: layout.y, width: layout.width, height: isCollapsed ? 68 : layout.height, zIndex: layout.z }}><ArrivalHalo id={agent.id} tracker={arrivals.current} /><header className="card-header" onPointerDown={e => dragCard(e, agent.id)} onKeyDown={e => keyboard(e, agent.id)} tabIndex={0} aria-label={`${agent.name}, ${activeCard === agent.id ? layout.locked ? 'locked' : 'use arrow keys to move' : 'press Enter to activate'}`}><span className={`status-dot ${agent.status}`} /><div className="agent-title"><strong>{agent.name}</strong><span>{agent.role}</span></div><div className="card-actions"><button className="icon-button" title={layout.sizing === 'content' ? 'Use fixed size' : 'Grow with content'} aria-label="Grow with content" aria-pressed={layout.sizing === 'content'} onClick={() => commitLayout(agent.id, { ...layout, sizing: layout.sizing === 'content' ? 'fixed' : 'content' })}><Maximize2 size={14} /></button><button className="icon-button" title={layout.locked ? 'Unlock position' : 'Lock position'} aria-pressed={layout.locked} onClick={() => { const next = { ...layout, locked: !layout.locked }; setLayouts(p => ({ ...p, [agent.id]: next })); persist(agent.id, next); }}>{layout.locked ? <Lock size={14} /> : <Unlock size={14} />}</button><button className="icon-button" title={isCollapsed ? 'Expand agent' : 'Collapse agent'} aria-expanded={!isCollapsed} onClick={() => setCollapsed(p => { const next = new Set(p); next.has(agent.id) ? next.delete(agent.id) : next.add(agent.id); return next; })}>{isCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}</button><button className={`icon-button ${agent.status === 'completed' ? 'archive-completed' : ''}`} title={agent.status === 'completed' ? 'Task completed — archive card' : 'Archive agent'} onClick={() => api(`/api/agents/${encodeURIComponent(agent.id)}/archive`, 'POST', {}).catch(e => report(e.message))}><Archive size={14} />{agent.status === 'completed' && <span>Archive</span>}</button></div></header>{!isCollapsed && <CardSurface id={agent.id} onInteractionChange={active => contentInteraction(agent.id, active)} store={cardCameras.current} active={activeCard === agent.id} deactivate={() => activateCard(null)} canvasOwnsPointer={id => touches.current.pointers.has(id)} forceCanvas={() => spaceHeld.current} panPastEdge={(x, y) => panCardEdge(agent.id, x, y)} canvasCamera={camera} getCanvasCamera={() => cameraRef.current} getCanvasBounds={() => canvasElement.current!.getBoundingClientRect()} zoomBeforeCard={(factor, anchor) => zoomBeforeCard(agent.id, factor, anchor)} zoomPastCard={(factor, anchor) => zoomPastCard(agent.id, factor, anchor)}><MeasuredContent watch={layout.sizing} onHeight={height => growContent(agent.id, height)}><AgentContent agent={agent} agents={snapshot.agents} settings={snapshot.settings} arrivals={arrivals.current} /></MeasuredContent></CardSurface>}<footer className="card-footer"><span>{agent.status === 'active' ? 'LIVE' : agent.status.toUpperCase()}</span><code title={agent.id}>{agent.agentId}</code><RunTimes agent={agent} /><span className="sizing-label">{layout.sizing === 'content' ? 'CONTENT' : 'FIXED'}</span>{layout.locked && <Lock size={10} />}</footer>{!isCollapsed && <button className="resize-handle" title="Drag to resize - arrow keys adjust dimensions" aria-label={`Resize ${agent.name}. Use arrow keys to adjust width and height.`} onPointerDown={e => resizeCard(e, agent.id)} onKeyDown={e => resizeKeyboard(e, agent.id)}><span /></button>}</article>; })}
-    {settingsRect && (isVisible(settingsRect, viewport) || contentInteractions.current.has('settings') || activeDrag.current === 'settings') && <article className={`world-card settings-card ${activeCard === 'settings' ? 'is-active' : ''}`} data-card-id="settings" onDoubleClick={e => { if (!(e.target as HTMLElement).closest('button,a,input,select,textarea')) focusCard('settings'); }} style={{ left: settingsRect.x, top: settingsRect.y, width: settingsRect.width, height: settingsRect.height, zIndex: 100000 }}><header className="card-header" onPointerDown={e => dragCard(e, 'settings')}><div className="settings-icon"><Cog size={17} /></div><div className="agent-title"><strong>Workspace settings</strong><span>Your installation, your rules</span></div><button className="icon-button" title="Close settings" onClick={() => setSettingsRect(null)}><X size={17} /></button></header><CardSurface id="settings" onInteractionChange={active => contentInteraction('settings', active)} store={cardCameras.current} active={activeCard === 'settings'} deactivate={() => activateCard(null)} canvasOwnsPointer={id => touches.current.pointers.has(id)} forceCanvas={() => spaceHeld.current} panPastEdge={(x, y) => panCardEdge('settings', x, y)} canvasCamera={camera} getCanvasCamera={() => cameraRef.current} getCanvasBounds={() => canvasElement.current!.getBoundingClientRect()} zoomBeforeCard={(factor, anchor) => zoomBeforeCard('settings', factor, anchor)} zoomPastCard={(factor, anchor) => zoomPastCard('settings', factor, anchor)}><SettingsBody settings={snapshot.settings} stats={snapshot.stats} save={async settings => { await api('/api/settings', 'PUT', settings); setSnapshot(s => ({ ...s, settings })); }} report={report} /></CardSurface></article>}
+    {monitoringRect && (isVisible(monitoringRect, viewport) || contentInteractions.current.has('monitoring') || activeDrag.current === 'monitoring') && monitoringCard(monitoringRect)}
+    {settingsRect && (isVisible(settingsRect, viewport) || contentInteractions.current.has('settings') || activeDrag.current === 'settings') && <article className={`world-card settings-card ${activeCard === 'settings' ? 'is-active' : ''}`} data-card-id="settings" onDoubleClick={e => { if (!(e.target as HTMLElement).closest('button,a,input,select,textarea')) focusCard('settings'); }} style={{ left: settingsRect.x, top: settingsRect.y, width: settingsRect.width, height: settingsRect.height, zIndex: 100000 }}><header className="card-header" onPointerDown={e => dragCard(e, 'settings')} onKeyDown={e => keyboard(e, 'settings')} tabIndex={0} aria-label="Workspace settings"><div className="settings-icon"><Cog size={17} /></div><div className="agent-title"><strong>Workspace settings</strong><span>Your installation, your rules</span></div><button className="icon-button" title="Close settings" onClick={() => setSettingsRect(null)}><X size={17} /></button></header><CardSurface id="settings" onInteractionChange={active => contentInteraction('settings', active)} store={cardCameras.current} active={activeCard === 'settings'} deactivate={() => activateCard(null)} canvasOwnsPointer={id => touches.current.pointers.has(id)} forceCanvas={() => spaceHeld.current} panPastEdge={(x, y) => panCardEdge('settings', x, y)} canvasCamera={camera} getCanvasCamera={() => cameraRef.current} getCanvasBounds={() => canvasElement.current!.getBoundingClientRect()} zoomBeforeCard={(factor, anchor) => zoomBeforeCard('settings', factor, anchor)} zoomPastCard={(factor, anchor) => zoomPastCard('settings', factor, anchor)}><SettingsBody settings={snapshot.settings} stats={snapshot.stats} save={async settings => { await api('/api/settings', 'PUT', settings); setSnapshot(s => ({ ...s, settings })); }} report={report} /></CardSurface></article>}
     </div></div>{createPortal(<div className="viewport-hud"><header className="topbar chrome" onPointerDown={e => { if (e.button === 0 && !(e.target as Element).closest('button,a,input')) windowCommand('drag'); }} onDoubleClick={e => { if (!(e.target as Element).closest('button,a,input')) windowCommand('maximize'); }}><a className="brand" href="/" aria-label="AgenticView"><Radio size={19} /><span>Agentic<span>View</span></span><small>MONITOR</small></a><div className="connection-status"><i className={online ? 'connected' : ''} />{online ? 'Live' : 'Reconnecting'}<span className="topbar-divider" />{snapshot.stats.active} active{snapshot.stats.updatesPerSecond > 0 && <span className="update-rate">{snapshot.stats.updatesPerSecond.toFixed(1)} updates/s</span>}</div></header>
-    <div className="bottom-left chrome"><button className={`settings-toggle ${settingsRect ? 'active' : ''}`} title="Workspace settings" aria-label="Workspace settings" aria-pressed={!!settingsRect} onClick={openSettings}><Cog size={20} /><span className="settings-label">Settings</span></button><span className="canvas-help">Canvas navigation <span>·</span> Click a card to interact <span>·</span> Space to pan <span>·</span> F to fit</span></div><div className="viewport-controls chrome"><button title="Zoom out" aria-label="Zoom out" onClick={() => zoom(1 / 1.2)}><Minus size={15} /></button><button className="zoom-value" title="Reset zoom" onClick={resetZoom}>{formatZoom(camera.zoom)}</button><button title="Zoom in" aria-label="Zoom in" onClick={() => zoom(1.2)}><Plus size={15} /></button><span /><button className="fit-all" title="Fit all cards (F or Home)" aria-label="Fit all cards" onClick={fit}><Focus size={16} /><span>Fit all</span></button><button className="fit-all arrange-all" title={`Pack all ${movableCount} unlocked cards; keep older positions where possible`} aria-label="Arrange all cards" disabled={packing} onClick={arrangeAll}><LayoutGrid size={16} /><span>{packing ? 'Arranging…' : 'Arrange all'}</span></button></div>{notice && <div className="toast chrome" role="status">{notice}<button className="icon-button" aria-label="Dismiss message" onClick={() => setNotice('')}><X size={14} /></button></div>}
+    <div className="bottom-left chrome"><button className={`settings-toggle ${settingsRect ? 'active' : ''}`} title="Workspace settings" aria-label="Workspace settings" aria-pressed={!!settingsRect} onClick={openSettings}><Cog size={20} /><span className="settings-label">Settings</span></button><button className={`settings-toggle monitoring-toggle ${monitoringRect ? 'active' : ''}`} title="Hub monitoring" aria-label="Hub monitoring" aria-pressed={!!monitoringRect} onClick={openMonitoring}><Activity size={20} /></button><span className="canvas-help">Canvas navigation <span>·</span> Click a card to interact <span>·</span> Space to pan <span>·</span> F to fit</span></div><div className="viewport-controls chrome"><button title="Zoom out" aria-label="Zoom out" onClick={() => zoom(1 / 1.2)}><Minus size={15} /></button><button className="zoom-value" title="Reset zoom" onClick={resetZoom}>{formatZoom(camera.zoom)}</button><button title="Zoom in" aria-label="Zoom in" onClick={() => zoom(1.2)}><Plus size={15} /></button><span /><button className="fit-all" title="Fit all cards (F or Home)" aria-label="Fit all cards" onClick={fit}><Focus size={16} /><span>Fit all</span></button><button className="fit-all arrange-all" title={`Pack all ${movableCount} unlocked cards; keep older positions where possible`} aria-label="Arrange all cards" disabled={packing} onClick={arrangeAll}><LayoutGrid size={16} /><span>{packing ? 'Arranging…' : 'Arrange all'}</span></button></div>{notice && <div className="toast chrome" role="status">{notice}<button className="icon-button" aria-label="Dismiss message" onClick={() => setNotice('')}><X size={14} /></button></div>}
   </div>, document.body)}</main>;
 }

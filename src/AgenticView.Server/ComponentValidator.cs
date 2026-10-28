@@ -54,6 +54,11 @@ public static class ComponentValidator
         else if (kind == JsonValueKind.Number) { if (!double.TryParse(node.ToJsonString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var number) || !double.IsFinite(number)) Fail("Numbers must be finite."); }
         else if (kind is not (JsonValueKind.True or JsonValueKind.False or JsonValueKind.Null)) Fail("Unsupported scalar value.");
     }
+    private static void HttpUrl(JsonObject value, string key)
+    {
+        var url = Text(value, key, 2048);
+        if (url.Any(char.IsWhiteSpace) || !Regex.IsMatch(url, @"^https?://", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant) || Regex.IsMatch(url, @"^https?://[^/?#]*@", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant) || !Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https") || uri.Host.Length == 0 || uri.UserInfo.Length != 0) Fail("URLs must use HTTP(S) without user information.");
+    }
     public static void Budget(JsonNode? root)
     {
         var stack = new Stack<(JsonNode?, int)>(); stack.Push((root, 0)); var count = 0;
@@ -65,9 +70,9 @@ public static class ComponentValidator
             if (current.Item1 is JsonValue val && val.GetValueKind() == JsonValueKind.Number && (!double.TryParse(val.ToJsonString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var number) || !double.IsFinite(number))) Fail("JSON numbers must be finite.");
         }
     }
-    public static void Validate(JsonObject component)
+    public static void Validate(JsonObject component, bool checkBudget = true)
     {
-        Budget(component); Id(component, "id"); Text(component, "title", 160);
+        if (checkBudget) Budget(component); Id(component, "id"); Text(component, "title", 160);
         var kind = Text(component, "kind", 32); var data = Object(component["data"], "data");
         switch (kind)
         {
@@ -145,6 +150,28 @@ public static class ComponentValidator
                 foreach (var n in Array(data, "items", 100)) { var item = Object(n); Text(item, "label", 200); Text(item, "description", 1000, false); var url = Text(item, "url", 2048); if (url.Any(char.IsWhiteSpace) || !Regex.IsMatch(url, @"^https?://", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant) || Regex.IsMatch(url, @"^https?://[^/?#]*@", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant) || !Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https") || uri.Host.Length == 0 || uri.UserInfo.Length != 0) Fail("Links must use HTTP(S) without user information."); } break;
             case "comparison":
                 foreach (var n in Array(data, "items", 100)) { var item = Object(n); Text(item, "label", 200); if (!item.ContainsKey("before") || !item.ContainsKey("after")) Fail("Comparison before and after are required."); Scalar(item["before"]); Scalar(item["after"]); } break;
+            case "service-map":
+            {
+                var nodeIds = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var n in Array(data, "nodes", 100)) { var node = Object(n); if (!nodeIds.Add(Id(node, "id"))) Fail("Service node IDs must be unique."); Text(node, "label", 200); Text(node, "detail", 1000, false); if (node.ContainsKey("state")) Choice(node, "state", ["active", "success", "warning", "error", "idle"]); }
+                foreach (var n in Array(data, "edges", 200)) { var edge = Object(n); if (!nodeIds.Contains(Id(edge, "from")) || !nodeIds.Contains(Id(edge, "to"))) Fail("Service edge endpoints must exist."); Text(edge, "label", 160, false); } break;
+            }
+            case "http":
+                Choice(data, "method", ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]); HttpUrl(data, "url"); Number(data, "statusCode", 100, 599, false, true); Number(data, "durationMs", 0, double.MaxValue, false); Text(data, "requestBody", 131072, false); Text(data, "responseBody", 131072, false); break;
+            case "stacktrace":
+                Text(data, "exception", 200, false); Text(data, "message", 8192, false); foreach (var n in Array(data, "frames", 1000)) { var frame = Object(n); Text(frame, "method", 1000); Text(frame, "file", 1000, false); Text(frame, "module", 200, false); Number(frame, "line", 1, 9_007_199_254_740_991d, false, true); } break;
+            case "test-results":
+            {
+                var testIds = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var n in Array(data, "items", 1000)) { var item = Object(n); if (!testIds.Add(Id(item, "id"))) Fail("Test IDs must be unique."); Text(item, "label", 500); Choice(item, "state", ["passed", "failed", "skipped", "running", "pending"]); Number(item, "durationMs", 0, double.MaxValue, false); Text(item, "detail", 8192, false); } break;
+            }
+            case "gantt":
+            {
+                var itemIds = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var n in Array(data, "items", 200)) { var item = Object(n); if (!itemIds.Add(Id(item, "id"))) Fail("Timeline IDs must be unique."); Text(item, "label", 200); var start = Number(item, "start", 0, 8_640_000_000_000_000d); if (item.ContainsKey("end") && Number(item, "end", 0, 8_640_000_000_000_000d) < start) Fail("Timeline end must not precede start."); Text(item, "group", 160, false); if (item.ContainsKey("tone")) Choice(item, "tone", ["neutral", "info", "success", "warning", "error"]); } break;
+            }
+            case "breakdown":
+                Text(data, "unit", 80, false); foreach (var n in Array(data, "items", 100)) { var item = Object(n); Text(item, "label", 200); Number(item, "value", 0); if (item.ContainsKey("tone")) Choice(item, "tone", ["neutral", "info", "success", "warning", "error"]); } break;
             default: Fail("Unsupported component kind."); break;
         }
     }

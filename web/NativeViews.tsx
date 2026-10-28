@@ -5,9 +5,41 @@ import { compactDuration, compactTime, exactTime, taskClockSpacings } from '../s
 import { TaskDuration } from './TaskDuration.js';
 import { DataTable } from './DataTable.js';
 
-export type ExtendedComponent = Extract<Component, { kind: 'stat-grid' | 'checklist' | 'bar-list' | 'histogram' | 'heatmap' | 'gauge' | 'query' | 'command' | 'trace' | 'alert' | 'links' | 'comparison' }>;
+export type ExtendedComponent = Extract<Component, { kind: 'stat-grid' | 'checklist' | 'bar-list' | 'histogram' | 'heatmap' | 'gauge' | 'query' | 'command' | 'trace' | 'alert' | 'links' | 'comparison' | 'service-map' | 'http' | 'stacktrace' | 'test-results' | 'gantt' | 'breakdown' }>;
 const value = (v: unknown) => typeof v === 'object' ? JSON.stringify(v) : String(v ?? '—');
 const duration = (ms?: number) => ms === undefined ? null : <span className="native-duration" title={`${ms} ms`}>{compactDuration(ms)}</span>;
+function usePage(length: number, size = 50) {
+  const [page, setPage] = useState(0), pages = Math.max(1, Math.ceil(length / size)), current = Math.min(page, pages - 1);
+  return { current, pages, offset: current * size, size, setPage };
+}
+function Pager({ page, count, label }: { page: ReturnType<typeof usePage>; count: number; label: string }) {
+  return count > page.size ? <div className="pagination"><span>{count} {label}</span><button disabled={!page.current} onClick={() => page.setPage(page.current - 1)}>Previous</button><span>{page.current + 1} / {page.pages}</span><button disabled={page.current + 1 === page.pages} onClick={() => page.setPage(page.current + 1)}>Next</button></div> : null;
+}
+function ServiceMap({ data }: { data: Extract<Component, { kind: 'service-map' }>['data'] }) {
+  const page = usePage(data.nodes.length, 20), nodes = new Map(data.nodes.map(node => [node.id, node]));
+  return <><div className="native-meta"><span>{data.nodes.length} services</span><span>{data.edges.length} connections</span></div><ul className="native-service-map" aria-label="Service topology">{data.nodes.slice(page.offset, page.offset + page.size).map(node => {
+    const outgoing = data.edges.filter(edge => edge.from === node.id);
+    return <li key={node.id} className={`service-state-${node.state ?? 'idle'}`}><div className="service-heading"><strong>{node.label}</strong><span>{node.state ?? 'idle'}</span></div>{node.detail && <p>{node.detail}</p>}{outgoing.length > 0 ? <ul className="service-connections" aria-label={`Connections from ${node.label}`}>{outgoing.map((edge, i) => <li key={i}><span aria-hidden="true">→</span><span>{nodes.get(edge.to)!.label}</span>{edge.label && <small>{edge.label}</small>}</li>)}</ul> : <small className="native-note">No outgoing connections</small>}</li>;
+  })}</ul><Pager page={page} count={data.nodes.length} label="services" /></>;
+}
+function Stacktrace({ data }: { data: Extract<Component, { kind: 'stacktrace' }>['data'] }) {
+  const page = usePage(data.frames.length);
+  return <div className="native-stacktrace">{data.exception && <strong className="stack-exception">{data.exception}</strong>}{data.message && <p>{data.message}</p>}<ol start={page.offset + 1} aria-label="Stack frames">{data.frames.slice(page.offset, page.offset + page.size).map((frame, i) => <li key={page.offset + i}><code>{frame.method}</code>{frame.module && <span className="stack-module">{frame.module}</span>}{(frame.file || frame.line !== undefined) && <div className="stack-location">{frame.file}{frame.line !== undefined && <span> · line {frame.line}</span>}</div>}</li>)}</ol><Pager page={page} count={data.frames.length} label="frames" /></div>;
+}
+function TestResults({ data }: { data: Extract<Component, { kind: 'test-results' }>['data'] }) {
+  const page = usePage(data.items.length), states = ['passed', 'failed', 'skipped', 'running', 'pending'] as const;
+  return <><dl className="native-test-summary">{states.map(state => <div key={state} className={`test-state-${state}`}><dt>{state}</dt><dd>{data.items.filter(item => item.state === state).length}</dd></div>)}</dl><ul className="native-test-results" aria-label="Test results">{data.items.slice(page.offset, page.offset + page.size).map(item => <li key={item.id} className={`test-state-${item.state}`}><div className="test-result-heading"><span className="test-result-state">{item.state}</span><strong>{item.label}</strong>{duration(item.durationMs)}</div>{item.detail && <details><summary>Details</summary><pre>{item.detail}</pre></details>}</li>)}</ul><Pager page={page} count={data.items.length} label="tests" /></>;
+}
+function Gantt({ data }: { data: Extract<Component, { kind: 'gantt' }>['data'] }) {
+  const page = usePage(data.items.length), start = Math.min(...data.items.map(item => item.start)), end = Math.max(...data.items.map(item => item.end ?? item.start)), span = Math.max(1, end - start);
+  if (!data.items.length) return <p className="native-note">No intervals reported</p>;
+  return <><div className="gantt-range"><time dateTime={new Date(start).toISOString()}>{new Date(start).toLocaleString()}</time><time dateTime={new Date(end).toISOString()}>{new Date(end).toLocaleString()}</time></div><ol className="native-gantt" aria-label="Reported timeline">{data.items.slice(page.offset, page.offset + page.size).map(item => <li key={item.id} className={`tone-${item.tone ?? 'neutral'}`}><div className="gantt-heading"><strong>{item.label}</strong>{item.group && <span>{item.group}</span>}{item.end === undefined && <small>In progress</small>}</div><div className="gantt-track" aria-label={`${item.label}, starts ${new Date(item.start).toISOString()}, ${item.end === undefined ? 'end not reported' : 'ends ' + new Date(item.end).toISOString()}`}><span style={{ left: (item.start - start) / span * 100 + '%', width: Math.max(.5, ((item.end ?? item.start) - item.start) / span * 100) + '%' }} /></div></li>)}</ol><Pager page={page} count={data.items.length} label="intervals" /></>;
+}
+function Breakdown({ data }: { data: Extract<Component, { kind: 'breakdown' }>['data'] }) {
+  const max = Math.max(1, ...data.items.map(item => item.value)), scaledTotal = data.items.reduce((sum, item) => sum + item.value / max, 0);
+  const share = (n: number) => scaledTotal ? n / max / scaledTotal * 100 : 0;
+  return <><div className="native-breakdown-strip" aria-hidden="true">{data.items.map((item, i) => <span key={i} className={`tone-${item.tone ?? 'neutral'}`} style={{ flexGrow: share(item.value) }} />)}</div><ul className="native-breakdown" aria-label="Reported value shares">{data.items.map((item, i) => <li key={i} className={`tone-${item.tone ?? 'neutral'}`}><span>{item.label}</span><strong>{value(item.value)} <small>{data.unit}</small></strong><span className="breakdown-percent">{share(item.value).toFixed(1)}%</span></li>)}</ul>{scaledTotal === 0 && <p className="native-note">No positive values reported</p>}</>;
+}
 
 function Checklist({ data, times, updatedAt }: { data: Extract<Component, { kind: 'checklist' }>['data']; times?: TaskTiming[]; updatedAt?: number }) {
   const done = data.items.filter(item => item.status === 'completed').length, spacings = taskClockSpacings(times ?? []);
@@ -45,5 +77,11 @@ export function NativeView({ component: c, taskTimes, updatedAt }: { component: 
     case 'alert': return <div className={`native-alert tone-${c.data.tone}`} role="status"><AlertCircle size={16} /><div><p>{c.data.message}</p>{c.data.detail && <details><summary>Details</summary><pre>{c.data.detail}</pre></details>}</div></div>;
     case 'links': return <ul className="native-links">{c.data.items.map((item, i) => <li key={i}><a href={item.url} target="_blank" rel="noopener noreferrer">{item.label}<ExternalLink size={12} /></a>{item.description && <p>{item.description}</p>}</li>)}</ul>;
     case 'comparison': return <div className="table-scroll"><table className="native-comparison"><thead><tr><th>Field</th><th>Before</th><th>After</th></tr></thead><tbody>{c.data.items.map((item, i) => <tr key={i} className={JSON.stringify(item.before) === JSON.stringify(item.after) ? '' : 'has-change'}><th scope="row">{item.label}</th><td>{value(item.before)}</td><td>{value(item.after)}</td></tr>)}</tbody></table></div>;
+    case 'service-map': return <ServiceMap data={c.data} />;
+    case 'http': return <div className="native-http"><div className="native-meta"><strong className="http-method">{c.data.method}</strong>{c.data.statusCode !== undefined && <span className={`native-state ${c.data.statusCode >= 400 ? 'state-error' : c.data.statusCode >= 200 && c.data.statusCode < 300 ? 'state-success' : ''}`}>HTTP {c.data.statusCode}</span>}{duration(c.data.durationMs)}</div><code className="http-url">{c.data.url}</code>{c.data.requestBody !== undefined && <details><summary>Request body</summary><pre>{c.data.requestBody}</pre></details>}{c.data.responseBody !== undefined && <details open><summary>Response body</summary><pre>{c.data.responseBody}</pre></details>}</div>;
+    case 'stacktrace': return <Stacktrace data={c.data} />;
+    case 'test-results': return <TestResults data={c.data} />;
+    case 'gantt': return <Gantt data={c.data} />;
+    case 'breakdown': return <Breakdown data={c.data} />;
   }
 }

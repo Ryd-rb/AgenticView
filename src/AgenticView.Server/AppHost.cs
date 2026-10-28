@@ -25,7 +25,6 @@ public static class AppHost
         var app = builder.Build();
         var hub = app.Services.GetRequiredService<Hub>();
         var authority = config.PublicUrl.GetLeftPart(UriPartial.Authority);
-        var streamCount = 0;
         app.Use(async (context, next) =>
         {
             try
@@ -58,7 +57,7 @@ public static class AppHost
             }
         });
         app.UseRateLimiter();
-        app.MapGet("/health", () => new { status = "ok", version = "0.1.10", runtime = ".NET 10" });
+        app.MapGet("/health", () => new { status = "ok", version = "0.1.11", runtime = ".NET 10" });
         app.MapGet("/api/session", (HttpContext c) => new { authenticated = Authentication.Viewer(c.Request, config.Secrets) });
         app.MapPost("/api/login", (Func<HttpContext, Task<IResult>>)(async c =>
         {
@@ -69,6 +68,7 @@ public static class AppHost
         })).RequireRateLimiting("login");
         app.MapPost("/api/logout", (HttpContext c) => { c.Response.Cookies.Delete("av_session"); return new { authenticated = false }; });
         app.MapGet("/api/snapshot", () => hub.Snapshot());
+        app.MapGet("/api/monitoring", () => hub.Monitoring());
         app.MapPost("/api/agents/register", (Func<HttpContext, Task<IResult>>)(async c => Results.Json(hub.Register(await Body(c)), statusCode: 201)));
         app.MapPost("/api/agents/{id}/publish", async (string id, HttpContext c) => hub.Publish(id, Authentication.Bearer(c.Request), await Body(c)));
         app.MapPost("/api/agents/{id}/heartbeat", (string id, HttpContext c) => hub.Heartbeat(id, Authentication.Bearer(c.Request)));
@@ -94,7 +94,7 @@ public static class AppHost
         });
         app.MapGet("/api/events", async (HttpContext c) =>
         {
-            if (Interlocked.Increment(ref streamCount) > 16) { Interlocked.Decrement(ref streamCount); throw new HubError(429, "Viewer stream capacity reached."); }
+            if (!hub.OpenViewer()) throw new HubError(429, "Viewer stream capacity reached.");
             using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(c.RequestAborted);
             cancellation.CancelAfter(TimeSpan.FromHours(12));
             var channel = Channel.CreateBounded<string>(new BoundedChannelOptions(8) { FullMode = BoundedChannelFullMode.Wait, SingleReader = true, SingleWriter = false });
@@ -107,7 +107,7 @@ public static class AppHost
                 await foreach (var patch in channel.Reader.ReadAllAsync(cancellation.Token)) { await c.Response.WriteAsync($"event: patch\ndata: {patch}\n\n", cancellation.Token); await c.Response.Body.FlushAsync(cancellation.Token); }
             }
             catch (OperationCanceledException) { }
-            finally { hub.Patched -= Patch; Interlocked.Decrement(ref streamCount); }
+            finally { hub.Patched -= Patch; hub.CloseViewer(); }
         });
         app.MapMcp("/mcp");
         app.MapGet("/{**asset}", async (string? asset, HttpContext c) =>

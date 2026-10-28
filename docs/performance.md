@@ -1,5 +1,46 @@
 # Initial capacity measurement
 
+## Monitoring and ingestion pass
+
+An instrumented baseline and candidate were alternated for three paired runs on
+Windows, each with 1,000 agents, ten metric replacements per request, up to 32
+concurrent requests, one SSE drain, and 100,000 measured operations. A complete
+round was excluded as warmup. The source baseline was `ee67c2b`; the instrumented
+baseline added counters but retained the prior publish algorithm.
+
+| Paired run | Instrumented baseline ops/s | Candidate ops/s |
+| --- | ---: | ---: |
+| 1 | 19,590 | 21,136 |
+| 2 | 19,543 | 21,184 |
+| 3 | 20,017 | 20,811 |
+| Median | 19,590 | 21,136 |
+
+The median improvement was **7.9%**; median request p95 was 30.64 ms before and
+29.06 ms after. Changes coalesce viewer metadata once per atomic batch, batch
+component UPSERTs in the existing transaction, avoid duplicate input-budget
+walks, and hash canonical JSON directly as UTF-8. Digest compatibility, atomic
+failure, exact retries, persistence and coalesced patches remain covered by
+contracts. SQLite WAL and `synchronous=NORMAL` were unchanged.
+
+Bounded production timing counters identified persistence and patch preparation
+as significant service phases. In the first controlled comparison, patch queue
+preparation fell from 0.0398 to 0.0173 ms per batch. These timings include warmup
+and waits; they are not sampled stack attribution. The installed sampler required
+elevation and `dotnet-trace` was unavailable, so no CPU-sampling result is claimed.
+
+This remains synthetic loopback ingestion, not browser frame rate or a sustained
+production guarantee. Private reports retain exact binaries, symbols, workload,
+source identities and each run. Runtime monitoring keeps only 300 history samples
+and polls only while its card is visible.
+
+The final build also completed a 100,000-operation confirmation with monitoring
+polled once per second: 22,368 operations/s and request p95 26.95 ms, with four
+monitoring responses during the measured interval. This short run corroborates
+the publish path with monitoring enabled; it does not establish long-duration
+dashboard overhead or browser performance.
+
+## Original measurement
+
 The C# / .NET 10 server was exercised on Windows with a separate Node load
 generator over loopback HTTP. One viewer continuously drained the SSE stream.
 

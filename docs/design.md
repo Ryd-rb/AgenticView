@@ -88,7 +88,13 @@ consistent type, boundaries and control treatments. Plans lead each card; eviden
 uses compact native subcards. Native components have a Built-in caption, while
 agent-authored HTML has a Custom view caption and a warm frame. The empty canvas
 stays empty. No welcome panel or extra navigation surface occupies the world.
-See the [native catalog](native-components.md) for the 25 built-in kinds.
+See the [native catalog](native-components.md) for the 31 built-in kinds.
+
+The monitoring icon beside the bottom-left cog opens a draggable world card.
+It shows heartbeat-based run states, accepted update/batch/payload rates, five
+minutes of bounded history, live component inventory, active publishers and
+runtime counters. A hidden or closed view stops polling. History and rate counters
+reset with the server; archives and retained live views remain persisted.
 Input regression tests include captured parent/child crossings, long bidirectional
 move sequences, capture loss, and live layout updates through the actual App in an
 in-memory DOM. These contracts complement manual physical-touch acceptance.

@@ -48,7 +48,7 @@ one-based item position. Markdown has at most 1,024 observed tasks; a native
 checklist has at most 200. Displayed durations are observed intervals, with an
 unavailable marker when no start was reported.
 
-Prefer the [25 native component types](native-components.md) to custom HTML.
+Prefer the [31 native component types](native-components.md) to custom HTML.
 The catalog includes semantic query, command, trace and task views as well as
 charts, comparisons and distributions. Queries and commands display reported
 activity and never execute it. Built-in and custom views retain distinct origin
@@ -98,6 +98,16 @@ only the matching view's lease. IDs allow 1–128 ASCII letters/digits or `_ - :
 at most 64 simultaneous leases may hold one card.
 
 ## Bounds
+
+Viewer-authenticated `GET /api/monitoring` exposes bounded hub statistics, never
+component content, context or run credentials. It includes at most 300 one-second
+history samples and the 100 most active live agents. Accepted operation counts
+exclude exact retries and rejected mutations; Hub rejections do not include HTTP
+requests rejected before mutation parsing. Payload sizes are canonical accepted
+JSON bytes, excluding transport headers and the MCP envelope. Rates use monotonic
+elapsed intervals. Publish latency is a cumulative bucket estimate, with a final
+10-second-plus bucket. Stage counters measure elapsed time including waits and
+are not sampled CPU attribution. Per-agent counters cover their current live stint.
 
 Requests: 1 MiB, 256 operations. Runs: 64 components, 2 MiB. Appends: 512 items.
 Logs and tables retain the newest 2,000 items; timelines retain 1,000. Positive trim

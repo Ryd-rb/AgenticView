@@ -39,11 +39,15 @@
   receipt times from agent execution times. Use status borders and emphasize the
   archive action for completed cards that remain visible.
 - Keep the page within the viewport, with the settings cog fixed at bottom left.
+  Put monitoring beside the cog; open its live statistics as a draggable world card.
+  Keep monitoring history and counters bounded and its polling paused while hidden.
   Automatically bin pack all unlocked cards, favor older positions and close gaps.
   Preserve sizes and active gestures. Provide Arrange all beside zoom.
 - Default to canvas navigation until a card is explicitly activated. Global
   controls always retain canvas authority. Keep text legible within component bounds.
   Card zoom and pan must stay within content fit and native scroll boundaries.
+- Use readable working text and strong contrast without increasing fixed card
+  dimensions. Avoid forced bitmap layers that soften text under nested transforms.
 - Support a dedicated Windows fullscreen window with no system title bar and
   custom minimize, maximize/restore and close controls; reuse the title's signal
   icon and keep desktop dependencies offline-ready.
