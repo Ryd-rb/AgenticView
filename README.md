@@ -23,7 +23,7 @@ C# · .NET 10 · React · MIT
 - **Look closer.** Activate a card to explore its content. Nested tables, logs and
   code scroll within their bounds, with movement continuing through the surrounding
   card and canvas. Mouse, keyboard and touch inputs share the same navigation model.
-- **Choose the right view.** Use 34 built-in types: task lists, query results,
+- **Choose the right view.** Use 36 built-in types: task lists, query results,
   commands, traces, charts, heatmaps, comparisons, code, diffs and more. Native
   components handle display and interaction; custom HTML is an escape hatch with
   a distinct frame and **Custom view** label. See the [native catalog](docs/native-components.md).
@@ -39,6 +39,10 @@ C# · .NET 10 · React · MIT
 - **Talk back.** Add buttons, prompts, forms, selects and toggles with optional
   inline confirmations. Agents consume an action inbox; .NET connectors execute
   locally configured commands on the machine with access.
+- **Keep your sessions.** Open prompt cards for local or SSH agents, follow rich
+  output and reported components, pause/resume and recover interrupted work in
+  the same card. Agents can prepare machines, reusable encrypted logins and
+  launcher recipes through MCP. See the [session guide](docs/sessions.md).
 - **Keep an application.** Permanent cards outlive their creating agent. Follow
   bounded log tails or page through millions of source rows. Generic add/edit/delete
   callbacks send full rows to your scripts or services; persistence and history

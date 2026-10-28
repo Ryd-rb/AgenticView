@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import {cardStyleSchema,type CardIconName} from './card-style.js';
 
 export const idSchema = z.string().min(1).max(100).regex(/^[a-zA-Z0-9_.:-]+$/).refine(v => !['__proto__', 'prototype', 'constructor'].includes(v), 'Reserved identifier');
 const text = z.string().max(131_072);
@@ -28,6 +29,8 @@ const resultItems = z.array(z.object({ id: idSchema, label: z.string().max(500),
 const instant = z.number().finite().min(0).max(8_640_000_000_000_000);
 const ganttItems = z.array(z.object({ id: idSchema, label: z.string().max(200), start: instant, end: instant.optional(), group: z.string().max(160).optional(), tone: tone.optional() }).refine(item => item.end === undefined || item.end >= item.start, 'Timeline end must not precede start')).max(200).refine(items => new Set(items.map(item => item.id)).size === items.length, 'Timeline IDs must be unique');
 export const componentSchema = z.discriminatedUnion('kind', [
+  z.object({ ...base, kind: z.literal('session-launcher'), data: z.object({ actionId: idSchema, label: z.string().max(160).optional() }) }),
+  z.object({ ...base, kind: z.literal('agent-session'), data: z.object({ sessionId: idSchema }) }),
   z.object({ ...base, kind: z.literal('action-panel'), data: z.object({ actionIds: z.array(idSchema).min(1).max(64) }) }),
   z.object({ ...base, kind: z.literal('log-stream'), data: z.object({ actionId: idSchema, pollMs: z.number().int().min(500).max(60_000).optional(), maxRows: z.number().int().min(20).max(2_000).optional() }) }),
   z.object({ ...base, kind: z.literal('data-grid'), data: z.object({ readAction: idSchema.optional(), rows: z.array(z.record(z.string().max(100), scalar)).max(2000).optional(), editAction: idSchema.optional(), addAction: idSchema.optional(), deleteAction: idSchema.optional(), bulkAction: idSchema.optional(), historyAction: idSchema.optional(), keyColumn: idSchema.optional(), versionColumn: idSchema.optional(), pageSize: z.number().int().min(1).max(200).optional(), columns: z.array(z.object({ key: idSchema, label: z.string().max(100), editable: z.boolean().optional(), type: z.enum(['text','number','toggle']).optional() })).min(1).max(64) }) }),
@@ -70,7 +73,7 @@ export type AgentStatus = 'active' | 'stale' | 'completed' | 'error';
 export type TaskTiming = { key: string; line: number; firstSeenAt: number; startedAt?: number; completedAt?: number; updatedAt: number };
 export type AgentView = {
   id: string; agentId: string; name: string; role: string; context: string;
-  parentId: string | null; createdAt: number; lastSeen: number; status: AgentStatus;
+  parentId: string | null; createdAt: number; lastSeen: number; status: AgentStatus; icon?: CardIconName;
   updatedAt?: number; completedAt?: number; componentTimes?: Record<string, number>;
   taskTimes?: Record<string, TaskTiming[]>;
   application?: { name: string; description?: string };
@@ -96,10 +99,12 @@ export const registerSchema = z.object({
   name: z.string().min(1).max(160),
   role: z.string().max(160).default('Agent'),
   context: z.string().max(8_192).default(''),
+  icon:cardStyleSchema.shape.icon.optional(),
   parentId: idSchema.optional(), parentToken: z.string().max(256).optional(),
 });
 export type RegisterInput = z.input<typeof registerSchema>;
 export const operationSchema = z.discriminatedUnion('op', [
+  z.object({op:z.literal('style'),icon:cardStyleSchema.shape.icon}),
   z.object({ op: z.literal('upsert'), component: componentSchema }),
   z.object({ op: z.literal('remove'), componentId: idSchema }),
   z.object({ op: z.literal('clear') }),

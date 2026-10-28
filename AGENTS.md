@@ -22,6 +22,19 @@
   installation-specific values on import. Support manual and agent import/export.
   Prompt delivery supports inboxes and optional connector-owned webhooks with
   local secrets; confirmations remain configurable per action.
+- Managed agent sessions use configured local or SSH connector profiles. Keep
+  prompts and scoped reporting credentials out of shell command strings. Persist
+  cards, native session identity, bounded output and recovery intent. Resume the
+  native session first; hand off retained context and component descriptions when
+  replacement is required, truthfully showing the new provider identity. Bound
+  automatic recovery and terminate only owned processes on disconnect. Keep the
+  original provider/model settings; no default approval or sandbox bypasses.
+- SSH machine/account/launcher configuration is available through MCP and manual
+  settings. Encrypt saved passwords, never return them in listings, and permit
+  account reuse across machines. Do not expire credentials on a schedule; only
+  confirmed authentication rejection invalidates the affected binding. Transport
+  failures must retain credentials. Prompt for replacement and protect newer
+  credentials from delayed rejection reports. Keep passwords out of argv/env.
 - Support typed native components and agent-authored views under explicit embed
   rules. Prefer and expand native components so agents rarely need custom HTML.
   Distinguish Built-in components from Custom views with persistent origin labels
@@ -60,6 +73,10 @@
   Keep monitoring history and counters bounded and its polling paused while hidden.
   Automatically bin pack all unlocked cards, favor older positions and close gaps.
   Preserve sizes and active gestures. Provide Arrange all beside zoom.
+- Keep the top-left brand to its signal icon and AgenticView name; omit the
+  Monitor subtitle and navigation-help text beside the cog. Manual archiving
+  shows a quiet accessible Undo notification. Header icons are configurable via
+  MCP from the native catalog, including nested cards and portable definitions.
 - Default to canvas navigation until a card is explicitly activated. Global
   controls always retain canvas authority. Keep text legible within component bounds.
   Card zoom and pan must stay within content fit and native scroll boundaries.

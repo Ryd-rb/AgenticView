@@ -44,7 +44,7 @@ export class AgenticViewClient {
   stopHeartbeat() { if (this.heartbeatTimer) clearInterval(this.heartbeatTimer); this.heartbeatTimer = undefined; }
   async archive() { this.stopHeartbeat(); await this.queue; await this.reconcile(); return request(this.url, `/api/agents/${this.runId}/archive`, this.runToken, {}); }
 }
-export type ActionDefinition = { id: string; label: string; kind: 'command' | 'prompt' | 'query' | 'edit' | 'history' | 'logs' | 'custom'; target: string; handler?: string; description?: string; confirmation?: string; fields?: { key: string; label: string; type: 'text' | 'multiline' | 'number' | 'select' | 'toggle' | 'json'; required?: boolean; options?: string[]; min?: number; max?: number }[] };
+export type ActionDefinition = { id: string; label: string; kind: 'command' | 'prompt' | 'query' | 'edit' | 'history' | 'logs' | 'custom' | 'session'; target: string; handler?: string; connection?: {machineId:string;remoteProfileId?:string}; description?: string; confirmation?: string; fields?: { key: string; label: string; type: 'text' | 'multiline' | 'number' | 'select' | 'toggle' | 'json'; required?: boolean; options?: string[]; min?: number; max?: number }[] };
 export type ActionJob = { id: string; runId: string; actionId: string; handler: string; kind: ActionDefinition['kind']; input: Record<string, unknown>; claimToken: string; state: 'running' };
 async function request<T>(url: string, path: string, token: string, data: unknown, method = 'POST'): Promise<T> {
   const body = JSON.stringify(data);

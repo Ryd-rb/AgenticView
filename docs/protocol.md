@@ -52,7 +52,7 @@ one-based item position. Markdown has at most 1,024 observed tasks; a native
 checklist has at most 200. Displayed durations are observed intervals, with an
 unavailable marker when no start was reported.
 
-Prefer the [31 native component types](native-components.md) to custom HTML.
+Prefer the [36 native component types](native-components.md) to custom HTML.
 The catalog includes semantic query, command, trace and task views as well as
 charts, comparisons and distributions. Queries and commands display reported
 activity and never execute it. Built-in and custom views retain distinct origin

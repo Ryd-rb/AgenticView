@@ -76,6 +76,8 @@ public static class ComponentValidator
         var kind = Text(component, "kind", 32); var data = Object(component["data"], "data");
         switch (kind)
         {
+            case "session-launcher": Id(data,"actionId"); Text(data,"label",160,false); break;
+            case "agent-session": Id(data,"sessionId"); break;
             case "action-panel":
                 foreach (var item in Array(data,"actionIds",64,1)) Id(new JsonObject { ["id"]=item?.DeepClone() },"id");
                 break;

@@ -1,5 +1,19 @@
 using AgenticView.Server;
 
+if(Environment.GetEnvironmentVariable("AV_SSH_ASKPASS_PIPE") is not null)
+{
+    Environment.ExitCode=await SshAskpass.Reply(args.FirstOrDefault()??"");
+    return;
+}
+
+if(args.Length==2 && args[0]=="--session-stdio")
+{
+    using var cancellation=new CancellationTokenSource();
+    Console.CancelKeyPress+=(_,e)=>{e.Cancel=true;cancellation.Cancel();};
+    Environment.ExitCode=await SessionSsh.RunStdio(args[1],cancellation.Token);
+    return;
+}
+
 if (args.Length >= 2 && args[0] == "--connector")
 {
     using var cancellation = new CancellationTokenSource();

@@ -40,12 +40,15 @@ $sourceFiles = @(
     'src/AgenticView.Server/AgenticView.Server.csproj', 'src/AgenticView.Server/packages.lock.json',
     'src/AgenticView.Server/Program.cs', 'src/AgenticView.Server/AppHost.cs', 'src/AgenticView.Server/Configuration.cs',
     'src/AgenticView.Server/McpTools.cs', 'src/AgenticView.Server/Hub.cs', 'src/AgenticView.Server/ComponentValidator.cs', 'src/AgenticView.Server/ControlStore.cs', 'src/AgenticView.Server/ConnectorWorker.cs', 'src/AgenticView.Server/WebhookHandler.cs', 'src/AgenticView.Server/ApplicationStore.cs',
+    'src/AgenticView.Server/SessionStore.cs', 'src/AgenticView.Server/SessionRunner.cs', 'src/AgenticView.Server/SessionOutput.cs', 'src/AgenticView.Server/SessionSsh.cs', 'src/AgenticView.Server/SshCredentialStore.cs', 'src/AgenticView.Server/SshAskpass.cs',
+    'src/AgenticView.Server/CardStyles.cs',
     'src/AgenticView.Server/Demo.cs', 'src/AgenticView.Server/demo.json', 'src/AgenticView.Server/CanvasPacking.cs', 'src/AgenticView.Server/MonitoringState.cs', 'src/AgenticView.Server/WebAssets.cs',
     'src/AgenticView.Desktop/AgenticView.Desktop.csproj', 'src/AgenticView.Desktop/packages.lock.json',
     'src/AgenticView.Desktop/Program.cs', 'src/AgenticView.Desktop/DesktopOptions.cs',
     'src/AgenticView.Desktop/DesktopWindow.cs', 'src/AgenticView.Desktop/BridgePolicy.cs',
     'src/AgenticView.Desktop/BrandIcon.cs',
     'scripts/build-offline.ps1', 'docs/design.md', 'docs/offline-build.md', 'docs/protocol.md', 'docs/performance.md', 'docs/desktop.md', 'docs/native-components.md', 'docs/controls.md', 'docs/applications.md', 'examples/applications/service-console.agenticview.json', 'examples/connector/profile.example.json', 'examples/connector/row-service.py', 'docs/media/agenticview-demo.gif'
+    'docs/sessions.md', 'examples/applications/agent-sessions.agenticview.json', 'examples/connector/sessions.example.json'
 )
 foreach ($relative in $sourceFiles) { $file = Assert-PlainPath (Join-Path $repository $relative) $repository; if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Missing allowed source file: $relative" } }
 $packages = @{}

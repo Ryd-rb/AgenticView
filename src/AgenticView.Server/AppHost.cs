@@ -41,7 +41,7 @@ public static class AppHost
                 context.Response.Headers.XContentTypeOptions = "nosniff";
                 context.Response.Headers["Referrer-Policy"] = "no-referrer";
                 context.Response.Headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()";
-                context.Response.Headers.ContentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'";
+                context.Response.Headers.ContentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; font-src 'self'; connect-src 'self'; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'";
                 // ASP.NET routes ignore case and accept a trailing slash; auth must agree.
                 var path = (context.Request.Path.Value ?? "/").TrimEnd('/').ToLowerInvariant();
                 if (path.StartsWith("/mcp", StringComparison.Ordinal) || path is "/api/agents/register" or "/api/connectors/register")
@@ -62,7 +62,7 @@ public static class AppHost
             }
         });
         app.UseRateLimiter();
-        app.MapGet("/health", () => new { status = "ok", version = "0.3.0", runtime = ".NET 10" });
+        app.MapGet("/health", () => new { status = "ok", version = "0.4.0", runtime = ".NET 10" });
         app.MapGet("/api/session", (HttpContext c) => new { authenticated = Authentication.Viewer(c.Request, config.Secrets) });
         app.MapPost("/api/login", (Func<HttpContext, Task<IResult>>)(async c =>
         {
@@ -92,6 +92,25 @@ public static class AppHost
         app.MapPost("/api/controls/{id}/invoke", async (string id, HttpContext c) => controls.Invoke(id, await Body(c)));
         app.MapGet("/api/controls/{id}/invocations/{invocationId}", (string id, string invocationId) => controls.Invocation(id, invocationId));
         app.MapGet("/api/controls/{id}/history", (string id, int? limit, int? offset) => controls.History(id, limit ?? 20, offset ?? 0));
+        app.MapPost("/api/sessions/draft",(Func<HttpContext,Task<JsonObject>>)(async c=>controls.DraftSession(await Body(c))));
+        app.MapGet("/api/ssh/machines",()=>controls.SshMachines());
+        app.MapPut("/api/ssh/machines",(Func<HttpContext,Task<JsonObject>>)(async c=>controls.SaveSshMachine(await Body(c))));
+        app.MapDelete("/api/ssh/credentials/{id}",(string id)=>controls.RemoveSshCredential(id));
+        app.MapPost("/api/connectors/{id}/ssh/{machineId}/acquire",async(string id,string machineId,HttpContext c)=>{c.Response.Headers.CacheControl="no-store";return controls.AcquireSshCredential(id,Authentication.Bearer(c.Request),machineId,await Body(c));});
+        app.MapPost("/api/connectors/{id}/ssh/{machineId}/reject",async(string id,string machineId,HttpContext c)=>controls.RejectSshCredential(id,Authentication.Bearer(c.Request),machineId,await Body(c)));
+        app.MapGet("/api/sessions/{id}",(string id)=>controls.SessionView(id));
+        app.MapPost("/api/sessions/{id}/control",async(string id,HttpContext c)=>controls.ControlSession(id,await Body(c)));
+        app.MapGet("/api/sessions/{id}/output",(string id,long? after,int? limit,string? filter)=>controls.SessionOutput(id,after??0,limit??200,filter??""));
+        app.MapGet("/api/sessions/{id}/export",(string id)=>Results.File(System.Text.Encoding.UTF8.GetBytes(Json.Text(controls.ExportSession(id))),"application/json",$"session-{SafeId(id)}.json"));
+        app.MapGet("/api/sessions/{id}/output/{sequence:long}/html",(string id,long sequence,HttpContext c)=>{
+            if(hub.Settings["trustedEmbeds"]?.GetValue<bool>()!=true) throw new HubError(404,"Trusted HTML output unavailable.");
+            c.Response.Headers.ContentSecurityPolicy="sandbox allow-scripts allow-forms allow-popups allow-downloads; default-src https: http: data: blob:; script-src 'unsafe-inline' 'unsafe-eval' https: http: blob:; style-src 'unsafe-inline' https: http:; connect-src https: http: ws: wss:; img-src https: http: data: blob:; font-src https: http: data:; frame-src https: http: blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'self'";
+            c.Response.Headers.CacheControl="no-store"; return Results.Content(EmbedDocument(controls.SessionHtml(id,sequence)),"text/html; charset=utf-8");
+        });
+        app.MapPost("/api/sessions/{id}/publish",async(string id,HttpContext c)=>controls.PublishSession(id,Authentication.Bearer(c.Request),await Body(c)));
+        app.MapPost("/api/sessions/{id}/children/register",async(string id,HttpContext c)=>controls.RegisterSessionChild(id,Authentication.Bearer(c.Request),await Body(c)));
+        app.MapPost("/api/connectors/{id}/sessions/poll",async(string id,HttpContext c)=>controls.PollSessions(id,Authentication.Bearer(c.Request),await Body(c)));
+        app.MapPost("/api/connectors/{id}/sessions/{sessionId}/report",async(string id,string sessionId,HttpContext c)=>controls.ReportSession(id,Authentication.Bearer(c.Request),sessionId,await Body(c)));
         app.MapPost("/api/agents/{id}/archive", (string id, HttpContext c) => { if (!Authentication.Viewer(c.Request, config.Secrets)) hub.AuthorizeArchive(id, Authentication.Bearer(c.Request)); return hub.Archive(id); });
         app.MapPatch("/api/agents/{id}/layout", async (string id, HttpContext c) => hub.SetLayout(id, await Body(c)));
         app.MapPost("/api/agents/{id}/layout/manual", (string id) => hub.MarkManual(id));
@@ -133,7 +152,7 @@ public static class AppHost
         app.MapMethods("/{**asset}", new[] { "GET", "HEAD" }, (string? asset, HttpContext c, WebAssets assets) => assets.Get(asset, c));
         return app;
     }
-    private static bool IsProducerRoute(string path) => path.StartsWith("/api/agents/", StringComparison.Ordinal) && (path.EndsWith("/publish", StringComparison.Ordinal) || path.EndsWith("/heartbeat", StringComparison.Ordinal) || path.EndsWith("/archive", StringComparison.Ordinal) || path.EndsWith("/controls", StringComparison.Ordinal) || path.EndsWith("/application", StringComparison.Ordinal) || path.EndsWith("/actions/poll", StringComparison.Ordinal) || path.EndsWith("/actions/complete", StringComparison.Ordinal)) || path.StartsWith("/api/connectors/", StringComparison.Ordinal) && (path.EndsWith("/poll", StringComparison.Ordinal) || path.EndsWith("/complete", StringComparison.Ordinal));
+    private static bool IsProducerRoute(string path) => path.StartsWith("/api/agents/", StringComparison.Ordinal) && (path.EndsWith("/publish", StringComparison.Ordinal) || path.EndsWith("/heartbeat", StringComparison.Ordinal) || path.EndsWith("/archive", StringComparison.Ordinal) || path.EndsWith("/controls", StringComparison.Ordinal) || path.EndsWith("/application", StringComparison.Ordinal) || path.EndsWith("/actions/poll", StringComparison.Ordinal) || path.EndsWith("/actions/complete", StringComparison.Ordinal)) || path.StartsWith("/api/connectors/", StringComparison.Ordinal) && (path.EndsWith("/poll", StringComparison.Ordinal) || path.EndsWith("/complete", StringComparison.Ordinal) || path.Contains("/sessions/",StringComparison.Ordinal) && path.EndsWith("/report",StringComparison.Ordinal) || path.Contains("/ssh/",StringComparison.Ordinal) && (path.EndsWith("/acquire",StringComparison.Ordinal) || path.EndsWith("/reject",StringComparison.Ordinal))) || path.StartsWith("/api/sessions/",StringComparison.Ordinal) && (path.EndsWith("/publish",StringComparison.Ordinal) || path.EndsWith("/children/register",StringComparison.Ordinal));
     private static string SafeId(string value) => value.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_') ? value : throw new HubError(400, "Invalid archive identifier.");
     private static async Task<JsonObject> Body(HttpContext c)
     {

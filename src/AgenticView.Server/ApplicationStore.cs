@@ -11,7 +11,8 @@ public sealed partial class ControlStore
     public static JsonObject ValidateApplication(JsonObject raw)
     {
         Budget(raw,262144); var manifest=Clone(raw);
-        Keys(manifest,"schemaVersion","id","version","name","description","permanent","bindings","actions","components","layout");
+        Keys(manifest,"schemaVersion","id","version","name","description","permanent","bindings","actions","components","layout","icon");
+        if(manifest.ContainsKey("icon")) CardStyles.Validate(manifest);
         if(ComponentValidator.Number(manifest,"schemaVersion",1,1,true,true)!=1 || !ComponentValidator.Boolean(manifest,"permanent")) throw new HubError(400,"A version 1 application definition must be permanent.");
         ComponentValidator.Id(manifest,"id"); ComponentValidator.Text(manifest,"version",80,true,1); ComponentValidator.Text(manifest,"name",160,true,1); ComponentValidator.Text(manifest,"description",2000,false);
         var bindings=new HashSet<string>();
@@ -22,8 +23,9 @@ public sealed partial class ControlStore
         }
         var actions=ComponentValidator.Array(manifest,"actions",64);
         foreach(var node in actions) {
-            var action=ComponentValidator.Object(node); Keys(action,"id","label","kind","target","handler","description","confirmation","fields");
+            var action=ComponentValidator.Object(node); Keys(action,"id","label","kind","target","handler","description","confirmation","fields","connection");
             var target=ComponentValidator.Id(action,"target"); if(target!="agent" && !bindings.Contains(target)) throw new HubError(400,"Actions must target an agent inbox or a declared logical binding.");
+            if(action["connection"] is JsonObject connection && !bindings.Contains(ComponentValidator.Id(connection,"machineId"))) throw new HubError(400,"Portable SSH launchers use a declared logical machine binding.");
             if(action["fields"] is JsonArray fields) foreach(var item in fields) Keys(ComponentValidator.Object(item),"key","label","type","required","options","min","max");
         }
         ValidateActions(actions);
@@ -36,6 +38,8 @@ public sealed partial class ControlStore
             switch(Json.String(component,"kind")) {
                 case "action-panel": foreach(var id in data["actionIds"]!.AsArray()) Reference(id!.GetValue<string>()); break;
                 case "log-stream": Reference(Json.String(data,"actionId"),"logs"); break;
+                case "session-launcher": Reference(Json.String(data,"actionId"),"session"); break;
+                case "agent-session": throw new HubError(400,"Portable definitions use session-launcher; managed session IDs are installation state.");
                 case "table": if(data["sourceAction"] is not null) Reference(Json.String(data,"sourceAction"),"query"); break;
                 case "data-grid": foreach(var key in new[]{"readAction","editAction","addAction","deleteAction","bulkAction","historyAction"}) if(data[key] is not null) Reference(Json.String(data,key),key=="readAction"?"query":key=="historyAction"?"history":"edit"); break;
             }
@@ -50,6 +54,7 @@ public sealed partial class ControlStore
     {
         hub.VerifyRun(id,token); var manifest=ValidateApplication(raw);
         hub.MakeApplication(id,token,ApplicationMetadata(manifest));
+        if(manifest.ContainsKey("icon")) hub.SetCardStyle(id,token,new JsonObject{["icon"]=manifest["icon"]!.DeepClone()});
         lock(gate) { Execute("INSERT INTO application_definitions VALUES($p0,$p1) ON CONFLICT(run_id) DO UPDATE SET payload=excluded.payload",id,Json.Text(manifest)); }
         return Clone(manifest);
     }
@@ -76,7 +81,7 @@ public sealed partial class ControlStore
         if(bindings.Any(p=>!declared.Contains(p.Key)) || declared.Any(id=>!bindings.ContainsKey(id))) throw new HubError(400,"Supply exactly the declared logical connector bindings.");
         foreach(var key in declared) if(ComponentValidator.Id(bindings,key)=="agent") throw new HubError(400,"A connector binding cannot use the reserved agent inbox target.");
         var actions=(JsonArray)manifest["actions"]!.DeepClone();
-        foreach(var action in actions.OfType<JsonObject>()) if(Json.String(action,"target")!="agent") action["target"]=bindings[Json.String(action,"target")]!.DeepClone();
+        foreach(var action in actions.OfType<JsonObject>()) { if(Json.String(action,"target")!="agent") action["target"]=bindings[Json.String(action,"target")]!.DeepClone(); if(action["connection"] is JsonObject connection) connection["machineId"]=bindings[Json.String(connection,"machineId")]!.DeepClone(); }
         var configuration=new JsonObject { ["actions"]=actions,["application"]=ApplicationMetadata(manifest) }; Budget(configuration,131072); ValidateActions(actions);
         var digest=Hash(Canonical(input));
         lock(gate) {

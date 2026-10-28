@@ -184,6 +184,10 @@ public sealed class Hub : IDisposable
         lock (gate) { if ((!runs.ContainsKey(id) && Scalar("SELECT id FROM archives WHERE id=$p0", id) is null) || !Equal(token, Token(id))) throw new HubError(403, "Invalid run credentials or unavailable run."); }
     }
     public JsonObject? GetRun(string id) { lock (gate) return runs.TryGetValue(id, out var run) ? Clone(run.View) : null; }
+    public JsonObject SetCardStyle(string id,string token,JsonObject style)
+    {
+        CardStyles.Validate(style); lock(gate) { if(!runs.ContainsKey(id)){AuthorizeArchive(id,token);Restore(id);} var run=Authorize(id,token); var view=Clone(run.View); view["icon"]=style["icon"]!.DeepClone(); SaveView(run,view); Queue(view); revision++; return new JsonObject{["icon"]=String(view,"icon")}; }
+    }
     public void VerifyRun(string id, string token) { lock (gate) Authorize(id, token); }
     public JsonObject MakeApplication(string id, string token, JsonObject application)
     {
@@ -203,6 +207,7 @@ public sealed class Hub : IDisposable
             var role = raw.ContainsKey("role") ? ComponentValidator.Text(raw, "role", 160) : "Agent";
             var context = ComponentValidator.Text(raw, "context", 8192, false); var parent = ComponentValidator.Id(raw, "parentId", false); var proof = ComponentValidator.Text(raw, "parentToken", 256, false);
             var registration = new JsonObject { ["requestId"] = request, ["registrationKey"] = registrationKey, ["agentId"] = agentId, ["name"] = name, ["role"] = role, ["context"] = context };
+            if(raw.ContainsKey("icon")) { CardStyles.Validate(raw); registration["icon"]=raw["icon"]!.DeepClone(); }
             if (raw.ContainsKey("parentId")) registration["parentId"] = parent; if (raw.ContainsKey("parentToken")) registration["parentToken"] = proof;
             var hash = Digest(registration);
             using (var reader = Command("SELECT run_id,request_hash FROM requests WHERE request_id=$p0", request).ExecuteReader())
@@ -211,10 +216,11 @@ public sealed class Hub : IDisposable
             if (runs.Count >= 2000 || totalBytes >= MaxLiveBytes) throw new HubError(429, "Live capacity reached. Archive completed runs first.");
             var id = Guid.NewGuid().ToString(); var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             var layoutStart = Stopwatch.GetTimestamp();
-            var initial = new JsonObject { ["x"] = 0, ["y"] = 0, ["width"] = 480, ["height"] = 420, ["locked"] = false, ["z"] = 1, ["sizing"] = "fixed", ["automatic"] = true };
+            var initial = new JsonObject { ["x"] = 0, ["y"] = 0, ["width"] = 480, ["height"] = 420, ["locked"] = false, ["z"] = 1, ["sizing"] = "content", ["automatic"] = true };
             var layout = parent.Length > 0 ? initial : InitialPosition(initial, EffectiveRoots().Select(r => (JsonObject)r.View["layout"]!).ToList());
             registrationLayoutTicks += Stopwatch.GetTimestamp() - layoutStart;
             var view = new JsonObject { ["id"] = id, ["agentId"] = agentId, ["name"] = name, ["role"] = role, ["context"] = context, ["parentId"] = parent.Length > 0 ? parent : null, ["createdAt"] = now, ["lastSeen"] = now, ["status"] = "active", ["sequence"] = 0L, ["components"] = new JsonObject(), ["layout"] = layout };
+            if(registration.ContainsKey("icon")) view["icon"]=registration["icon"]!.DeepClone();
             var bytes = Size(view); if (totalBytes + bytes > MaxLiveBytes) throw new HubError(429, "Live capacity reached.");
             var run = new Run(view, Hash(Token(id)), bytes);
             Transaction(() => { Execute("INSERT INTO runs VALUES($p0,$p1,$p2,$p3,$p4,$p5)", id, Serialize(Metadata(view)), request, hash, run.TokenHash, ""); Execute("INSERT INTO requests VALUES($p0,$p1,$p2)", request, id, hash); });
@@ -227,6 +233,14 @@ public sealed class Hub : IDisposable
         var start = Stopwatch.GetTimestamp();
         try { return PublishCore(id, token, raw, start); }
         catch { lock (gate) monitoring.Rejected(); throw; }
+    }
+    public JsonObject PublishNext(string id,string token,JsonArray operations)
+    {
+        lock(gate) { if(!runs.ContainsKey(id)) { AuthorizeArchive(id,token); Restore(id); } var run=Authorize(id,token); return Publish(id,token,new JsonObject { ["sequence"]=Integer(run.View,"sequence")+1,["operations"]=operations }); }
+    }
+    public void SetSessionStatus(string id,string token,string status)
+    {
+        lock(gate) { if(!runs.ContainsKey(id)) { AuthorizeArchive(id,token); Restore(id); } var run=Authorize(id,token); var view=Clone(run.View); if(String(view,"status")==status) return; view["status"]=status; var now=DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(); view["updatedAt"]=now; view["lastSeen"]=now; if(status=="completed") view["completedAt"]=now; else if(status=="active") view.Remove("completedAt"); SaveView(run,view); Queue(view); revision++; }
     }
     private JsonObject PublishCore(string id, string token, JsonObject raw, long start)
     {
@@ -262,6 +276,7 @@ public sealed class Hub : IDisposable
                     case "remove": var removedId = ComponentValidator.Id(op, "componentId"); components.Remove(removedId); componentTimes.Remove(removedId); taskTimes.Remove(removedId); break;
                     case "clear": view["components"] = new JsonObject(); componentTimes.Clear(); taskTimes.Clear(); break;
                     case "context": view["context"] = ComponentValidator.Text(op, "text", 8192); break;
+                    case "style": CardStyles.Validate(op); view["icon"]=op["icon"]!.DeepClone(); break;
                     case "status": ComponentValidator.Choice(op, "status", ["active", "completed", "error"]); view["status"] = String(op, "status"); if (String(view, "status") == "completed" && view["completedAt"] is null) view["completedAt"] = now; break;
                     case "append":
                         var appendId = ComponentValidator.Id(op, "componentId"); var items = ComponentValidator.Array(op, "items", 512, 1);

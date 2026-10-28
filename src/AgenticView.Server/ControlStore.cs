@@ -27,6 +27,8 @@ public sealed partial class ControlStore : IDisposable
             CREATE INDEX IF NOT EXISTS inbox ON invocations(target,state,created);
             CREATE INDEX IF NOT EXISTS action_history ON invocations(run_id,created DESC);
             """);
+        InitializeSessions();
+        InitializeSshCredentials();
     }
     private SqliteCommand Command(string sql, params object[] values) { var c = db.CreateCommand(); c.CommandText = sql; for (var i=0;i<values.Length;i++) c.Parameters.AddWithValue("$p"+i,values[i]); return c; }
     private void Execute(string sql, params object[] values) { using var c=Command(sql,values); c.ExecuteNonQuery(); }
@@ -69,9 +71,10 @@ public sealed partial class ControlStore : IDisposable
         foreach(var node in actions) {
             var action=ComponentValidator.Object(node); var aid=ComponentValidator.Id(action,"id"); if(!seen.Add(aid)) throw new HubError(400,"Duplicate action ID.");
             ComponentValidator.Text(action,"label",160,true,1); ComponentValidator.Text(action,"description",2000,false);
-            ComponentValidator.Choice(action,"kind",["command","prompt","query","edit","history","logs","custom"]);
+            ComponentValidator.Choice(action,"kind",["command","prompt","query","edit","history","logs","custom","session"]);
             var target=ComponentValidator.Id(action,"target"); if(target!="agent") ComponentValidator.Id(action,"handler");
             ComponentValidator.Text(action,"confirmation",2000,false);
+            if(action.ContainsKey("connection")) { if(Text(action,"kind")!="session") throw new HubError(400,"Connection recipes belong to session actions."); var connection=ComponentValidator.Object(action["connection"]); Keys(connection,"machineId","remoteProfileId"); ComponentValidator.Id(connection,"machineId"); ComponentValidator.Id(connection,"remoteProfileId",false); }
             ValidateFields(action);
         }
     }
@@ -123,6 +126,7 @@ public sealed partial class ControlStore : IDisposable
             using(var c=Command("SELECT digest,payload FROM invocations WHERE run_id=$p0 AND request_id=$p1",runId,request)) using(var reader=c.ExecuteReader()) if(reader.Read()) { if(reader.GetString(0)!=digest) throw new HubError(409,"Request ID already has different content."); return Public(Parse(reader.GetString(1))); }
             if(hub.GetRun(runId) is null) throw new HubError(404,"Card unavailable. Restore its archive first.");
             var config=Configuration(runId); var action=((JsonArray)config["actions"]!).OfType<JsonObject>().FirstOrDefault(a=>Text(a,"id")==actionId) ?? throw new HubError(404,"Action unavailable.");
+            if(Text(action,"kind")=="session") throw new HubError(400,"Use a session-launcher to create a draft before starting an agent session.");
             if(Text(input,"definitionVersion")!=Text(config,"version")) throw new HubError(409,"Action configuration changed. Reload and review it again.");
             if(Text(action,"confirmation").Length>0 && !ComponentValidator.Boolean(input,"confirmed")) throw new HubError(409,"This action requires explicit confirmation.");
             ValidateInput(action,values);

@@ -16,6 +16,88 @@
         },
         "kind": {
           "type": "string",
+          "const": "session-launcher"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "actionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100,
+              "pattern": "^[a-zA-Z0-9_.:-]+$"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 160
+            }
+          },
+          "required": [
+            "actionId"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "kind",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "pattern": "^[a-zA-Z0-9_.:-]+$"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "kind": {
+          "type": "string",
+          "const": "agent-session"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "sessionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100,
+              "pattern": "^[a-zA-Z0-9_.:-]+$"
+            }
+          },
+          "required": [
+            "sessionId"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "kind",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "pattern": "^[a-zA-Z0-9_.:-]+$"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "kind": {
+          "type": "string",
           "const": "action-panel"
         },
         "data": {

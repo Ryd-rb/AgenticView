@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1, "id": "agent-sessions", "version": "1.0.0",
+  "name": "Agent sessions", "description": "Launch local or SSH agent sessions from persistent prompt cards.", "permanent": true,
+  "bindings": [
+    {"id":"worker","label":"Session connector"},
+    {"id":"stage","label":"Saved SSH machine"}
+  ],
+  "actions": [
+    {"id":"local","label":"Local Codex","kind":"session","target":"worker","handler":"local-codex","fields":[]},
+    {"id":"remote","label":"SSH Codex","kind":"session","target":"worker","handler":"ssh-agent","connection":{"machineId":"stage","remoteProfileId":"codex"},"fields":[]}
+  ],
+  "components": [
+    {"id":"plan","title":"Current task list","kind":"markdown","data":{"text":"- [ ] Choose a local or remote session\n- [ ] Enter a task in the new prompt card"}},
+    {"id":"local","title":"Local workspace","kind":"session-launcher","data":{"actionId":"local","label":"New local session"}},
+    {"id":"remote","title":"SSH workspace","kind":"session-launcher","data":{"actionId":"remote","label":"New SSH session"}}
+  ],
+  "layout":{"width":480,"height":480,"sizing":"content"}
+}

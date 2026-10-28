@@ -1,0 +1,26 @@
+{
+  "id": "session-worker",
+  "name": "Session worker",
+  "url": "https://monitor.example.invalid",
+  "ingestionKey": "REPLACE_PRIVATELY_OR_USE_AV_INGEST_KEY",
+  "registrationKey": "REPLACE_WITH_A_PRIVATE_RANDOM_REGISTRATION_KEY",
+  "handlers": {
+    "local-codex": {
+      "type": "agent-session", "provider": "codex", "executable": "codex",
+      "workingDirectory": "./workspace", "extraStartArguments": ["--sandbox", "workspace-write"],
+      "maxTurnSeconds": 3600
+    },
+    "ssh-agent": {
+      "type": "agent-session", "provider": "codex", "transport": "ssh",
+      "sshHost": "stage.example.invalid", "machineId": "stage-machine",
+      "allowConfiguredMachines": true,
+      "allowedHosts": ["stage.example.invalid", "stage-two.example.invalid"],
+      "remoteShell": "posix", "reportingUrl": "https://monitor.example.invalid",
+      "remoteCommand": ["dotnet", "/opt/agenticview/AgenticView.Server.dll", "--session-stdio", "/private/codex-session.json"],
+      "remoteProfiles": {
+        "codex": ["dotnet", "/opt/agenticview/AgenticView.Server.dll", "--session-stdio", "/private/codex-session.json"]
+      },
+      "maxTurnSeconds": 3600
+    }
+  }
+}

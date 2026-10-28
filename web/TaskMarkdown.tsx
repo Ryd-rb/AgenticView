@@ -10,6 +10,7 @@ export function TaskMarkdown({ text, tasks = [], updatedAt }: { text: string; ta
   const spacings = taskClockSpacings(tasks);
   return <div className="markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{
     a: ({ children, href }) => <a href={href} target="_blank" rel="noreferrer noopener">{children}<ExternalLink size={11} /></a>,
+    img: props => <img {...props} loading="lazy" decoding="async" referrerPolicy="no-referrer" />,
     li: ({ node, children, ...props }) => {
       const recorded = tasks.find(task => task.line === node?.position?.start.line);
       const timing = recorded ?? (updatedAt === undefined ? undefined : { key: 'receipt', line: node?.position?.start.line ?? 0, firstSeenAt: updatedAt, updatedAt });

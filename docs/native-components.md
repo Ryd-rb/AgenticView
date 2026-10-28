@@ -8,12 +8,19 @@ Call the MCP `component_catalog` tool for the full input schema and bounds.
 Every component uses `{id, title, kind, data}` and is published with an `upsert`
 operation. Keep the same ID to update an existing subcard.
 
+Configure card header icons with MCP `card_style(runId,runToken,icon)` or publish
+`{"op":"style","icon":"terminal"}`. Discover names in
+`component_catalog.cardStyle.icons`. `agent_register` and portable application
+definitions also accept `icon`, including nested cards. `status` restores the
+default status dot. Markdown supports large `#` / `##` headings and image links.
+
 ## Choose a view
 
 | Evidence | Built-in kinds |
 | --- | --- |
 | Tasks and narrative | `checklist`, `markdown`, `status`, `alert` |
 | Application controls | `action-panel`, `log-stream`, `data-grid` ([setup](controls.md)) |
+| Managed agent sessions | `session-launcher`, `agent-session` ([setup](sessions.md)) |
 | Measurements | `metric`, `stat-grid`, `gauge`, `progress` |
 | Trends and distributions | `chart` (line, area, bar, scatter), `bar-list`, `histogram`, `heatmap`, `breakdown` |
 | Investigation evidence | `query`, `table`, `logs`, `timeline`, `trace`, `http` |
@@ -21,7 +28,7 @@ operation. Keep the same ID to update an existing subcard.
 | Services and schedules | `service-map`, `gantt` |
 | References and structured data | `links`, `keyvalue`, `json` |
 
-These are **31 native kinds**. The separate `embed` kind is for agent-authored
+These are **36 native kinds**. The separate `embed` kind is for agent-authored
 views that the native catalog cannot express. Native subcards carry a quiet
 **Built-in** label. Embeds carry a persistent **Custom view** label and a warm,
 distinct frame, including when execution is paused.

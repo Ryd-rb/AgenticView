@@ -133,6 +133,26 @@ test('measured content growth remains deferred after contact release until selec
   } finally { await view.close(); }
 });
 
+test('explicit fit content expands a selected fixed card while retaining its canvas position', async () => {
+  const view=await mount();
+  try {
+    const card=view.target.closest<HTMLElement>('[data-card-id]')!, measured=view.host.querySelector<HTMLElement>('.agent-content-measure')!;
+    const position={left:card.style.left,top:card.style.top};Object.defineProperty(measured,'offsetHeight',{configurable:true,get:()=>620});
+    await act(()=>{view.host.querySelector<HTMLButtonElement>('[aria-label="Fit card to content"]')!.click();flushFrames();});
+    assert.equal(card.style.height,'745px');assert.deepEqual({left:card.style.left,top:card.style.top},position);assert.match(card.textContent!,/CONTENT/);
+  }finally{await view.close();}
+});
+
+test('manual archive offers acknowledged Undo without moving the camera or stealing focus',async()=>{
+ const view=await mount();try{
+  const camera=view.host.querySelector<HTMLElement>('.world')!.style.transform;const active=document.activeElement;
+  await act(async()=>{view.host.querySelector<HTMLButtonElement>('[title="Archive agent"]')!.click();await new Promise<void>(done=>setImmediate(done));});
+  const notice=document.querySelector<HTMLElement>('.archive-undo')!;assert.ok(notice);assert.match(notice.textContent!,/Synthetic agent.*archived/);assert.equal(notice.getAttribute('aria-live'),'polite');assert.equal(document.activeElement,active);
+  await act(async()=>{[...notice.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent==='Undo')!.click();await new Promise<void>(done=>setImmediate(done));});
+  assert.ok(requestPaths.includes('/api/archives/agent/restore'));assert.equal(document.querySelector('.archive-undo'),null);assert.equal(view.host.querySelector<HTMLElement>('.world')!.style.transform,camera);
+ }finally{await view.close();}
+});
+
 test('owner selection policy keeps lease after contact and releases on deselection after admission', async () => {
   const view = await mount(); let release!: () => void;
   leaseRequests.length = 0; admission = new Promise<void>(resolve => { release = resolve; });

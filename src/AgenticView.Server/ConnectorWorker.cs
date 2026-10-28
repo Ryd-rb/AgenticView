@@ -21,13 +21,17 @@ public static class ConnectorWorker
         foreach(var node in profiles) {
             var profile=ComponentValidator.Object(node.Value);
             foreach(var field in new[]{"path","database","workingDirectory"}) if(profile[field] is JsonValue value && value.TryGetValue<string>(out var text) && !Path.IsPathRooted(text)) profile[field]=Path.GetFullPath(Path.Combine(profileDirectory,text));
-            if(Json.String(profile,"type")=="process" && profile["workingDirectory"] is null) profile["workingDirectory"]=profileDirectory;
+            if(Json.String(profile,"type") is "process" or "agent-session" && profile["workingDirectory"] is null) profile["workingDirectory"]=profileDirectory;
         }
         using var client=new HttpClient { BaseAddress=url,Timeout=TimeSpan.FromSeconds(20) };
         var ingestionKey=Environment.GetEnvironmentVariable("AV_INGEST_KEY") ?? ComponentValidator.Text(config,"ingestionKey",256,true,32);
         var registration=await Post(client,"/api/connectors/register",ingestionKey,new JsonObject { ["id"]=id,["name"]=config["name"]?.DeepClone()??JsonValue.Create(id),["registrationKey"]=config["registrationKey"]?.DeepClone() },cancellation);
         var token=Json.String(registration.AsObject(),"token");
         Console.WriteLine("Connector registered; local handlers ready.");
+        using var sessionsStop=CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+        await using var sessions=new SessionRunner(client,id,token,profiles);
+        var sessionsTask=once?Task.CompletedTask:sessions.Run(sessionsStop.Token);
+        try {
         do {
             try {
                 var jobs=(await Post(client,$"/api/connectors/{id}/poll",token,new JsonObject(),cancellation)).AsArray();
@@ -50,6 +54,7 @@ public static class ConnectorWorker
             } catch(HttpRequestException) when(!once && !cancellation.IsCancellationRequested) { Console.Error.WriteLine("Hub unavailable; no new actions executed."); }
             if(!once) await Task.Delay(1000,cancellation);
         } while(!once && !cancellation.IsCancellationRequested);
+        } finally { sessionsStop.Cancel(); await sessionsTask; }
     }
     private static async Task<JsonNode> Post(HttpClient client,string path,string token,JsonObject body,CancellationToken cancellation)
     {
