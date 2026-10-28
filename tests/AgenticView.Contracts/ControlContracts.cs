@@ -40,6 +40,12 @@ static class ControlContracts
             var result=LogProbe(directory); Check(result["sourceBytes"]!.GetValue<long>()>=1L<<30,"Source was not a gigabyte");
             Console.WriteLine("Control log probe: "+result.ToJsonString());
         })),
+        ("log checkpoints preserve partial lines across metadata changes and detect rewrites",()=>WithDirectory(directory=>{
+            var path=Path.Combine(directory,"tiny.log"); File.WriteAllText(path,"INFO first\npartial"); var profile=Json.Object(new{path});
+            var first=ConnectorWorker.ReadLog(profile,new JsonObject(),CancellationToken.None).GetAwaiter().GetResult(); File.SetLastWriteTimeUtc(path,DateTime.UtcNow.AddDays(-1)); File.AppendAllText(path," finishes\n");
+            var next=ConnectorWorker.ReadLog(profile,Json.Object(new{cursor=S(first,"cursor")}),CancellationToken.None).GetAwaiter().GetResult(); Check(next["entries"]!.AsArray().Count==1 && next["entries"]![0]!["message"]!.GetValue<string>()=="partial finishes","Append or metadata change invalidated partial cursor");
+            File.WriteAllText(path,"WARN replacement with more content\n"); var reset=ConnectorWorker.ReadLog(profile,Json.Object(new{cursor=S(next,"cursor")}),CancellationToken.None).GetAwaiter().GetResult(); Check(reset["reset"]!.GetValue<bool>() && reset["entries"]![0]!["message"]!.GetValue<string>().Contains("replacement"),"Rewritten log was not detected");
+        })),
         ("connector rejects mismatched reader kinds and dynamic shell source",()=>{
             var profile=Json.Object(new{type="process",executable="dotnet",arguments=new[]{"-c","{source}"}});
             Throws(()=>ConnectorWorker.Execute(profile,Job("query",new{source="bad"}),CancellationToken.None).GetAwaiter().GetResult(),"Unsupported");

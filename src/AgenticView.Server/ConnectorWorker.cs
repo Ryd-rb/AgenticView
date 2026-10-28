@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using System.Security.Cryptography;
 using Microsoft.Data.Sqlite;
 
 namespace AgenticView.Server;
@@ -99,10 +100,12 @@ public static class ConnectorWorker
         // UTF-8 file/UNC tail, bounded independently of source length. No whole-file read or regex execution.
         var path=ComponentValidator.Text(profile,"path",4096); var filter=ComponentValidator.Text(input,"filter",1000,false); var level=ComponentValidator.Text(input,"level",80,false);
         await using var file=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete,65536,FileOptions.Asynchronous|FileOptions.SequentialScan);
-        var generation=File.GetCreationTimeUtc(file.SafeFileHandle).Ticks.ToString(CultureInfo.InvariantCulture); var length=file.Length; var cursor=ComponentValidator.Text(input,"cursor",300,false).Split(':');
+        var length=file.Length; var cursor=ComponentValidator.Text(input,"cursor",300,false).Split(':');
         var maxBytes=profile.ContainsKey("maxReadBytes")?(int)ComponentValidator.Number(profile,"maxReadBytes",65536,16777216,true,true):1048576;
-        var valid=cursor.Length==2 && cursor[0]==generation && long.TryParse(cursor[1],out var offsetValue) && offsetValue>=0 && offsetValue<=length;
-        var offset=valid?long.Parse(cursor[1],CultureInfo.InvariantCulture):Math.Max(0,length-maxBytes); var reset=cursor.Length>1 && !valid;
+        var offsetValue=0L;
+        var valid=cursor.Length==3 && cursor[0]=="1" && long.TryParse(cursor[1],out offsetValue) && offsetValue>=0 && offsetValue<=length;
+        if(valid) valid=Authentication.Equal(cursor[2],await LogCheckpoint(file,offsetValue,cancellation));
+        var offset=valid?offsetValue:Math.Max(0,length-maxBytes); var reset=cursor.Length>1 && !valid;
         var skip=offset>0 && !valid; file.Seek(offset,SeekOrigin.Begin);
         var buffer=new byte[65536]; var line=new byte[2048]; var used=0; var overlong=false; var entries=new Queue<JsonObject>(501); var retainedBytes=0; long scanned=0,matched=0,lines=0,consumed=offset,lastBoundary=offset;
         void Emit() {
@@ -118,7 +121,17 @@ public static class ConnectorWorker
         // Preserve a short partial line for the next request. A pathological long line must still advance.
         if(overlong) { Emit(); lastBoundary=consumed; }
         var next=lastBoundary;
-        return Json.Object(new {entries=entries.ToArray(),cursor=generation+":"+next,bytesRead=scanned,sourceBytes=length,linesRead=lines,dropped=Math.Max(0,matched-entries.Count),truncated=matched>500 || overlong,reset,behindBytes=Math.Max(0,length-next)});
+        var checkpoint=await LogCheckpoint(file,next,cancellation);
+        return Json.Object(new {entries=entries.ToArray(),cursor="1:"+next+":"+checkpoint,bytesRead=scanned,sourceBytes=length,linesRead=lines,dropped=Math.Max(0,matched-entries.Count),truncated=matched>500 || overlong,reset,behindBytes=Math.Max(0,length-next)});
+    }
+    private static async Task<string> LogCheckpoint(FileStream file,long position,CancellationToken cancellation)
+    {
+        // Unix creation time can be a changing ctime fallback. Verify a bounded
+        // prefix and the bytes before the cursor instead of relying on metadata.
+        var count=(int)Math.Min(256,position); var bytes=new byte[8+count*2]; BitConverter.TryWriteBytes(bytes.AsSpan(0,8),position);
+        file.Seek(0,SeekOrigin.Begin); await file.ReadExactlyAsync(bytes.AsMemory(8,count),cancellation);
+        file.Seek(position-count,SeekOrigin.Begin); await file.ReadExactlyAsync(bytes.AsMemory(8+count,count),cancellation);
+        return Convert.ToHexStringLower(SHA256.HashData(bytes));
     }
     private static string Identifier(JsonObject profile,string key) => Quote(ComponentValidator.Text(profile,key,100,true,1));
     private static string Quote(string name) => Regex.IsMatch(name,"^[a-zA-Z_][a-zA-Z0-9_]*$",RegexOptions.CultureInvariant|RegexOptions.NonBacktracking) ? "\""+name+"\"" : throw new ConnectorFailure("Local SQL identifier is invalid.");
