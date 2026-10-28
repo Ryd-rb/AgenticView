@@ -248,7 +248,16 @@ function Monitor() {
   function resetZoom() { zoom(1 / cameraRef.current.zoom); }
   function fit() { applyCamera(fitToViewport([...Object.values(layoutRef.current), ...(settingsRef.current ? [settingsRef.current] : [])], size)); }
   function focusCard(id: string) { const rect = id === 'settings' ? settingsRef.current : layoutRef.current[id]; if (rect) applyCamera(fitToViewport([rect], size, 80)); }
-  async function arrangeAll() { setPacking(true); try { const result = await api<{ arranged: number }>('/api/layout/pack', 'POST', { mode: 'all', aspectRatio: Math.max(.3, Math.min(4, (size.width - 120) / Math.max(100, size.height - 160))) }); fit(); report(`Arranged ${result.arranged} cards. Locked positions preserved.`); } catch (error) { report((error as Error).message); } finally { setPacking(false); } }
+  async function arrangeAll() {
+    setPacking(true);
+    try {
+      // Explicit global arrangement ends the local hold before asking the server to pack.
+      applyCamera(cameraRef.current); activateCard(null);
+      await Promise.all([...interactionWrites.current.values()]);
+      const result = await api<{ arranged: number }>('/api/layout/pack', 'POST', { mode: 'all', aspectRatio: Math.max(.3, Math.min(4, (size.width - 120) / Math.max(100, size.height - 160))) });
+      fit(); report(`Arranged ${result.arranged} cards. Locked positions preserved.`);
+    } catch (error) { report((error as Error).message); } finally { setPacking(false); }
+  }
   function openSettings() { if (settingsRect) { activateCard(null); setSettingsRect(null); return; } activateCard('settings'); const c = { ...cameraRef.current, zoom: Math.max(.8, cameraRef.current.zoom) }; const placed = findFreePosition({ x: (size.width / 2 - c.x) / c.zoom - 290, y: (size.height / 2 - c.y) / c.zoom - 290, width: 580, height: 610 }, obstacles()); setSettingsRect(placed); setCamera({ ...c, x: size.width / 2 - (placed.x + placed.width / 2) * c.zoom, y: size.height / 2 - (placed.y + placed.height / 2) * c.zoom }); }
   function keyboard(e: React.KeyboardEvent, id: string) { if (e.target !== e.currentTarget) return; if (e.key === 'Enter' && activeCardRef.current !== id) { e.preventDefault(); e.stopPropagation(); activateCard(id); return; } if (activeCardRef.current !== id) return; if (e.key === 'Enter') { e.preventDefault(); focusCard(id); return; } if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return; const r = layoutRef.current[id]; if (!r || r.locked) return; e.preventDefault(); e.stopPropagation(); const d = e.shiftKey ? 80 : 20; const moved = moveWithoutOverlap(r, { x: r.x + (e.key === 'ArrowLeft' ? -d : e.key === 'ArrowRight' ? d : 0), y: r.y + (e.key === 'ArrowUp' ? -d : e.key === 'ArrowDown' ? d : 0) }, obstacles(id)); const next = { ...r, ...moved, automatic: false }; setLayouts(p => ({ ...p, [id]: next })); persist(id, next); }
   function canvasKeyboard(e: React.KeyboardEvent) {

@@ -55,9 +55,17 @@ class Stream extends dom.EventTarget {
   snapshot(value: Snapshot) { this.dispatchEvent(new dom.MessageEvent('snapshot', { data: JSON.stringify(value) })); }
 }
 const leaseRequests: { active: boolean; leaseId: string }[] = []; let admission: Promise<void> | undefined;
+let releaseAcknowledgement: Promise<void> | undefined, packHook: (() => void) | undefined;
+const requestOrder: string[] = [];
 Object.assign(globalThis, { EventSource: Stream, fetch: async (input: string, init?: RequestInit) => {
   const body = init?.body ? JSON.parse(String(init.body)) : {};
-  if (input.endsWith('/layout/interaction')) { leaseRequests.push(body); if (body.active && admission) await admission; }
+  if (input.endsWith('/layout/interaction')) {
+    leaseRequests.push(body); requestOrder.push(`lease:${body.active}:request`);
+    if (body.active && admission) await admission;
+    if (!body.active && releaseAcknowledgement) await releaseAcknowledgement;
+    requestOrder.push(`lease:${body.active}:ack`);
+  }
+  if (input === '/api/layout/pack') { requestOrder.push('pack'); packHook?.(); return new Response(JSON.stringify({ arranged: 1 }), { status: 200, headers: { 'Content-Type': 'application/json' } }); }
   return new Response(JSON.stringify(input === '/api/session' ? { authenticated: true } : body), { status: 200, headers: { 'Content-Type': 'application/json' } });
 } });
 after(() => { dom.happyDOM.abort(); dom.happyDOM.close(); });
@@ -242,6 +250,29 @@ test('explicit global navigation intentionally cancels captured local input', as
     await act(() => { pointer(view.target, 'pointermove', 120); pointer(view.target, 'pointerup', 120); });
     assert.equal(scroller.scrollTop, before, 'cancelled contact cannot resume local scrolling');
   } finally { await view.close(); }
+});
+
+test('Arrange all cancels contact, deselects and awaits acknowledged lease release before packing', async () => {
+  const view = await mount(); let acknowledge!: () => void;
+  releaseAcknowledgement = new Promise<void>(resolve => { acknowledge = resolve; });
+  requestOrder.length = 0;
+  packHook = () => { const update = snapshot({ ...agent.layout, x: 260, height: 480 }); update.revision = 3; Stream.current.snapshot(update); };
+  try {
+    const card = view.target.closest<HTMLElement>('[data-card-id]')!;
+    await act(() => { pointer(view.target, 'pointerdown', 200); pointer(view.target, 'pointermove', 160); });
+    assert.equal(captures.has(11), true); assert.ok(card.classList.contains('is-active'));
+    await act(async () => { document.querySelector<HTMLElement>('[aria-label="Arrange all cards"]')!.click(); await new Promise<void>(resolve => setImmediate(resolve)); });
+    assert.equal(captures.has(11), false, 'explicit Arrange all ends local contact');
+    assert.equal(card.classList.contains('is-active'), false, 'explicit Arrange all deselects leased card');
+    assert.ok(requestOrder.includes('lease:false:request'), 'selected interaction release requested');
+    assert.equal(requestOrder.includes('pack'), false, 'packing cannot race unacknowledged lease release');
+    await act(async () => { acknowledge(); await new Promise<void>(resolve => setImmediate(resolve)); });
+    assert.ok(requestOrder.indexOf('lease:false:ack') >= 0);
+    assert.ok(requestOrder.indexOf('pack') > requestOrder.indexOf('lease:false:ack'), 'server acknowledgement precedes pack request');
+    const packed = view.host.querySelector<HTMLElement>('[data-card-id="agent"]')!;
+    assert.equal(packed.style.left, '260px', 'previously selected unlocked card accepts packed live position');
+    assert.equal(packed.style.height, '480px', 'packed live geometry is no longer held by selection');
+  } finally { acknowledge(); releaseAcknowledgement = undefined; packHook = undefined; await view.close(); }
 });
 
 test('selected-card zoom reaches 200 percent in the main view before content zoom starts', async () => {
