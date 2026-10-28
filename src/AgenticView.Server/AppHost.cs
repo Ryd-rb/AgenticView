@@ -20,11 +20,13 @@ public static class AppHost
         builder.Services.AddSingleton(config);
         builder.Services.AddSingleton<WebAssets>();
         builder.Services.AddSingleton(new Hub(config.DataDir, config.Secrets));
+        builder.Services.AddSingleton<ControlStore>();
         builder.Services.AddHostedService<HubTicker>();
         builder.Services.AddRateLimiter(o => { o.RejectionStatusCode = 429; o.AddPolicy("login", c => RateLimitPartition.GetFixedWindowLimiter(c.Connection.RemoteIpAddress?.ToString() ?? "local", _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 })); });
         builder.Services.AddMcpServer().WithHttpTransport(o => o.SessionMode = HttpServerSessionMode.Stateless).WithTools<McpTools>();
         var app = builder.Build();
         var hub = app.Services.GetRequiredService<Hub>();
+        var controls = app.Services.GetRequiredService<ControlStore>();
         var authority = config.PublicUrl.GetLeftPart(UriPartial.Authority);
         app.Use(async (context, next) =>
         {
@@ -42,7 +44,7 @@ public static class AppHost
                 context.Response.Headers.ContentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'";
                 // ASP.NET routes ignore case and accept a trailing slash; auth must agree.
                 var path = (context.Request.Path.Value ?? "/").TrimEnd('/').ToLowerInvariant();
-                if (path.StartsWith("/mcp", StringComparison.Ordinal) || path == "/api/agents/register")
+                if (path.StartsWith("/mcp", StringComparison.Ordinal) || path is "/api/agents/register" or "/api/connectors/register")
                 {
                     if (!Authentication.Equal(Authentication.Bearer(context.Request), config.Secrets.IngestToken)) throw new HubError(401, "A valid ingestion key is required.");
                 }
@@ -59,7 +61,7 @@ public static class AppHost
             }
         });
         app.UseRateLimiter();
-        app.MapGet("/health", () => new { status = "ok", version = "0.1.12", runtime = ".NET 10" });
+        app.MapGet("/health", () => new { status = "ok", version = "0.2.0", runtime = ".NET 10" });
         app.MapGet("/api/session", (HttpContext c) => new { authenticated = Authentication.Viewer(c.Request, config.Secrets) });
         app.MapPost("/api/login", (Func<HttpContext, Task<IResult>>)(async c =>
         {
@@ -74,6 +76,16 @@ public static class AppHost
         app.MapPost("/api/agents/register", (Func<HttpContext, Task<IResult>>)(async c => Results.Json(hub.Register(await Body(c)), statusCode: 201)));
         app.MapPost("/api/agents/{id}/publish", async (string id, HttpContext c) => hub.Publish(id, Authentication.Bearer(c.Request), await Body(c)));
         app.MapPost("/api/agents/{id}/heartbeat", (string id, HttpContext c) => hub.Heartbeat(id, Authentication.Bearer(c.Request)));
+        app.MapPut("/api/agents/{id}/controls", async (string id, HttpContext c) => controls.Configure(id, Authentication.Bearer(c.Request), await Body(c)));
+        app.MapPost("/api/agents/{id}/actions/poll", (string id, HttpContext c) => controls.Poll(id, Authentication.Bearer(c.Request), true));
+        app.MapPost("/api/agents/{id}/actions/complete", async (string id, HttpContext c) => controls.Complete(id, Authentication.Bearer(c.Request), true, await Body(c)));
+        app.MapPost("/api/connectors/register", (Func<HttpContext, Task<IResult>>)(async c => Results.Json(controls.RegisterConnector(await Body(c)), statusCode: 201)));
+        app.MapPost("/api/connectors/{id}/poll", (string id, HttpContext c) => controls.Poll(id, Authentication.Bearer(c.Request), false));
+        app.MapPost("/api/connectors/{id}/complete", async (string id, HttpContext c) => controls.Complete(id, Authentication.Bearer(c.Request), false, await Body(c)));
+        app.MapGet("/api/controls/{id}", (string id) => controls.Configuration(id));
+        app.MapPost("/api/controls/{id}/invoke", async (string id, HttpContext c) => controls.Invoke(id, await Body(c)));
+        app.MapGet("/api/controls/{id}/invocations/{invocationId}", (string id, string invocationId) => controls.Invocation(id, invocationId));
+        app.MapGet("/api/controls/{id}/history", (string id, int? limit, int? offset) => controls.History(id, limit ?? 20, offset ?? 0));
         app.MapPost("/api/agents/{id}/archive", (string id, HttpContext c) => { if (!Authentication.Viewer(c.Request, config.Secrets)) hub.AuthorizeArchive(id, Authentication.Bearer(c.Request)); return hub.Archive(id); });
         app.MapPatch("/api/agents/{id}/layout", async (string id, HttpContext c) => hub.SetLayout(id, await Body(c)));
         app.MapPost("/api/agents/{id}/layout/manual", (string id) => hub.MarkManual(id));
@@ -115,7 +127,7 @@ public static class AppHost
         app.MapMethods("/{**asset}", new[] { "GET", "HEAD" }, (string? asset, HttpContext c, WebAssets assets) => assets.Get(asset, c));
         return app;
     }
-    private static bool IsProducerRoute(string path) => path.StartsWith("/api/agents/", StringComparison.Ordinal) && (path.EndsWith("/publish", StringComparison.Ordinal) || path.EndsWith("/heartbeat", StringComparison.Ordinal) || path.EndsWith("/archive", StringComparison.Ordinal));
+    private static bool IsProducerRoute(string path) => path.StartsWith("/api/agents/", StringComparison.Ordinal) && (path.EndsWith("/publish", StringComparison.Ordinal) || path.EndsWith("/heartbeat", StringComparison.Ordinal) || path.EndsWith("/archive", StringComparison.Ordinal) || path.EndsWith("/controls", StringComparison.Ordinal) || path.EndsWith("/actions/poll", StringComparison.Ordinal) || path.EndsWith("/actions/complete", StringComparison.Ordinal)) || path.StartsWith("/api/connectors/", StringComparison.Ordinal) && (path.EndsWith("/poll", StringComparison.Ordinal) || path.EndsWith("/complete", StringComparison.Ordinal));
     private static string SafeId(string value) => value.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_') ? value : throw new HubError(400, "Invalid archive identifier.");
     private static async Task<JsonObject> Body(HttpContext c)
     {

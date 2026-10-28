@@ -2,9 +2,9 @@
 
 **A calm canvas for live agent work.**
 
-A self-hosted observation hub that brings agent plans, evidence and progress into
-one freeform workspace. Follow a run, inspect its children, and keep useful
-results in local archives.
+A self-hosted hub that brings agent plans, evidence and application controls into
+one freeform workspace. Follow a run, inspect its children, keep useful results
+in local archives, and build permanent consoles for your services and tools.
 
 ![Illustrative AgenticView demo: a wide canvas of synthetic agents zooms into investigation, coding and live monitoring cards](docs/media/agenticview-demo.gif)
 
@@ -23,7 +23,7 @@ C# · .NET 10 · React · MIT
 - **Look closer.** Activate a card to explore its content. Nested tables, logs and
   code scroll within their bounds, with movement continuing through the surrounding
   card and canvas. Mouse, keyboard and touch inputs share the same navigation model.
-- **Choose the right view.** Use 31 built-in types: task lists, query results,
+- **Choose the right view.** Use 34 built-in types: task lists, query results,
   commands, traces, charts, heatmaps, comparisons, code, diffs and more. Native
   components handle display and interaction; custom HTML is an escape hatch with
   a distinct frame and **Custom view** label. See the [native catalog](docs/native-components.md).
@@ -36,8 +36,16 @@ C# · .NET 10 · React · MIT
   agent counts, update and payload rates, recent curves, component activity and
   server health. Larger working text stays within the existing card sizes.
 
-AgenticView observes work that agents report. It has no LLM dependency and does
-not execute their tasks.
+- **Talk back.** Add buttons, prompts, forms, selects and toggles with optional
+  inline confirmations. Agents consume an action inbox; .NET connectors execute
+  locally configured commands on the machine with access.
+- **Keep an application.** Permanent cards outlive their creating agent. Follow
+  bounded log tails or page through millions of source rows. Generic add/edit/delete
+  callbacks send full rows to your scripts or services; persistence and history
+  belong to your adapter. See [application cards and controls](docs/controls.md).
+
+AgenticView has no LLM dependency. The hub records and routes configured actions;
+execution belongs to the owning agent or a connector with local profiles.
 
 ## Four simple concepts
 

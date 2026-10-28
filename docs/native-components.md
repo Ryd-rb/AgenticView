@@ -13,6 +13,7 @@ operation. Keep the same ID to update an existing subcard.
 | Evidence | Built-in kinds |
 | --- | --- |
 | Tasks and narrative | `checklist`, `markdown`, `status`, `alert` |
+| Application controls | `action-panel`, `log-stream`, `data-grid` ([setup](controls.md)) |
 | Measurements | `metric`, `stat-grid`, `gauge`, `progress` |
 | Trends and distributions | `chart` (line, area, bar, scatter), `bar-list`, `histogram`, `heatmap`, `breakdown` |
 | Investigation evidence | `query`, `table`, `logs`, `timeline`, `trace`, `http` |

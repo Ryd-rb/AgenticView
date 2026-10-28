@@ -3,8 +3,19 @@
 - AgenticView is a public project licensed under MIT.
 - The server must be C# on .NET 10. Work builds target Windows x64 with the .NET 10
   SDK and no internet restores; bundle locked NuGet packages and browser assets.
-- The first version is a self-hosted, single-operator observation hub. Keep
+- The hub is self-hosted for one operator, with observation and configured controls. Keep
   installations separate, persist archives locally, and prioritize investigations.
+- Agents may configure permanent application cards, typed actions and optional
+  confirmations. Execute through owning agents or local connector allowlists;
+  never turn browser fields into shell source or expose machine credentials.
+  Persist action acknowledgements and history, bind confirmation to configuration
+  versions, and never replay uncertain side effects automatically. Keep log tails,
+  reader results and DOM rows bounded independently of source size. Grids are
+  provider-neutral: accept supplied columns/rows or a bounded paged source, and
+  route full added/updated/deleted row(s) to configured actions. Persistence,
+  version checks and history belong to the configured adapter; SQLite is optional.
+  Million-row tables must use bounded pages and provider-side filtering/sorting,
+  never load or mount the full dataset in the browser.
 - Support typed native components and agent-authored views under explicit embed
   rules. Prefer and expand native components so agents rarely need custom HTML.
   Distinguish Built-in components from Custom views with persistent origin labels

@@ -1,5 +1,13 @@
 using AgenticView.Server;
 
+if (args.Length >= 2 && args[0] == "--connector")
+{
+    using var cancellation = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, e) => { e.Cancel = true; cancellation.Cancel(); };
+    try { await ConnectorWorker.Run(args[1],args.Contains("--once"),cancellation.Token); }
+    catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+    return;
+}
 var config = RuntimeConfig.Load();
 if (args.Contains("--keys"))
 {

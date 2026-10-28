@@ -184,6 +184,11 @@ public sealed class Hub : IDisposable
         lock (gate) { if ((!runs.ContainsKey(id) && Scalar("SELECT id FROM archives WHERE id=$p0", id) is null) || !Equal(token, Token(id))) throw new HubError(403, "Invalid run credentials or unavailable run."); }
     }
     public JsonObject? GetRun(string id) { lock (gate) return runs.TryGetValue(id, out var run) ? Clone(run.View) : null; }
+    public void VerifyRun(string id, string token) { lock (gate) Authorize(id, token); }
+    public JsonObject MakeApplication(string id, string token, JsonObject application)
+    {
+        lock (gate) { var run = Authorize(id, token); var view = Clone(run.View); view["application"] = application.DeepClone(); view["name"] = application["name"]!.DeepClone(); view["role"] = "Application"; view["status"] = "active"; view.Remove("completedAt"); SaveView(run, view); Queue(view); revision++; return Metadata(view); }
+    }
     public JsonObject Register(JsonObject raw)
     {
         lock (gate)
@@ -285,7 +290,7 @@ public sealed class Hub : IDisposable
             else { totalBytes += bytes - run.Bytes; run.Bytes = bytes; run.View = view; QueueBatch(view, operations); }
             revision++; updates += operations.Count;
             monitoring.Accepted(id, operations, view, previousView, payloadBytes, start, entered, authorized, digested, copied, mutated, budgeted, committed, Stopwatch.GetTimestamp());
-            if (settings["archiveAfterCompletion"]!.GetValue<bool>() && String(view, "status") is "completed" or "error")
+            if (view["application"] is null && settings["archiveAfterCompletion"]!.GetValue<bool>() && String(view, "status") is "completed" or "error")
                 try { Archive(id); } catch { Console.Error.WriteLine("Automatic archive failed; accepted live state remains retained."); }
             return new JsonObject { ["sequence"] = sequence, ["duplicate"] = false, ["trimmed"] = trimmed, ["restored"] = recovering };
         }
@@ -489,6 +494,7 @@ public sealed class Hub : IDisposable
             foreach (var key in interactionReservations.Where(pair => pair.Value <= now).Select(pair => pair.Key).ToArray()) { interactionReservations.Remove(key); packingDirty = true; }
             foreach (var run in runs.Values.ToArray())
             {
+                if (run.View["application"] is not null) continue;
                 var inactive = now - Integer(run.View, "lastSeen");
                 if (String(run.View, "status") == "active" && inactive >= N(settings, "staleSeconds") * 1000) { var view = Clone(run.View); view["status"] = "stale"; SaveView(run, view); Queue(view); revision++; }
                 if (settings["autoArchiveMinutes"] is not null && inactive >= N(settings, "autoArchiveMinutes") * 60000)

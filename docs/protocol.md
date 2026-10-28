@@ -1,5 +1,9 @@
 # Agent integration
 
+See [Application cards and controls](controls.md) for persistent applications,
+configured actions and inbox delivery. These use separate authenticated endpoints
+and durable invocation IDs, preserving telemetry batching.
+
 Register with `POST /api/agents/register`, authenticating with the installation
 ingestion key as `Authorization: Bearer ...`. Retain a private random
 `registrationKey` with the idempotency ID for registration retries.

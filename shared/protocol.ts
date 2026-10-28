@@ -28,9 +28,12 @@ const resultItems = z.array(z.object({ id: idSchema, label: z.string().max(500),
 const instant = z.number().finite().min(0).max(8_640_000_000_000_000);
 const ganttItems = z.array(z.object({ id: idSchema, label: z.string().max(200), start: instant, end: instant.optional(), group: z.string().max(160).optional(), tone: tone.optional() }).refine(item => item.end === undefined || item.end >= item.start, 'Timeline end must not precede start')).max(200).refine(items => new Set(items.map(item => item.id)).size === items.length, 'Timeline IDs must be unique');
 export const componentSchema = z.discriminatedUnion('kind', [
+  z.object({ ...base, kind: z.literal('action-panel'), data: z.object({ actionIds: z.array(idSchema).min(1).max(64) }) }),
+  z.object({ ...base, kind: z.literal('log-stream'), data: z.object({ actionId: idSchema, pollMs: z.number().int().min(500).max(60_000).optional(), maxRows: z.number().int().min(20).max(2_000).optional() }) }),
+  z.object({ ...base, kind: z.literal('data-grid'), data: z.object({ readAction: idSchema.optional(), rows: z.array(z.record(z.string().max(100), scalar)).max(2000).optional(), editAction: idSchema.optional(), addAction: idSchema.optional(), deleteAction: idSchema.optional(), bulkAction: idSchema.optional(), historyAction: idSchema.optional(), keyColumn: idSchema.optional(), versionColumn: idSchema.optional(), pageSize: z.number().int().min(1).max(200).optional(), columns: z.array(z.object({ key: idSchema, label: z.string().max(100), editable: z.boolean().optional(), type: z.enum(['text','number','toggle']).optional() })).min(1).max(64) }) }),
   z.object({ ...base, kind: z.literal('metric'), data: z.object({ value: scalar, unit: z.string().max(80).optional(), change: z.string().max(160).optional(), history: z.array(z.number().finite()).max(512).optional(), tone: tone.optional() }) }),
   z.object({ ...base, kind: z.literal('chart'), data: z.object({ type: z.enum(['line', 'area', 'bar', 'scatter']).default('line'), series: z.array(z.object({ name: z.string().max(100), points: z.array(z.object({ x: z.union([z.string().max(100), z.number().finite()]), y: z.number().finite() })).max(2_048) })).max(12), xLabel: z.string().max(100).optional(), yLabel: z.string().max(100).optional() }) }),
-  z.object({ ...base, kind: z.literal('table'), data: z.object({ columns: z.array(z.object({ key: idSchema, label: z.string().max(100) })).min(1).max(64), rows: z.array(z.record(z.string().max(100), scalar)).max(2_000), totalRows: z.number().int().nonnegative().optional() }) }),
+  z.object({ ...base, kind: z.literal('table'), data: z.object({ columns: z.array(z.object({ key: idSchema, label: z.string().max(100) })).min(1).max(64), rows: z.array(z.record(z.string().max(100), scalar)).max(2_000), totalRows: z.number().int().nonnegative().optional(), sourceAction: idSchema.optional(), pageSize: z.number().int().min(1).max(200).optional() }) }),
   z.object({ ...base, kind: z.literal('markdown'), data: z.object({ text }) }),
   z.object({ ...base, kind: z.literal('code'), data: z.object({ code: text, language: z.string().max(40).optional() }) }),
   z.object({ ...base, kind: z.literal('diff'), data: z.object({ before: text, after: text, language: z.string().max(40).optional() }) }),
@@ -70,6 +73,7 @@ export type AgentView = {
   parentId: string | null; createdAt: number; lastSeen: number; status: AgentStatus;
   updatedAt?: number; completedAt?: number; componentTimes?: Record<string, number>;
   taskTimes?: Record<string, TaskTiming[]>;
+  application?: { name: string; description?: string };
   sequence: number; components: Record<string, Component>; layout: Layout;
 };
 export const settingsSchema = z.object({

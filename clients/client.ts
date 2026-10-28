@@ -30,16 +30,23 @@ export class AgenticViewClient {
   }
   display(...components: Component[]) { return this.publish(components.map(component => ({ op: 'upsert', component }))); }
   clear() { return this.publish([{ op: 'clear' }]); }
+  /** Configure interactive actions; application cards survive agent disconnection. Keep profiles and secrets local. */
+  configure(actions: ActionDefinition[], application?: { name: string; description?: string }) { return request(this.url, `/api/agents/${this.runId}/controls`, this.runToken, { actions, ...(application ? { application } : {}) }, 'PUT'); }
+  /** Claims one action. Execute once, then retry only its acknowledgement if delivery is uncertain. */
+  pollActions() { return request<ActionJob[]>(this.url, `/api/agents/${this.runId}/actions/poll`, this.runToken, {}); }
+  completeAction(job: ActionJob, state: 'succeeded' | 'failed', result?: Record<string, unknown>, error?: string) { return request(this.url, `/api/agents/${this.runId}/actions/complete`, this.runToken, { invocationId: job.id, claimToken: job.claimToken, state, ...(result ? { result } : {}), ...(error ? { error } : {}) }); }
   heartbeat() { return request(this.url, `/api/agents/${this.runId}/heartbeat`, this.runToken, {}); }
   startHeartbeat(onError: (error: unknown) => void = () => {}) { this.stopHeartbeat(); this.heartbeatTimer = setInterval(() => { void this.heartbeat().catch(onError); }, 15_000); this.heartbeatTimer.unref(); return this; }
   stopHeartbeat() { if (this.heartbeatTimer) clearInterval(this.heartbeatTimer); this.heartbeatTimer = undefined; }
   async archive() { this.stopHeartbeat(); await this.queue; await this.reconcile(); return request(this.url, `/api/agents/${this.runId}/archive`, this.runToken, {}); }
 }
-async function request<T>(url: string, path: string, token: string, data: unknown): Promise<T> {
+export type ActionDefinition = { id: string; label: string; kind: 'command' | 'prompt' | 'query' | 'edit' | 'history' | 'logs' | 'custom'; target: string; handler?: string; description?: string; confirmation?: string; fields?: { key: string; label: string; type: 'text' | 'multiline' | 'number' | 'select' | 'toggle' | 'json'; required?: boolean; options?: string[]; min?: number; max?: number }[] };
+export type ActionJob = { id: string; runId: string; actionId: string; handler: string; kind: ActionDefinition['kind']; input: Record<string, unknown>; claimToken: string; state: 'running' };
+async function request<T>(url: string, path: string, token: string, data: unknown, method = 'POST'): Promise<T> {
   const body = JSON.stringify(data);
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const response = await fetch(new URL(path, url), { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body, signal: AbortSignal.timeout(15_000) });
+      const response = await fetch(new URL(path, url), { method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body, signal: AbortSignal.timeout(15_000) });
       const value = await response.json() as { error?: string };
       if (!response.ok) { const error = new Error(value.error || `HTTP ${response.status}`); if (response.status < 500 && response.status !== 429) throw Object.assign(error, { permanent: true }); throw error; }
       return value as T;

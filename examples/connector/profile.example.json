@@ -1,0 +1,15 @@
+{
+  "id": "local-tools",
+  "name": "Local tools",
+  "url": "http://127.0.0.1:4317/",
+  "registrationKey": "replace-with-a-private-random-recovery-key-before-registering",
+  "handlers": {
+    "row-service-edit": {"type":"process","kind":"edit","executable":"python","arguments":["row-service.py"],"input":"json-stdin","output":"json"},
+    "row-service-query": {"type":"process","kind":"query","executable":"python","arguments":["row-service.py"],"input":"json-stdin","output":"json"},
+    "sdk-version": {"type":"process","executable":"dotnet","arguments":["--version"]},
+    "service-log": {"type":"log-file","path":"synthetic-service.log","maxReadBytes":1048576},
+    "items-read": {"type":"sqlite-table","operation":"read","database":"synthetic.sqlite","table":"items","keyColumn":"id","versionColumn":"version","columns":["id","label","version"]},
+    "items-edit": {"type":"sqlite-table","operation":"edit","database":"synthetic.sqlite","table":"items","keyColumn":"id","versionColumn":"version","columns":["id","label","version"],"writableColumns":["label"],"historyTable":"av_item_history"},
+    "items-history": {"type":"sqlite-table","operation":"history","database":"synthetic.sqlite","table":"items","keyColumn":"id","versionColumn":"version","columns":["id","label","version"],"historyTable":"av_item_history"}
+  }
+}

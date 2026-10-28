@@ -6,6 +6,17 @@ import { isTaskList } from '../shared/component-order.ts';
 
 const cases: { name: string; input: unknown; valid: boolean }[] = [];
 const add = (name: string, kind: string, data: unknown, valid = true) => cases.push({ name, input: { id: 'synthetic', title: 'Synthetic', kind, data }, valid });
+add('native action panel', 'action-panel', { actionIds: ['prompt', 'restart'] });
+add('empty action panel', 'action-panel', { actionIds: [] }, false);
+add('reserved action identifier', 'action-panel', { actionIds: ['__proto__'] }, false);
+add('bounded live log stream', 'log-stream', { actionId: 'tail', pollMs: 500, maxRows: 2000 });
+add('unbounded live log stream', 'log-stream', { actionId: 'tail', maxRows: 2001 }, false);
+add('excessive live polling', 'log-stream', { actionId: 'tail', pollMs: 1 }, false);
+add('editable data grid', 'data-grid', { readAction: 'read', editAction: 'edit', historyAction: 'history', keyColumn: 'id', versionColumn: 'version', pageSize: 200, columns: [{ key: 'name', label: 'Name', editable: true, type: 'text' }] });
+add('data grid page overflow', 'data-grid', { readAction: 'read', keyColumn: 'id', pageSize: 201, columns: [{ key: 'id', label: 'ID' }] }, false);
+add('data grid invalid column type', 'data-grid', { readAction: 'read', keyColumn: 'id', columns: [{ key: 'id', label: 'ID', type: 'shell' }] }, false);
+add('provider-neutral supplied grid', 'data-grid', { rows: [{ name: 'Synthetic' }], addAction: 'add', editAction: 'update', deleteAction: 'delete', bulkAction: 'bulk', columns: [{ key: 'name', label: 'Name', editable: true }] });
+add('remote million-row table contract', 'table', { rows: [], columns: [{ key: 'name', label: 'Name' }], sourceAction: 'fetch-page', pageSize: 50, totalRows: 5000000 });
 add('stat grid scalars', 'stat-grid', { items: [{ label: 'Rows', value: null }, { label: 'Ready', value: true, tone: 'success' }] });
 add('stat grid maximum', 'stat-grid', { items: Array.from({ length: 24 }, () => ({ label: 'x'.repeat(160), value: 1 })) });
 add('stat grid overflow', 'stat-grid', { items: Array.from({ length: 25 }, () => ({ label: 'x', value: 1 })) }, false);

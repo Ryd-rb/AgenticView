@@ -76,6 +76,17 @@ public static class ComponentValidator
         var kind = Text(component, "kind", 32); var data = Object(component["data"], "data");
         switch (kind)
         {
+            case "action-panel":
+                foreach (var item in Array(data,"actionIds",64,1)) Id(new JsonObject { ["id"]=item?.DeepClone() },"id");
+                break;
+            case "log-stream":
+                Id(data,"actionId"); if(data.ContainsKey("pollMs")) Number(data,"pollMs",500,60000,true,true); if(data.ContainsKey("maxRows")) Number(data,"maxRows",20,2000,true,true);
+                break;
+            case "data-grid":
+                Id(data,"readAction",false); Id(data,"editAction",false); Id(data,"addAction",false); Id(data,"deleteAction",false); Id(data,"bulkAction",false); Id(data,"historyAction",false); Id(data,"keyColumn",false); Id(data,"versionColumn",false); if(data.ContainsKey("pageSize")) Number(data,"pageSize",1,200,true,true);
+                if(data.ContainsKey("rows")) foreach(var item in Array(data,"rows",2000)) foreach(var pair in Object(item)) { if(pair.Key.Length>100) Fail("Row field names are limited to 100 characters."); Scalar(pair.Value); }
+                foreach(var node in Array(data,"columns",64,1)) { var column=Object(node); Id(column,"key"); Text(column,"label",100); Boolean(column,"editable"); if(column.ContainsKey("type")) Choice(column,"type",["text","number","toggle"]); }
+                break;
             case "metric":
                 if (!data.ContainsKey("value")) Fail("metric.value is required."); Scalar(data["value"]); Text(data, "unit", 80, false); Text(data, "change", 160, false);
                 if (data.ContainsKey("tone")) Choice(data, "tone", ["neutral", "info", "success", "warning", "error"]);
@@ -92,7 +103,7 @@ public static class ComponentValidator
             case "table":
                 foreach (var c in Array(data, "columns", 64, 1)) { var column = Object(c); Id(column, "key"); Text(column, "label", 100); }
                 foreach (var r in Array(data, "rows", 2000)) foreach (var cell in Object(r)) { if (cell.Key.Length > 100) Fail("Column key too long."); Scalar(cell.Value); }
-                Number(data, "totalRows", 0, double.MaxValue, false, true); break;
+                Number(data, "totalRows", 0, double.MaxValue, false, true); Id(data,"sourceAction",false); if(data.ContainsKey("pageSize")) Number(data,"pageSize",1,200,true,true); break;
             case "markdown": Text(data, "text", 131072); break;
             case "code": Text(data, "code", 131072); Text(data, "language", 40, false); break;
             case "diff": Text(data, "before", 131072); Text(data, "after", 131072); Text(data, "language", 40, false); break;

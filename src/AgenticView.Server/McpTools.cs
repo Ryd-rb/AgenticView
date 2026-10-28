@@ -6,7 +6,7 @@ using ModelContextProtocol.Server;
 namespace AgenticView.Server;
 
 [McpServerToolType]
-public sealed class McpTools(Hub hub)
+public sealed class McpTools(Hub hub, ControlStore controls)
 {
     private static JsonObject Invoke(Func<JsonObject> action)
     {
@@ -30,6 +30,15 @@ public sealed class McpTools(Hub hub)
 
     [McpServerTool(Name = "agent_archive", Idempotent = true, UseStructuredContent = true), Description("Retire your run, remove its live card, and retain its current bounded view in a compressed archive. Active child agents remain available independently.")]
     public JsonObject Archive(string runId, string runToken) => Invoke(() => { hub.AuthorizeArchive(runId, runToken); return hub.Archive(runId); });
+
+    [McpServerTool(Name = "card_configure", Idempotent = false, UseStructuredContent = true), Description("Configure named actions for your card. Supply actions [{id,label,kind,target,handler?,confirmation?,fields?}]. target is agent for your prompt inbox or a connector ID whose local profile owns handler. kind: command,prompt,query,edit,history,logs,custom. Fields: key,label,type(text,multiline,number,select,toggle,json),required?,options?,min?,max?. Optional application {name,description?} makes this a permanent application card, exempt from automatic archiving. Keep credentials in local connector profiles; never in display fields. Discover native action-panel,log-stream,data-grid in component_catalog.")]
+    public JsonObject Configure(string runId,string runToken,JsonArray actions,JsonObject? application=null) => Invoke(() => controls.Configure(runId,runToken,new JsonObject { ["actions"]=actions.DeepClone(),["application"]=application?.DeepClone() }));
+
+    [McpServerTool(Name = "agent_actions_poll", Idempotent = false, UseStructuredContent = true), Description("Claim one operator action addressed to your agent inbox. Returns jobs; acknowledge using agent_action_complete and the private claimToken. Claimed jobs are never automatically replayed. Poll while active; transport connectivity alone does not deliver prompts.")]
+    public JsonObject Poll(string runId,string runToken) => Invoke(() => new JsonObject { ["jobs"]=controls.Poll(runId,runToken,true) });
+
+    [McpServerTool(Name = "agent_action_complete", Idempotent = true, UseStructuredContent = true), Description("Acknowledge an inbox job with state succeeded/failed and optional bounded JSON result/error. Retry identical completion after uncertain delivery; never execute the command again just to retry its acknowledgement.")]
+    public JsonObject Complete(string runId,string runToken,string invocationId,string claimToken,string state,JsonObject? result=null,string? error=null) => Invoke(() => controls.Complete(runId,runToken,true,Json.Object(new{invocationId,claimToken,state,result,error})));
 
     [McpServerTool(Name = "component_catalog", ReadOnly = true, Idempotent = true, UseStructuredContent = true), Description("Discover all supported component kinds, input schemas and retention limits. Prefer built-in typed components for tasks, queries, commands, traces and visualizations. Reserve embeds for views the native catalog cannot express. Executable embeds are agent-authored code with external network access; their state bridge exposes no host credentials.")]
     public JsonObject Catalog() => new()

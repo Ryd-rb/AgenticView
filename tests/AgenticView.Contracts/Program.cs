@@ -275,6 +275,7 @@ var cases = new (string Name, Action Test)[]
         Check(change["components"]!.AsArray().Count==1 && change["components"]![0]!["id"]!.GetValue<string>()=="new","Coalescing resurrected removed component");
     }))
 };
+cases = cases.Concat(ControlContracts.Cases()).ToArray();
 var failed=0;
 foreach(var (name, action) in cases) { try { action(); Console.WriteLine("PASS "+name); } catch(Exception error) { failed++; Console.Error.WriteLine("FAIL "+name+": "+error); } }
 Console.WriteLine($"{cases.Length-failed}/{cases.Length} C# contracts passed"); return failed==0?0:1;

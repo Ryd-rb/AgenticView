@@ -1,0 +1,49 @@
+.control-view { min-width: 0; color: #e5e8f0; font-size: 13px; line-height: 1.5; }
+.control-view input, .control-view select, .control-view textarea, .control-view button { font: inherit; color: inherit; border: 1px solid #46516a; background: #161d2c; border-radius: 5px; min-height: 32px; padding: 5px 9px; max-width: 100%; }
+.control-view button { cursor: pointer; }
+.control-view button:hover:enabled { background: #303a53; border-color: #9caff0; }
+.control-view :focus-visible { outline: 2px solid #aebfff; outline-offset: 2px; }
+.control-view :disabled { opacity: .55; cursor: default; }
+.control-view input[type=checkbox] { accent-color: #b6a9ff; width: 18px; min-height: 18px; }
+.control-view textarea { resize: vertical; }
+.control-caption { color: #b5bfd3; margin: 4px 0 10px; overflow-wrap: anywhere; }
+.control-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin: 8px 0; }
+.control-toolbar > input { flex: 1; min-width: 100px; }
+.control-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 10px; }
+.control-action { border: 1px solid #384259; border-radius: 7px; padding: 10px; min-width: 0; }
+.control-action p { margin: 5px 0; color: #c2cada; overflow-wrap: anywhere; }
+.control-field { display: flex; flex-direction: column; gap: 3px; margin: 8px 0; }
+.control-toggle { flex-direction: row; align-items: center; justify-content: space-between; }
+.control-review { border: 1px solid #e3bc72; background: #332c20; padding: 10px; margin: 8px 0; border-radius: 6px; }
+.control-review p { overflow-wrap: anywhere; }
+.control-review .control-primary { background: #554329; border-color: #e3bc72; }
+.control-view pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; font: 12px/1.5 ui-monospace, monospace; margin: 6px 0; }
+.control-error, .control-view [role=alert] { color: #ffb1b8; overflow-wrap: anywhere; }
+.control-result { display: flex; flex-wrap: wrap; align-items: baseline; gap: 7px; border-top: 1px solid #354057; margin-top: 8px; padding-top: 6px; min-width: 0; }
+.control-result > pre, .control-result > p { flex-basis: 100%; min-width: 0; }
+.control-result time { margin-left: auto; color: #b5bfd3; font-size: 11px; }
+.control-state { border: 1px solid #667494; border-radius: 20px; padding: 1px 7px; font-size: 11px; }
+.state-succeeded { color: #8ce6bc; border-color: #3a8364; }
+.state-failed, .state-unknown { color: #ffb1b8; border-color: #b56b72; }
+.state-queued, .state-running { color: #f4d38f; border-color: #a58a54; }
+.control-history { margin-top: 12px; }
+.control-history summary { cursor: pointer; padding: 4px 0; }
+.control-log { height: 240px; overflow: auto; border: 1px solid #384259; border-radius: 5px; background: #111723; }
+.control-log-row { display: grid; grid-template-columns: 130px 50px minmax(0, 1fr); gap: 7px; height: 30px; box-sizing: border-box; align-items: center; padding: 3px 8px; font: 12px/24px ui-monospace, monospace; border-bottom: 1px solid #273044; }
+.control-log-row > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.control-log-row time { color: #b5bfd3; }
+.control-log-row.level-warn { color: #f5d28a; }
+.control-log-row.level-error, .control-log-row.level-fatal { color: #ffadb8; }
+.control-log-row.level-debug, .control-log-row.level-trace { color: #bdc6dc; }
+.control-grid { max-height: 350px; overflow: auto; border: 1px solid #384259; border-radius: 5px; }
+.control-grid table { width: 100%; border-collapse: collapse; text-align: left; }
+.control-grid th { position: sticky; top: 0; background: #202a3e; z-index: 1; }
+.control-grid th, .control-grid td { border-bottom: 1px solid #354057; padding: 7px 9px; max-width: 280px; overflow-wrap: anywhere; vertical-align: top; }
+.control-grid td input { min-width: 70px; width: 100%; box-sizing: border-box; }
+.control-grid td input[type=checkbox] { width: 18px; min-width: 18px; }
+.control-row-actions { min-width: 110px; }
+.control-row-actions button { margin: 0 4px 4px 0; }
+.control-grid .control-sort { border: 0; background: transparent; padding: 0; min-height: 24px; text-align: left; font-weight: 600; }
+.control-grid .control-select-cell { width: 26px; padding-left: 8px; padding-right: 8px; }
+.control-grid .control-select-cell input { width: 18px; min-width: 18px; }
+.control-add-row { margin: 8px 0; }

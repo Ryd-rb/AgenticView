@@ -8,6 +8,7 @@ import { compactTime, exactTime } from '../shared/time-format.js';
 import { isTaskList } from '../shared/component-order.js';
 import { DataTable } from './DataTable.js';
 import { NativeView } from './NativeViews.js';
+import { ControlView } from './ControlViews.js';
 
 const colors = ['#b4a2ff', '#70d6c3', '#e8be79', '#8bbbf5', '#e891b1'];
 const icons: Record<string, LucideIcon> = { metric: Activity, chart: BarChart3, table: Table2, code: Code2, diff: GitCompareArrows, logs: Terminal, timeline: Timer, tree: ListTree, json: Braces, checklist: CheckSquare, 'stat-grid': LayoutGrid, 'bar-list': BarChart3, histogram: BarChart3, heatmap: LayoutGrid, gauge: Gauge, query: Database, command: Terminal, trace: Activity, links: Link2, comparison: GitCompareArrows, 'service-map': Network, http: Globe, stacktrace: Layers, 'test-results': ListChecks, gantt: CalendarRange, breakdown: ChartPie, embed: Braces };
@@ -62,9 +63,10 @@ function Tree({ nodes }: { nodes: Extract<Component, { kind: 'tree' }>['data']['
 export const ComponentView = memo(function ComponentView({ component: c, embeds, runId, updatedAt, taskTimes }: { component: Component; embeds: boolean; runId: string; updatedAt?: number; taskTimes?: TaskTiming[] }) {
   let body: React.ReactNode;
   switch (c.kind) {
+    case 'action-panel': case 'log-stream': case 'data-grid': body = <ControlView component={c} runId={runId} />; break;
     case 'metric': body = <div className={`metric tone-${c.data.tone ?? 'neutral'}`}><div><strong>{stringify(c.data.value)}</strong><span>{c.data.unit}</span></div>{c.data.change && <small>{c.data.change}</small>}{!!c.data.history?.length && <Sparkline values={c.data.history} />}</div>; break;
     case 'chart': body = <Chart data={c.data} />; break;
-    case 'table': body = <DataTable data={c.data} />; break;
+    case 'table': body = c.data.sourceAction ? <ControlView component={{kind:'data-grid',data:{readAction:c.data.sourceAction,columns:c.data.columns,pageSize:c.data.pageSize}}} runId={runId} /> : <DataTable data={c.data} />; break;
     case 'markdown': body = <TaskMarkdown text={c.data.text} tasks={taskTimes} updatedAt={updatedAt} />; break;
     case 'code': body = <><div className="code-language"><Code2 size={12} />{c.data.language || 'text'}</div><pre><code>{c.data.code}</code></pre></>; break;
     case 'diff': body = <pre className="diff">{diffLines(c.data.before, c.data.after).map((p, i) => <span className={p.added ? 'added' : p.removed ? 'removed' : ''} key={i}>{p.value}</span>)}</pre>; break;

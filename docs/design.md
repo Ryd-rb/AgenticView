@@ -1,6 +1,6 @@
 # Design
 
-AgenticView is a self-hosted, single-operator observation hub with a **C# / .NET 10
+AgenticView is a self-hosted, single-operator monitoring and control hub with a **C# / .NET 10
 server** and React monitor. Investigations are the first use case. Independent
 installations separate environments. No server-side LLM interprets display content.
 
@@ -88,7 +88,7 @@ consistent type, boundaries and control treatments. Plans lead each card; eviden
 uses compact native subcards. Native components have a Built-in caption, while
 agent-authored HTML has a Custom view caption and a warm frame. The empty canvas
 stays empty. No welcome panel or extra navigation surface occupies the world.
-See the [native catalog](native-components.md) for the 31 built-in kinds.
+See the [native catalog](native-components.md) for the 34 built-in kinds.
 
 Unchanged card content is reused during canvas navigation. A shared agent-tree
 index invalidates only affected branches, and telemetry deltas preserve unchanged
