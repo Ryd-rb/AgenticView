@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param([string]$Source = 'dist/desktop', [string]$Url = 'http://127.0.0.1:4317/', [string]$ViewerKeyFile, [switch]$Replace)
 $ErrorActionPreference = 'Stop'
+$inputTrace = $env:AV_INPUT_TRACE -eq '1'
 $repository = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 $sourceRoot = [IO.Path]::GetFullPath((Join-Path $repository $Source))
 $boundary = $repository + [IO.Path]::DirectorySeparatorChar
@@ -72,7 +73,7 @@ try {
         if ($existing) {
             Assert-PlainPath ([string]$state.Entry)
             if ($existing.ExecutablePath -ne [string]$state.Entry -or !$existing.CommandLine -or !$existing.CommandLine.Contains('"' + $data + '"') -or $existing.CreationDate.ToUniversalTime() -ne ([DateTime]$state.CreatedUtc).ToUniversalTime()) { throw 'The previous desktop process identity cannot be established.' }
-            if ($state.BuildHash -eq $buildHash -and $state.Url -eq $parsed.AbsoluteUri -and $state.PageHash -eq $pageHash) { $state | ConvertTo-Json -Compress; return }
+            if ($state.BuildHash -eq $buildHash -and $state.Url -eq $parsed.AbsoluteUri -and $state.PageHash -eq $pageHash -and [bool]$state.InputTrace -eq $inputTrace) { $state | ConvertTo-Json -Compress; return }
             if (!$Replace) { throw 'Another owned desktop build is running. Use -Replace to relaunch with the same private profile.' }
             # Only the PID with matching command line, creation time and bounded profile is owned.
             Stop-Process -Id ([int]$state.ProcessId)
@@ -104,10 +105,10 @@ try {
     if (!$native) { throw 'Desktop process identity is unavailable; staged state retained.' }
     $relaunch = Join-Path $stage 'launch.ps1'
     $relativeStage = $application.Substring($repository.Length + 1)
-    $launcher = "& '" + (Join-Path $repository 'scripts/start-desktop.ps1').Replace("'","''") + "' -Source '" + $relativeStage.Replace("'","''") + "' -Url '" + $parsed.AbsoluteUri.Replace("'","''") + "' -Replace"
+    $launcher = '$env:AV_INPUT_TRACE=' + $(if ($inputTrace) { "'1'; " } else { "'0'; " }) + "& '" + (Join-Path $repository 'scripts/start-desktop.ps1').Replace("'","''") + "' -Source '" + $relativeStage.Replace("'","''") + "' -Url '" + $parsed.AbsoluteUri.Replace("'","''") + "' -Replace"
     if ($ViewerKeyFile) { $launcher += " -ViewerKeyFile '" + $ViewerKeyFile.Replace("'","''") + "'" }
     [IO.File]::WriteAllText($relaunch,$launcher,[Text.UTF8Encoding]::new($false))
-    $state = [ordered]@{ ProcessId=$process.Id; Entry=$entry; CreatedUtc=$native.CreationDate.ToUniversalTime().ToString('O'); BuildHash=$buildHash; PageHash=$pageHash; Url=$parsed.AbsoluteUri; Data=$data; Relaunch=$relaunch }
+    $state = [ordered]@{ ProcessId=$process.Id; Entry=$entry; CreatedUtc=$native.CreationDate.ToUniversalTime().ToString('O'); BuildHash=$buildHash; PageHash=$pageHash; InputTrace=$inputTrace; Url=$parsed.AbsoluteUri; Data=$data; Relaunch=$relaunch }
     [IO.File]::WriteAllText($statePath,($state | ConvertTo-Json),[Text.UTF8Encoding]::new($false))
     $state | ConvertTo-Json -Compress
 } finally { $launcherLock.Dispose() }

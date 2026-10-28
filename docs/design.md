@@ -31,8 +31,9 @@ normal key and tap behavior. Embedded documents start behind a navigation surfac
 choose **Interact with view** in an active card to use their own controls. Return to
 card navigation with the same button. Deactivation or canvas navigation resets this
 mode. The document remains isolated and never receives dashboard credentials.
-Fit all follows arriving cards and layout changes until you pan, zoom, or move a
-card. In a custom viewport, an offscreen arrival offers a persistent Show card action.
+New cards appear immediately. Arrivals leave the camera and selected card in place;
+Fit all is an explicit one-time action. A cyan arrival border begins fading only
+when the card first enters the viewport, including nested cards.
 
 Canvas navigation has priority until a card is clicked, tapped, or activated with
 Enter. Active cards expose independent content zoom and bounded native scrolling;
@@ -45,15 +46,17 @@ Wheel and drag gestures consume nested grid, log, code and child-card scroll ran
 first, then continue with the remaining movement in the containing card. Once the
 card reaches its own scroll boundary, residual movement pans the main canvas;
 the card content stays clamped, and the same drag continues without a jump. Reversing
-direction first reveals obscured scroll regions within their parents, working from
+direction first recovers movement previously handed outward by that gesture,
+revealing obscured scroll regions within their parents, working from
 the outermost viewport inward, then resumes the child scroll. Recovery stops once
 the child fits instead of restoring unnecessary old offsets. A region larger than
 its viewport reveals the requested edge, since it cannot fit entirely.
+Fresh child input is never diverted just because the panel starts partially clipped.
 Captured drags hit-test the current contact position, so entering or leaving a
 nested scroll region changes the route without requiring a new touch. Activating
-or touching a card suspends automatic follow-fit. During contact, its geometry is
-reserved and live layout updates are deferred; the latest layout is reconciled on
-release. Active content is retained even outside the viewport. Explicit main-view
+or touching a card reserves its geometry. Live layout updates are deferred until
+the card is deselected; contact release alone keeps the selected card stable.
+Active contact content is retained even outside the viewport. Explicit main-view
 navigation still cancels the local contact.
 Ctrl/Command-wheel and two-finger pinch
 zoom the active card before component handlers can consume them.
@@ -68,6 +71,13 @@ the main-view translation consumes the difference to preserve the anchor. Pendin
 camera updates use geometry projected from the last committed DOM transform.
 Markdown task lists use compact static checks aligned with the first text line;
 task items omit bullets while ordinary list items retain them.
+Cards show arrival and last content-update or completion times. Native subcards
+show their last update; task rows retain observed first-listing and completion
+times across unchanged reports and reordering. Task clocks show milliseconds for
+gaps below a minute, seconds below ten minutes, and minutes for longer gaps.
+Exact local times and observed intervals are available on hover. Status-colored
+borders identify active, stale, completed and failed runs, with a highlighted
+Archive action on completed cards.
 Input regression tests include captured parent/child crossings, long bidirectional
 move sequences, capture loss, and live layout updates through the actual App in an
 in-memory DOM. These contracts complement manual physical-touch acceptance.

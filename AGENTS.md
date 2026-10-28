@@ -23,9 +23,17 @@
 - Keep wheel and pinch zoom anchored under the pointer or finger midpoint across
   main-view/card handoffs; never recenter a card during a zoom gesture.
 - Chain nested scrolling at bounds. On reversal, reveal obscured children through
-  their parent viewports before scrolling them; apply independently on both axes.
+  their parent viewports only to recover movement handed outward by the gesture;
+  apply independently on both axes. Fresh child input must keep making progress.
 - Route captured touch movement using the current physical hit region. Keep local
-  contacts alive through telemetry; defer layout changes and culling until release.
+  contacts alive through telemetry. Hold selected-card geometry until deselection.
+- Show new cards immediately without changing camera zoom or the selected card.
+  Start their temporary arrival color on first visibility, including nested cards.
+- Timestamp arrival, content updates, completion and task rows. Keep task clocks
+  compact: milliseconds for second-scale gaps, seconds for minute-scale gaps,
+  minutes for ten-minute-plus gaps, with exact times on hover. Distinguish observed
+  receipt times from agent execution times. Use status borders and emphasize the
+  archive action for completed cards that remain visible.
 - Keep the page within the viewport, with the settings cog fixed at bottom left.
   Automatically bin pack all unlocked cards, favor older positions and close gaps.
   Preserve sizes and active gestures. Provide Arrange all beside zoom.
@@ -33,7 +41,8 @@
   controls always retain canvas authority. Keep text legible within component bounds.
   Card zoom and pan must stay within content fit and native scroll boundaries.
 - Support a dedicated Windows fullscreen window with no system title bar and
-  custom minimize, maximize/restore and close controls; keep desktop dependencies offline-ready.
+  custom minimize, maximize/restore and close controls; reuse the title's signal
+  icon and keep desktop dependencies offline-ready.
 - Do not create or run automated image, screenshot, pixel, golden, or framebuffer
   tests. Verify meaningful rendering behavior through non-image contracts; visual
   review is manual.

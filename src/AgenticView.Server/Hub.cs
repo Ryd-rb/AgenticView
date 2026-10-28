@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Data.Sqlite;
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 
 namespace AgenticView.Server;
 
@@ -87,6 +88,46 @@ public sealed class Hub : IDisposable
     private static JsonNode? Canonical(JsonNode? node) => node switch { JsonObject obj => new JsonObject(obj.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => KeyValuePair.Create(p.Key, Canonical(p.Value)))), JsonArray array => new JsonArray(array.Select(Canonical).ToArray()), _ => node?.DeepClone() };
     private static string Digest(JsonObject obj) => Hash(Serialize(Canonical(obj)!));
     private static JsonObject Metadata(JsonObject view) => new(view.Where(pair => pair.Key != "components").Select(pair => KeyValuePair.Create(pair.Key, pair.Value?.DeepClone())));
+    private static void ReceiptTimes(JsonArray entries, string receipt)
+    {
+        foreach (var entry in entries.OfType<JsonObject>()) if (!entry.ContainsKey("time")) entry["time"] = receipt;
+    }
+    private static JsonArray ObserveTasks(string text, JsonArray? previous, long now)
+    {
+        var old = previous?.OfType<JsonObject>().ToDictionary(row => String(row, "key"), StringComparer.Ordinal) ?? new Dictionary<string, JsonObject>();
+        var rows = new JsonArray(); var occurrences = new Dictionary<string, int>(StringComparer.Ordinal);
+        char fence = '\0'; var fenceLength = 0; var listContext = false; var line = 0;
+        foreach (var source in text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
+        {
+            line++;
+            var content = Regex.Replace(source, @"^(?:[ ]{0,3}>[ \t]?)+", "");
+            var delimiter = Regex.Match(content, @"^([ \t]*)(?:([-*+]|\d+[.)])[ \t]+)?(`{3,}|~{3,})(.*)$", RegexOptions.CultureInvariant);
+            if (delimiter.Success && (delimiter.Groups[1].Value.Replace("\t", "    ").Length < 4 || listContext || delimiter.Groups[2].Success))
+            {
+                var mark = delimiter.Groups[3].Value; var tail = delimiter.Groups[4].Value;
+                if (fence != '\0') { if (mark[0] == fence && mark.Length >= fenceLength && string.IsNullOrWhiteSpace(tail)) fence = '\0'; }
+                else if (mark[0] != '`' || !tail.Contains('`')) { fence = mark[0]; fenceLength = mark.Length; if (delimiter.Groups[2].Success) listContext = true; }
+                continue;
+            }
+            if (fence != '\0') continue;
+            var marker = Regex.Match(content, @"^([ \t]*)(?:[-*+]|\d+[.)])[ \t]+\[([ xX])\](?:[ \t]+(.*)|$)", RegexOptions.CultureInvariant);
+            if (!marker.Success) { if (content.Length > 0 && !char.IsWhiteSpace(content[0]) && !Regex.IsMatch(content, @"^(?:[-*+]|\d+[.)])[ \t]+")) listContext = false; else if (Regex.IsMatch(content, @"^[ ]{0,3}(?:[-*+]|\d+[.)])[ \t]+")) listContext = true; continue; }
+            var indent = marker.Groups[1].Value.Replace("\t", "    ").Length;
+            // Deep indentation is ambiguous with Markdown code blocks; leave it untimed.
+            if (indent >= 4) continue;
+            listContext = true;
+            if (rows.Count >= 1024) throw new HubError(413, "A Markdown component can contain at most 1024 observed task rows.");
+            var normalized = Regex.Replace(marker.Groups[3].Value.Normalize(NormalizationForm.FormKC).Trim(), @"\s+", " ").ToLowerInvariant();
+            var hash = Hash(normalized); occurrences.TryGetValue(hash, out var occurrence); occurrences[hash] = ++occurrence;
+            var key = hash + ":" + occurrence; var completed = marker.Groups[2].Value != " ";
+            var row = old.TryGetValue(key, out var before) ? Clone(before) : new JsonObject { ["key"] = key, ["firstSeenAt"] = now, ["updatedAt"] = now };
+            row["line"] = line;
+            if (before is null) { if (completed) row["completedAt"] = now; else row["startedAt"] = now; }
+            else if (completed != row.ContainsKey("completedAt")) { row["updatedAt"] = now; if (completed) row["completedAt"] = now; else { row.Remove("completedAt"); row["startedAt"] = now; } }
+            rows.Add(row);
+        }
+        return rows;
+    }
     private SqliteCommand Command(string sql, params object?[] values)
     {
         if (!commands.TryGetValue(sql, out var command)) { command = db.CreateCommand(); command.CommandText = sql; for (var i = 0; i < values.Length; i++) command.Parameters.AddWithValue("$p" + i, values[i] ?? DBNull.Value); command.Prepare(); commands[sql] = command; }
@@ -155,7 +196,10 @@ public sealed class Hub : IDisposable
                 throw new HubError(409, "Sequence was already used or is outside the retry window. No new content accepted.");
             }
             if (sequence != Integer(run.View, "sequence") + 1) throw new HubError(409, $"Expected sequence {Integer(run.View, "sequence") + 1}.");
-            var view = Clone(run.View); view["lastSeen"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(); view["sequence"] = sequence; if (String(view, "status") == "stale") view["status"] = "active";
+            var received = DateTimeOffset.UtcNow; var now = received.ToUnixTimeMilliseconds(); var receipt = received.ToString("O");
+            var view = Clone(run.View); view["lastSeen"] = now; view["updatedAt"] = now; view["sequence"] = sequence; if (String(view, "status") == "stale") view["status"] = "active";
+            var componentTimes = view["componentTimes"] as JsonObject ?? new JsonObject(); if (view["componentTimes"] is null) view["componentTimes"] = componentTimes;
+            var taskTimes = view["taskTimes"] as JsonObject ?? new JsonObject(); if (view["taskTimes"] is null) view["taskTimes"] = taskTimes;
             var touched = new HashSet<string>(); var trimmed = 0;
             foreach (var n in operations)
             {
@@ -164,17 +208,18 @@ public sealed class Hub : IDisposable
                 var components = (JsonObject)view["components"]!;
                 switch (action)
                 {
-                    case "upsert": var component = Clone(ComponentValidator.Object(op["component"])); ComponentValidator.Validate(component); var cid = String(component, "id"); components[cid] = component; touched.Add(cid); break;
-                    case "remove": components.Remove(ComponentValidator.Id(op, "componentId")); break;
-                    case "clear": view["components"] = new JsonObject(); break;
+                    case "upsert": var component = Clone(ComponentValidator.Object(op["component"])); ComponentValidator.Validate(component); var cid = String(component, "id"); if (String(component, "kind") is "logs" or "timeline") ReceiptTimes((JsonArray)component["data"]![String(component, "kind") == "logs" ? "entries" : "events"]!, receipt); if (String(component, "kind") == "markdown") { var tasks = ObserveTasks(String((JsonObject)component["data"]!, "text"), taskTimes[cid] as JsonArray, now); if (tasks.Count > 0) taskTimes[cid] = tasks; else taskTimes.Remove(cid); } else taskTimes.Remove(cid); components[cid] = component; componentTimes[cid] = now; touched.Add(cid); break;
+                    case "remove": var removedId = ComponentValidator.Id(op, "componentId"); components.Remove(removedId); componentTimes.Remove(removedId); taskTimes.Remove(removedId); break;
+                    case "clear": view["components"] = new JsonObject(); componentTimes.Clear(); taskTimes.Clear(); break;
                     case "context": view["context"] = ComponentValidator.Text(op, "text", 8192); break;
-                    case "status": ComponentValidator.Choice(op, "status", ["active", "completed", "error"]); view["status"] = String(op, "status"); break;
+                    case "status": ComponentValidator.Choice(op, "status", ["active", "completed", "error"]); view["status"] = String(op, "status"); if (String(view, "status") == "completed" && view["completedAt"] is null) view["completedAt"] = now; break;
                     case "append":
                         var appendId = ComponentValidator.Id(op, "componentId"); var items = ComponentValidator.Array(op, "items", 512, 1);
                         if (components[appendId] is not JsonObject previous || String(previous, "kind") is not ("logs" or "timeline" or "table")) throw new HubError(400, "Append requires existing logs, timeline, or table.");
                         var field = String(previous, "kind") == "logs" ? "entries" : String(previous, "kind") == "timeline" ? "events" : "rows"; var limit = field == "events" ? 1000 : 2000;
-                        var data = (JsonObject)previous["data"]!; var all = ((JsonArray)data[field]!).Select(x => x?.DeepClone()).Concat(items.Select(x => x?.DeepClone())).ToList(); trimmed += Math.Max(0, all.Count - limit);
-                        data[field] = new JsonArray(all.TakeLast(limit).ToArray()); ComponentValidator.Validate(previous); touched.Add(appendId); break;
+                        var data = (JsonObject)previous["data"]!; var appended = new JsonArray(items.Select(x => x?.DeepClone()).ToArray()); if (field is "entries" or "events") ReceiptTimes(appended, receipt);
+                        var all = ((JsonArray)data[field]!).Select(x => x?.DeepClone()).Concat(appended.Select(x => x?.DeepClone())).ToList(); trimmed += Math.Max(0, all.Count - limit);
+                        data[field] = new JsonArray(all.TakeLast(limit).ToArray()); ComponentValidator.Validate(previous); componentTimes[appendId] = now; touched.Add(appendId); break;
                     default: throw new HubError(400, "Unsupported mutation operation.");
                 }
             }
@@ -270,6 +315,7 @@ public sealed class Hub : IDisposable
             if (!runs.TryGetValue(id, out var run)) { var existing = Scalar("SELECT summary FROM archives WHERE id=$p0", id) as string; return existing is not null ? Parse(existing) : throw new HubError(404, "Run unavailable."); }
             var raw = Encoding.UTF8.GetBytes(Serialize(run.View)); using var output = new MemoryStream(); using (var gzip = new GZipStream(output, CompressionLevel.SmallestSize, true)) gzip.Write(raw); var compressed = output.ToArray();
             var summary = new JsonObject { ["id"] = id, ["name"] = String(run.View, "name"), ["agentId"] = String(run.View, "agentId"), ["role"] = String(run.View, "role"), ["parentId"] = run.View["parentId"]?.DeepClone(), ["status"] = String(run.View, "status"), ["archivedAt"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), ["bytes"] = compressed.Length, ["rawBytes"] = raw.Length };
+            foreach (var field in new[] { "createdAt", "updatedAt", "completedAt" }) if (run.View[field] is { } timestamp) summary[field] = timestamp.DeepClone();
             var obstacles = EffectiveRoots().Where(r => r != run).Select(r => (JsonObject)r.View["layout"]!).ToList();
             var promoted = new List<(Run Run, JsonObject View)>();
             foreach (var child in runs.Values.Where(r => String(r.View, "parentId") == id)) { var view = Clone(child.View); var layout = InitialPosition((JsonObject)view["layout"]!, obstacles); view["layout"] = layout; obstacles.Add(layout); promoted.Add((child, view)); }

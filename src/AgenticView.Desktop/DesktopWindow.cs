@@ -12,15 +12,20 @@ internal sealed class DesktopWindow : Form
 {
     private readonly DesktopOptions options;
     private readonly BridgePolicy policy;
+    private readonly Icon brandIcon;
     private readonly WebView2 view = new() { Dock = DockStyle.Fill, DefaultBackgroundColor = Color.FromArgb(13, 17, 25) };
     private bool fullscreen = true;
     private bool documentReady;
+    private readonly bool traceInput = Environment.GetEnvironmentVariable("AV_INPUT_TRACE") == "1";
+    private int traceCount;
     private Rectangle normalBounds;
 
     public DesktopWindow(DesktopOptions options)
     {
         this.options = options;
         policy = new(options.Url);
+        brandIcon = BrandIcon.Create();
+        Icon = brandIcon;
         Text = "AgenticView";
         FormBorderStyle = FormBorderStyle.None;
         StartPosition = FormStartPosition.Manual;
@@ -64,6 +69,8 @@ internal sealed class DesktopWindow : Form
             core.PermissionRequested += (_, e) => e.State = CoreWebView2PermissionState.Deny;
             core.WebMessageReceived += (_, e) =>
             {
+                if (documentReady && traceInput && traceCount < 4096 && policy.TryReadInputTrace(e.Source, core.Source, e.WebMessageAsJson, out var input))
+                { traceCount++; Console.WriteLine("{\"event\":\"desktop-input\",\"trace\":" + input + "}"); return; }
                 if (documentReady && policy.TryReadAction(e.Source, core.Source, e.WebMessageAsJson, out var action))
                     BeginInvoke(() => { if (!IsDisposed && documentReady && policy.IsTrustedDocument(core.Source)) HandleAction(action); });
             };
@@ -77,6 +84,7 @@ internal sealed class DesktopWindow : Form
                 }
             };
             await core.AddScriptToExecuteOnDocumentCreatedAsync(policy.InitializationScript);
+            if (traceInput) await core.AddScriptToExecuteOnDocumentCreatedAsync("if(window===window.top){window.agenticViewInputTraceUntil=" + DateTimeOffset.UtcNow.AddMinutes(10).ToUnixTimeMilliseconds() + ";}");
             if (options.ViewerKeyFile is not null) await SignInLocalPreviewAsync(core);
             if (IsDisposed) return;
             core.Navigate(options.Url.AbsoluteUri);
@@ -154,6 +162,12 @@ internal sealed class DesktopWindow : Form
         if (!documentReady || view.CoreWebView2 is not { } core || !policy.IsTrustedDocument(core.Source)) return;
         var state = WindowState == FormWindowState.Minimized ? "minimized" : fullscreen ? "fullscreen" : WindowState == FormWindowState.Maximized ? "maximized" : "normal";
         core.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "agenticview:window-state", state }));
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) { Icon = null; brandIcon.Dispose(); }
+        base.Dispose(disposing);
     }
 
     protected override void WndProc(ref Message message)

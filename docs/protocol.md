@@ -31,6 +31,19 @@ These appear as subcards in the same agent card. Other operations:
 duplicate status, and trimmed count. Retry the identical batch and sequence after
 uncertain delivery. Conflicting retries return 409. Serialize writes per run.
 
+The server records Unix-millisecond `createdAt` (arrival), `updatedAt` (accepted
+content batch), and first `completedAt` timestamps. Heartbeats and layout changes
+do not change content times. `componentTimes` maps component IDs to last accepted
+update times. Missing log/timeline `time` values receive an ISO receipt time;
+agent-supplied times are preserved. Archives and live patches retain this metadata.
+
+Markdown `taskTimes` maps component IDs to observed task rows with stable text-based
+keys, current source `line`, `firstSeenAt`, `updatedAt`, and optional `startedAt`
+and `completedAt`. These are report observations, not inferred execution times.
+An initially checked row has no invented start; reopening starts a new observed
+interval. Fenced code is excluded. Ambiguous deeply indented rows use the component
+receipt time in the viewer. Each component is limited to 1,024 observed task rows.
+
 Send `POST /api/agents/{runId}/heartbeat` every 15 seconds. Use
 `POST /api/agents/{runId}/archive` to retire your card and preserve its current
 retained view. Archiving is idempotent. A completed status allows cleanup, and
@@ -66,7 +79,8 @@ occupied the requested location. Locked cards always retain position.
 Content interaction uses the viewer-only endpoint
 `POST /api/agents/{id}/layout/interaction` with
 `{"active":true,"leaseId":"opaque-view-id"}`. Renew every 10 seconds while contact
-continues; leases expire after 30 seconds. Send `active:false` on release. Admission,
+or selection continues; leases expire after 30 seconds. Send `active:false` once
+both contact and selection end. Admission,
 renewal and release are serialized per card. The response is
 `{active,leaseId,expiresAt}`, with a null expiry after release. These leases preserve
 geometry and layout flags, are independent of manual drag reservations, and release

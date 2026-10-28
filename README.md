@@ -20,6 +20,8 @@ opens a settings card in the world, including compressed archives.
 - Atomic sequenced batches, exact retries, incremental viewer updates, viewport
   culling, paginated tables, and windowed logs.
 - Persisted live state and gzip archives with inspection and export.
+- Immediate arrivals with a fading border, stable selection, status colors and
+  compact arrival, update, completion and task-list timestamps.
 - Separate viewer and registration keys, private run tokens, and parent proofs.
   Agents own cleanup; automatic archiving is optional and disabled by default.
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Archive, ArrowDownToLine, ArrowLeft, ArrowUpRight, Check, ChevronDown, ChevronRight, Circle, Copy, Focus, LayoutGrid, Link2, Lock, Maximize2, Minus, Plus, Radio, RotateCcw, Settings as Cog, Unlock, X, Zap } from 'lucide-react';
 import type { AgentView, ArchiveSummary, Layout, Patch, Settings, Snapshot } from '../shared/protocol.js';
@@ -10,6 +10,10 @@ import { gestureOwner, zoomTowardScale } from '../shared/interaction.js';
 import { isTaskList } from '../shared/component-order.js';
 import { CardSurface } from './CardSurface.js';
 import { WindowControls, windowCommand } from './WindowControls.js';
+import { installInputTrace } from './InputTrace.js';
+import { ArrivalTracker } from '../shared/arrivals.js';
+import { ArrivalHalo } from './ArrivalHalo.js';
+import { RunTimes } from './RunTimes.js';
 
 async function api<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const response = await fetch(path, { method, credentials: 'same-origin', headers: body === undefined ? undefined : { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -41,12 +45,12 @@ function Login({ complete }: { complete: () => void }) {
   return <div className="login-shell"><form className="login-card" onSubmit={async e => { e.preventDefault(); setBusy(true); try { await api('/api/login', 'POST', { token }); setToken(''); complete(); } catch (e) { setError(String((e as Error).message)); } finally { setBusy(false); } }}><div className="brand-mark"><Radio size={22} /></div><div className="eyebrow">YOUR AGENTS, IN VIEW</div><h1>AgenticView</h1><p>Connect to your private observability canvas.</p><label htmlFor="token">Installation access token</label><input id="token" type="password" autoComplete="current-password" value={token} onChange={e => setToken(e.target.value)} autoFocus required placeholder="Enter your viewer token" />{error && <div className="form-error" role="alert">{error}</div>}<button className="primary" disabled={busy}>{busy ? 'Connecting…' : 'Open canvas'}<ArrowUpRight size={16} /></button><small>Credentials stay in your installation.</small></form><div className="login-grid" /></div>;
 }
 
-export function AgentContent({ agent, agents, settings, depth = 0 }: { agent: AgentView; agents: AgentView[]; settings: Settings; depth?: number }) {
+export function AgentContent({ agent, agents, settings, depth = 0, arrivals }: { agent: AgentView; agents: AgentView[]; settings: Settings; depth?: number; arrivals?: ArrivalTracker }) {
   const [error, setError] = useState('');
   const children = depth < 12 ? agents.filter(a => a.parentId === agent.id && a.id !== agent.id) : [];
   const components = Object.values(agent.components), plans = components.filter(isTaskList), evidence = components.filter(c => !isTaskList(c));
-  const render = (c: typeof components[number]) => <ComponentView key={c.id} component={c} embeds={settings.trustedEmbeds} runId={agent.id} />;
-  return <>{plans.map(render)}{error && <div className="form-error" role="alert">{error}</div>}{agent.context && <p className="agent-context">{agent.context}</p>}{children.length > 0 && <div className="children"><div className="section-label">CHILD AGENTS <span>{children.length}</span></div>{children.map(child => <article className="child-card" key={child.id}><header><span className={`status-dot ${child.status}`} /><strong>{child.name}</strong><span>{child.role}</span><button className="icon-button" title="Archive child agent" onClick={() => api(`/api/agents/${encodeURIComponent(child.id)}/archive`, 'POST', {}).catch(e => setError(e.message))}><Archive size={13} /></button></header><div className="child-body"><AgentContent agent={child} agents={agents} settings={settings} depth={depth + 1} /></div></article>)}</div>}{evidence.map(render)}{!components.length && !children.length && <div className="waiting"><Radio size={18} /><span>Waiting for agent updates</span><small>Components appear here as they arrive.</small></div>}</>;
+  const render = (c: typeof components[number]) => <ComponentView key={c.id} component={c} embeds={settings.trustedEmbeds} runId={agent.id} updatedAt={agent.componentTimes?.[c.id]} taskTimes={agent.taskTimes?.[c.id]} />;
+  return <>{plans.map(render)}{error && <div className="form-error" role="alert">{error}</div>}{agent.context && <p className="agent-context">{agent.context}</p>}{children.length > 0 && <div className="children"><div className="section-label">CHILD AGENTS <span>{children.length}</span></div>{children.map(child => <article className={`child-card status-${child.status}`} key={child.id}><ArrivalHalo id={child.id} tracker={arrivals} /><header><span className={`status-dot ${child.status}`} /><strong>{child.name}</strong><span>{child.role}</span><button className={`icon-button ${child.status === 'completed' ? 'archive-completed' : ''}`} title={child.status === 'completed' ? 'Task completed — archive card' : 'Archive child agent'} onClick={() => api(`/api/agents/${encodeURIComponent(child.id)}/archive`, 'POST', {}).catch(e => setError(e.message))}><Archive size={13} />{child.status === 'completed' && <span>Archive</span>}</button></header><div className="child-body"><AgentContent agent={child} agents={agents} settings={settings} depth={depth + 1} arrivals={arrivals} /></div><footer className="child-times"><RunTimes agent={child} /></footer></article>)}</div>}{evidence.map(render)}{!components.length && !children.length && <div className="waiting"><Radio size={18} /><span>Waiting for agent updates</span><small>Components appear here as they arrive.</small></div>}</>;
 }
 
 function SettingsBody({ settings, save, stats, report }: { settings: Settings; save: (s: Settings) => Promise<void>; stats: Snapshot['stats']; report: (s: string) => void }) {
@@ -64,14 +68,22 @@ function SettingsBody({ settings, save, stats, report }: { settings: Settings; s
 
 export function App() { return <><WindowControls /><Monitor /></>; }
 function Monitor() {
-  const [auth, setAuth] = useState<boolean | null>(null), [snapshot, setSnapshot] = useState<Snapshot>(empty), [online, setOnline] = useState(false), [notice, setNotice] = useState('');
+  const [auth, setAuth] = useState<boolean | null>(null), [snapshot, setSnapshot] = useState<Snapshot>(empty), [snapshotReady, setSnapshotReady] = useState(false), [online, setOnline] = useState(false), [notice, setNotice] = useState('');
   const [camera, setCamera] = useState<Camera>({ x: 72, y: 86, zoom: 1 }), [size, setSize] = useState({ width: innerWidth, height: innerHeight }), [settingsRect, setSettingsRect] = useState<Rect | null>(null), [layouts, setLayouts] = useState<Record<string, Layout>>({}), [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const [arrival, setArrival] = useState<{ id: string; name: string } | null>(null), [packing, setPacking] = useState(false);
+  const [packing, setPacking] = useState(false), arrivals = useRef(new ArrivalTracker());
   const [activeCard, setActiveCard] = useState<string | null>(null), activeCardRef = useRef<string | null>(null), spaceHeld = useRef(false);
   const cardCameras = useRef(new Map<string, Camera>());
   const touchPoints = useRef(new Map<number, { x: number; y: number; card: string | null }>());
-  function activateCard(id: string | null) { if (id) followAll.current = false; activeCardRef.current = id; setActiveCard(id); }
-  const followAll = useRef(true), knownRoots = useRef(new Set<string>());
+  function activateCard(id: string | null) {
+    const previous = activeCardRef.current; activeCardRef.current = id; setActiveCard(id);
+    if (previous && previous !== id) {
+      leaseInteraction(previous, contentInteractions.current.has(previous));
+      const height = pendingContentHeights.current.get(previous);
+      if (height !== undefined) requestAnimationFrame(() => growContent(previous, height));
+    }
+    if (id) leaseInteraction(id, true);
+    if (previous !== id) setInteractionRevision(revision => revision + 1);
+  }
   const manualWrites = useRef(new Map<string, Promise<Layout>>());
   const canvasElement = useRef<HTMLDivElement>(null), touches = useRef(new TouchViewport()), touchIntent = useRef<TouchIntent | null>(null), suppressClickUntil = useRef(0), lastTap = useRef<{ id: string; at: number; x: number; y: number } | null>(null), mouseCleanup = useRef<(() => void) | null>(null);
   const activeDrag = useRef<string | null>(null), remoteLayouts = useRef<Record<string, string>>({});
@@ -82,6 +94,8 @@ function Monitor() {
   const cameraRef = useRef(camera), layoutRef = useRef(layouts), snapshotRef = useRef(snapshot), settingsRef = useRef(settingsRect);
   cameraRef.current = camera; layoutRef.current = layouts; snapshotRef.current = snapshot; settingsRef.current = settingsRect;
   const report = useCallback((message: string) => { setNotice(message); }, []);
+  useEffect(() => installInputTrace(), []);
+  useEffect(() => () => { const ids = new Set([...contentInteractions.current, ...(activeCardRef.current ? [activeCardRef.current] : [])]); activeCardRef.current = null; contentInteractions.current.clear(); for (const id of ids) leaseInteraction(id, false); }, []);
   useEffect(() => { if (!notice) return; const id = setTimeout(() => setNotice(''), 6000); return () => clearTimeout(id); }, [notice]);
   useEffect(() => { const unauthorized = () => setAuth(false); addEventListener('agenticview:unauthorized', unauthorized); api<{ authenticated: boolean }>('/api/session').then(s => setAuth(s.authenticated)).catch(() => setAuth(false)); const resize = () => setSize({ width: innerWidth, height: innerHeight }); addEventListener('resize', resize); return () => { removeEventListener('resize', resize); removeEventListener('agenticview:unauthorized', unauthorized); }; }, []);
   useEffect(() => {
@@ -90,18 +104,20 @@ function Monitor() {
     const events = new EventSource('/api/events');
     events.onopen = () => setOnline(true);
     events.onerror = () => setOnline(false);
-    events.addEventListener('snapshot', event => { const s = JSON.parse((event as MessageEvent).data) as Snapshot; if (alive) setSnapshot(s); });
+    events.addEventListener('snapshot', event => { const s = JSON.parse((event as MessageEvent).data) as Snapshot; if (alive) { setSnapshot(s); setSnapshotReady(true); } });
     events.addEventListener('patch', event => { if (!alive) return; const patch = JSON.parse((event as MessageEvent).data) as Patch; setSnapshot(old => applyLivePatch(old, patch)); });
     return () => { alive = false; events.close(); };
   }, [auth, report]);
   const roots = rootAgents(snapshot.agents);
-  useEffect(() => { const ids = new Set(snapshot.agents.map(agent => agent.id)); ids.add('settings'); for (const id of cardCameras.current.keys()) if (!ids.has(id)) cardCameras.current.delete(id); for (const id of pendingContentHeights.current.keys()) if (!ids.has(id)) pendingContentHeights.current.delete(id); }, [snapshot.agents]);
+  const agentIds = snapshot.agents.map(agent => agent.id).join('|');
+  useLayoutEffect(() => { if (snapshotReady) arrivals.current.sync(snapshot.agents.map(agent => agent.id)); }, [agentIds, snapshotReady]);
+  useEffect(() => { const ids = new Set(snapshot.agents.map(agent => agent.id)); ids.add('settings'); for (const id of cardCameras.current.keys()) if (!ids.has(id)) cardCameras.current.delete(id); for (const id of pendingContentHeights.current.keys()) if (!ids.has(id)) pendingContentHeights.current.delete(id); if (activeCardRef.current && !ids.has(activeCardRef.current)) activateCard(null); }, [snapshot.agents]);
   const movableCount = roots.filter(agent => !agent.layout.locked).length;
   const layoutSignature = roots.map(a => `${a.id}:${JSON.stringify(a.layout)}`).join('|');
   useEffect(() => {
     const previous = layoutRef.current, next: Record<string, Layout> = {}, occupied: Rect[] = [];
     // The ephemeral settings card yields to agent geometry, including locked cards.
-    const held = (id: string) => activeDrag.current === id || contentInteractions.current.has(id);
+    const held = (id: string) => activeDrag.current === id || contentInteractions.current.has(id) || activeCardRef.current === id;
     for (const a of [...roots].sort((a, b) => Number(held(b.id)) - Number(held(a.id)) || Number(b.layout.locked) - Number(a.layout.locked))) {
       const existing = previous[a.id], remote = JSON.stringify(a.layout), changed = remoteLayouts.current[a.id] !== remote;
       const proposed = held(a.id) ? existing ?? a.layout : changed ? a.layout : existing ?? a.layout;
@@ -111,25 +127,17 @@ function Monitor() {
       if (placed.x !== proposed.x || placed.y !== proposed.y) persist(a.id, next[a.id]!);
     }
     layoutRef.current = next; setLayouts(next);
-    const added = roots.filter(agent => !knownRoots.current.has(agent.id));
-    knownRoots.current = new Set(roots.map(agent => agent.id));
     if (settingsRef.current && !held('settings')) {
       const settings = findFreePosition(settingsRef.current, occupied);
       if (settings.x !== settingsRef.current.x || settings.y !== settingsRef.current.y) { settingsRef.current = settings; setSettingsRect(settings); }
-    }
-    if (followAll.current && roots.length) { applyCamera(fitToViewport([...Object.values(next), ...(settingsRef.current ? [settingsRef.current] : [])], size), true); setArrival(null); }
-    else {
-      const camera = cameraRef.current, visible = { x: -camera.x / camera.zoom, y: -camera.y / camera.zoom, width: size.width / camera.zoom, height: size.height / camera.zoom };
-      const outside = added.filter(agent => !isVisible(next[agent.id]!, visible));
-      if (outside.length) { const agent = outside[outside.length - 1]!; setArrival({ id: agent.id, name: agent.name }); }
-      else setArrival(current => current && next[current.id] ? current : null);
     }
   }, [layoutSignature, size.width, size.height, interactionRevision]);
   function leaseInteraction(id: string, active: boolean) {
     if (id === 'settings') return;
     const previous = interactionWrites.current.get(id) ?? Promise.resolve();
     const next = previous.catch(() => {}).then(async () => {
-      if (contentInteractions.current.has(id) !== active) return;
+      if ((contentInteractions.current.has(id) || activeCardRef.current === id) !== active) return;
+      if (!snapshotRef.current.agents.some(agent => agent.id === id)) return;
       await api(`/api/agents/${encodeURIComponent(id)}/layout/interaction`, 'POST', { active, leaseId: interactionLeaseId });
     }).catch(error => report(error.message)).finally(() => { if (interactionWrites.current.get(id) === next) interactionWrites.current.delete(id); });
     interactionWrites.current.set(id, next);
@@ -137,17 +145,16 @@ function Monitor() {
   function contentInteraction(id: string, active: boolean) {
     if (active === contentInteractions.current.has(id)) return;
     if (active) {
-      followAll.current = false; contentInteractions.current.add(id);
+      contentInteractions.current.add(id);
     } else {
       contentInteractions.current.delete(id);
       const height = pendingContentHeights.current.get(id); if (height !== undefined) requestAnimationFrame(() => growContent(id, height));
     }
-    leaseInteraction(id, active);
+    leaseInteraction(id, active || activeCardRef.current === id);
     setInteractionRevision(revision => revision + 1);
   }
   function obstacles(id?: string): Rect[] { return [...Object.entries(layoutRef.current).filter(([key]) => key !== id).map(([, value]) => value), ...(settingsRef.current && id !== 'settings' ? [settingsRef.current] : [])]; }
   function reserveManual(id: string) {
-    followAll.current = false;
     if (id === 'settings' || manualWrites.current.has(id)) return;
     const request = api<Layout>(`/api/agents/${encodeURIComponent(id)}/layout/manual`, 'POST', {}); manualWrites.current.set(id, request);
     void request.catch(error => report(error.message));
@@ -162,12 +169,12 @@ function Monitor() {
   function growContent(id: string, contentHeight: number) {
     const current = layoutRef.current[id];
     if (!current || current.sizing !== 'content' || activeDrag.current === id) return;
-    if (contentInteractions.current.has(id)) { pendingContentHeights.current.set(id, contentHeight); return; }
+    if (contentInteractions.current.has(id) || activeCardRef.current === id) { pendingContentHeights.current.set(id, contentHeight); return; }
     pendingContentHeights.current.delete(id);
     const height = Math.max(240, Math.min(1600, Math.ceil(contentHeight + 125)));
     if (Math.abs(height - current.height) < 2) return;
     const available = obstacles(id);
-    const resized = current.locked ? resizeWithoutOverlap(current, { width: current.width, height }, available) : findFreePosition({ ...current, height }, available);
+    const resized = current.locked || activeCardRef.current === id ? resizeWithoutOverlap(current, { width: current.width, height }, available) : findFreePosition({ ...current, height }, available);
     if (Math.abs(resized.height - current.height) < 1 && resized.x === current.x && resized.y === current.y) return;
     commitLayout(id, { ...current, ...resized });
   }
@@ -197,7 +204,7 @@ function Monitor() {
     const step = e.shiftKey ? 80 : 20;
     const width = Math.max(320, Math.min(1600, current.width + (e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0)));
     const height = Math.max(240, Math.min(1600, current.height + (e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0)));
-    followAll.current = false; commitLayout(id, { ...current, ...resizeWithoutOverlap(current, { width, height }, obstacles(id)), sizing: 'fixed', automatic: false });
+    commitLayout(id, { ...current, ...resizeWithoutOverlap(current, { width, height }, obstacles(id)), sizing: 'fixed', automatic: false });
   }
   function dragCard(e: React.PointerEvent<HTMLElement>, id: string) {
     if (e.button !== 0 || e.pointerType === 'touch' || activeCardRef.current !== id || spaceHeld.current || e.altKey || (e.target as HTMLElement).closest('button,a,input')) return;
@@ -233,17 +240,17 @@ function Monitor() {
     if (id && activeCardRef.current !== id) { activateCard(id); e.preventDefault(); e.stopPropagation(); }
     else if (!id) activateCard(null);
   }
-  function applyCamera(next: Camera, following = false, card?: string) { if (activeDrag.current) { const id = activeDrag.current; mouseCleanup.current?.(); if (id !== 'settings' && layoutRef.current[id]) persist(id, layoutRef.current[id]!); activeDrag.current = null; touchIntent.current = null; } dispatchEvent(new CustomEvent('agenticview:canvas-navigation', { detail: { card } })); followAll.current = following; cameraRef.current = next; setCamera(next); }
-  function panCardEdge(id: string, x: number, y: number) { const c = cameraRef.current; applyCamera({ ...c, x: c.x - x, y: c.y - y }, false, id); }
-  function zoomBeforeCard(id: string, factor: number, anchor: { x: number; y: number }) { const result = zoomTowardScale(cameraRef.current, 2, factor, anchor); if (result.remaining !== factor) applyCamera(result.camera, false, id); return result.remaining; }
-  function zoomPastCard(id: string, factor: number, anchor: { x: number; y: number }) { applyCamera(zoomAt(cameraRef.current, factor, anchor), false, id); }
+  function applyCamera(next: Camera, card?: string) { if (activeDrag.current) { const id = activeDrag.current; mouseCleanup.current?.(); if (id !== 'settings' && layoutRef.current[id]) persist(id, layoutRef.current[id]!); activeDrag.current = null; touchIntent.current = null; } dispatchEvent(new CustomEvent('agenticview:canvas-navigation', { detail: { card } })); cameraRef.current = next; setCamera(next); }
+  function panCardEdge(id: string, x: number, y: number) { const c = cameraRef.current; applyCamera({ ...c, x: c.x - x, y: c.y - y }, id); }
+  function zoomBeforeCard(id: string, factor: number, anchor: { x: number; y: number }) { const result = zoomTowardScale(cameraRef.current, 2, factor, anchor); if (result.remaining !== factor) applyCamera(result.camera, id); return result.remaining; }
+  function zoomPastCard(id: string, factor: number, anchor: { x: number; y: number }) { applyCamera(zoomAt(cameraRef.current, factor, anchor), id); }
   function zoom(amount: number, at = { x: size.width / 2, y: size.height / 2 }) { applyCamera(zoomAt(cameraRef.current, amount, at)); }
   function resetZoom() { zoom(1 / cameraRef.current.zoom); }
-  function fit() { setArrival(null); applyCamera(fitToViewport([...Object.values(layoutRef.current), ...(settingsRef.current ? [settingsRef.current] : [])], size), true); }
-  function focusCard(id: string) { const rect = id === 'settings' ? settingsRef.current : layoutRef.current[id]; if (rect) { setArrival(null); applyCamera(fitToViewport([rect], size, 80)); } }
+  function fit() { applyCamera(fitToViewport([...Object.values(layoutRef.current), ...(settingsRef.current ? [settingsRef.current] : [])], size)); }
+  function focusCard(id: string) { const rect = id === 'settings' ? settingsRef.current : layoutRef.current[id]; if (rect) applyCamera(fitToViewport([rect], size, 80)); }
   async function arrangeAll() { setPacking(true); try { const result = await api<{ arranged: number }>('/api/layout/pack', 'POST', { mode: 'all', aspectRatio: Math.max(.3, Math.min(4, (size.width - 120) / Math.max(100, size.height - 160))) }); fit(); report(`Arranged ${result.arranged} cards. Locked positions preserved.`); } catch (error) { report((error as Error).message); } finally { setPacking(false); } }
   function openSettings() { if (settingsRect) { activateCard(null); setSettingsRect(null); return; } activateCard('settings'); const c = { ...cameraRef.current, zoom: Math.max(.8, cameraRef.current.zoom) }; const placed = findFreePosition({ x: (size.width / 2 - c.x) / c.zoom - 290, y: (size.height / 2 - c.y) / c.zoom - 290, width: 580, height: 610 }, obstacles()); setSettingsRect(placed); setCamera({ ...c, x: size.width / 2 - (placed.x + placed.width / 2) * c.zoom, y: size.height / 2 - (placed.y + placed.height / 2) * c.zoom }); }
-  function keyboard(e: React.KeyboardEvent, id: string) { if (e.target !== e.currentTarget) return; if (e.key === 'Enter' && activeCardRef.current !== id) { e.preventDefault(); e.stopPropagation(); activateCard(id); return; } if (activeCardRef.current !== id) return; if (e.key === 'Enter') { e.preventDefault(); focusCard(id); return; } if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return; const r = layoutRef.current[id]; if (!r || r.locked) return; e.preventDefault(); e.stopPropagation(); const d = e.shiftKey ? 80 : 20; const moved = moveWithoutOverlap(r, { x: r.x + (e.key === 'ArrowLeft' ? -d : e.key === 'ArrowRight' ? d : 0), y: r.y + (e.key === 'ArrowUp' ? -d : e.key === 'ArrowDown' ? d : 0) }, obstacles(id)); followAll.current = false; const next = { ...r, ...moved, automatic: false }; setLayouts(p => ({ ...p, [id]: next })); persist(id, next); }
+  function keyboard(e: React.KeyboardEvent, id: string) { if (e.target !== e.currentTarget) return; if (e.key === 'Enter' && activeCardRef.current !== id) { e.preventDefault(); e.stopPropagation(); activateCard(id); return; } if (activeCardRef.current !== id) return; if (e.key === 'Enter') { e.preventDefault(); focusCard(id); return; } if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return; const r = layoutRef.current[id]; if (!r || r.locked) return; e.preventDefault(); e.stopPropagation(); const d = e.shiftKey ? 80 : 20; const moved = moveWithoutOverlap(r, { x: r.x + (e.key === 'ArrowLeft' ? -d : e.key === 'ArrowRight' ? d : 0), y: r.y + (e.key === 'ArrowUp' ? -d : e.key === 'ArrowDown' ? d : 0) }, obstacles(id)); const next = { ...r, ...moved, automatic: false }; setLayouts(p => ({ ...p, [id]: next })); persist(id, next); }
   function canvasKeyboard(e: React.KeyboardEvent) {
     if (e.defaultPrevented) return;
     if (e.key === 'Escape' && activeCardRef.current) { e.preventDefault(); activateCard(null); return; }
@@ -337,16 +344,16 @@ function Monitor() {
     };
     const clear = () => { const id = activeDrag.current; if (id && id !== 'settings' && layoutRef.current[id]) persist(id, layoutRef.current[id]!); touches.current.clear(); touchPoints.current.clear(); touchIntent.current = null; activeDrag.current = null; spaceHeld.current = false; mouseCleanup.current?.(); };
     const key = (event: KeyboardEvent) => { if (event.code === 'Space' && (event.type === 'keyup' || !(event.target instanceof Element) || !event.target.closest('input,textarea,select,button,[contenteditable=true]'))) { spaceHeld.current = event.type === 'keydown'; if (spaceHeld.current) { event.preventDefault(); dispatchEvent(new Event('agenticview:canvas-navigation')); } } };
-    const leaseTimer = setInterval(() => { for (const id of contentInteractions.current) leaseInteraction(id, true); const id = activeDrag.current; if (id && id !== 'settings') void api('/api/agents/' + encodeURIComponent(id) + '/layout/manual', 'POST', {}).catch(error => report(error.message)); }, 10_000); element.addEventListener('wheel', wheel, { passive: false, capture: true }); window.addEventListener('blur', clear); window.addEventListener('keydown', key); window.addEventListener('keyup', key);
+    const leaseTimer = setInterval(() => { for (const id of new Set([...contentInteractions.current, ...(activeCardRef.current ? [activeCardRef.current] : [])])) leaseInteraction(id, true); const id = activeDrag.current; if (id && id !== 'settings') void api('/api/agents/' + encodeURIComponent(id) + '/layout/manual', 'POST', {}).catch(error => report(error.message)); }, 10_000); element.addEventListener('wheel', wheel, { passive: false, capture: true }); window.addEventListener('blur', clear); window.addEventListener('keydown', key); window.addEventListener('keyup', key);
     return () => { clearInterval(leaseTimer); element.removeEventListener('wheel', wheel, true); window.removeEventListener('blur', clear); window.removeEventListener('keydown', key); window.removeEventListener('keyup', key); clear(); };
   }, [auth, size.width, size.height]);
   if (auth === null) return <div className="boot"><Radio size={22} /><span>Connecting to AgenticView</span></div>;
   if (!auth) return <Login complete={() => setAuth(true)} />;
   const viewport: Rect = { x: -camera.x / camera.zoom - 150, y: -camera.y / camera.zoom - 150, width: size.width / camera.zoom + 300, height: size.height / camera.zoom + 300 };
   return <main className={`app ${snapshot.settings.reducedMotion ? 'reduced-motion' : ''}`}><div ref={canvasElement} className="canvas" tabIndex={0} onKeyDown={canvasKeyboard} onPointerDownCapture={canvasPointerDown} onPointerMoveCapture={touchMove} onPointerUpCapture={e => touchEnd(e, false)} onPointerCancelCapture={e => touchEnd(e, true)} onClickCapture={canvasClick} onPointerDown={pan} style={{ backgroundPosition: `${camera.x}px ${camera.y}px`, backgroundSize: `${Math.max(12, 24 * camera.zoom)}px ${Math.max(12, 24 * camera.zoom)}px`, backgroundImage: camera.zoom < .1 ? 'none' : undefined }} aria-label="Agent canvas. Drag the background to pan. Use zoom controls to navigate.">
-    <div className="world" style={{ transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})` }}>{roots.map(agent => { const layout = layouts[agent.id]; if (!layout || !isVisible(layout, viewport) && !contentInteractions.current.has(agent.id) && activeDrag.current !== agent.id) return null; const isCollapsed = collapsed.has(agent.id); return <article className={`world-card agent-card ${layout.locked ? 'locked' : ''} ${activeCard === agent.id ? 'is-active' : ''}`} key={agent.id} data-card-id={agent.id} title={`${agent.name} · double-click or double-tap to focus`} onDoubleClick={e => { if (!(e.target as HTMLElement).closest('button,a,input,select,textarea')) focusCard(agent.id); }} style={{ left: layout.x, top: layout.y, width: layout.width, height: isCollapsed ? 68 : layout.height, zIndex: layout.z }}><header className="card-header" onPointerDown={e => dragCard(e, agent.id)} onKeyDown={e => keyboard(e, agent.id)} tabIndex={0} aria-label={`${agent.name}, ${activeCard === agent.id ? layout.locked ? 'locked' : 'use arrow keys to move' : 'press Enter to activate'}`}><span className={`status-dot ${agent.status}`} /><div className="agent-title"><strong>{agent.name}</strong><span>{agent.role}</span></div><div className="card-actions"><button className="icon-button" title={layout.sizing === 'content' ? 'Use fixed size' : 'Grow with content'} aria-label="Grow with content" aria-pressed={layout.sizing === 'content'} onClick={() => commitLayout(agent.id, { ...layout, sizing: layout.sizing === 'content' ? 'fixed' : 'content' })}><Maximize2 size={14} /></button><button className="icon-button" title={layout.locked ? 'Unlock position' : 'Lock position'} aria-pressed={layout.locked} onClick={() => { const next = { ...layout, locked: !layout.locked }; setLayouts(p => ({ ...p, [agent.id]: next })); persist(agent.id, next); }}>{layout.locked ? <Lock size={14} /> : <Unlock size={14} />}</button><button className="icon-button" title={isCollapsed ? 'Expand agent' : 'Collapse agent'} aria-expanded={!isCollapsed} onClick={() => setCollapsed(p => { const next = new Set(p); next.has(agent.id) ? next.delete(agent.id) : next.add(agent.id); return next; })}>{isCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}</button><button className="icon-button" title="Archive agent" onClick={() => api(`/api/agents/${encodeURIComponent(agent.id)}/archive`, 'POST', {}).catch(e => report(e.message))}><Archive size={14} /></button></div></header>{!isCollapsed && <CardSurface id={agent.id} onInteractionChange={active => contentInteraction(agent.id, active)} store={cardCameras.current} active={activeCard === agent.id} deactivate={() => activateCard(null)} canvasOwnsPointer={id => touches.current.pointers.has(id)} forceCanvas={() => spaceHeld.current} panPastEdge={(x, y) => panCardEdge(agent.id, x, y)} canvasCamera={camera} getCanvasCamera={() => cameraRef.current} getCanvasBounds={() => canvasElement.current!.getBoundingClientRect()} zoomBeforeCard={(factor, anchor) => zoomBeforeCard(agent.id, factor, anchor)} zoomPastCard={(factor, anchor) => zoomPastCard(agent.id, factor, anchor)}><MeasuredContent watch={layout.sizing} onHeight={height => growContent(agent.id, height)}><AgentContent agent={agent} agents={snapshot.agents} settings={snapshot.settings} /></MeasuredContent></CardSurface>}<footer className="card-footer"><span>{agent.status === 'active' ? 'LIVE' : agent.status.toUpperCase()}</span><code title={agent.id}>{agent.agentId}</code><span className="sizing-label">{layout.sizing === 'content' ? 'CONTENT' : 'FIXED'}</span>{layout.locked && <Lock size={10} />}</footer>{!isCollapsed && <button className="resize-handle" title="Drag to resize - arrow keys adjust dimensions" aria-label={`Resize ${agent.name}. Use arrow keys to adjust width and height.`} onPointerDown={e => resizeCard(e, agent.id)} onKeyDown={e => resizeKeyboard(e, agent.id)}><span /></button>}</article>; })}
+    <div className="world" style={{ transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})` }}>{roots.map(agent => { const layout = layouts[agent.id]; if (!layout || !isVisible(layout, viewport) && !contentInteractions.current.has(agent.id) && activeDrag.current !== agent.id) return null; const isCollapsed = collapsed.has(agent.id); return <article className={`world-card agent-card status-${agent.status} ${layout.locked ? 'locked' : ''} ${activeCard === agent.id ? 'is-active' : ''}`} key={agent.id} data-card-id={agent.id} title={`${agent.name} · double-click or double-tap to focus`} onDoubleClick={e => { if (!(e.target as HTMLElement).closest('button,a,input,select,textarea')) focusCard(agent.id); }} style={{ left: layout.x, top: layout.y, width: layout.width, height: isCollapsed ? 68 : layout.height, zIndex: layout.z }}><ArrivalHalo id={agent.id} tracker={arrivals.current} /><header className="card-header" onPointerDown={e => dragCard(e, agent.id)} onKeyDown={e => keyboard(e, agent.id)} tabIndex={0} aria-label={`${agent.name}, ${activeCard === agent.id ? layout.locked ? 'locked' : 'use arrow keys to move' : 'press Enter to activate'}`}><span className={`status-dot ${agent.status}`} /><div className="agent-title"><strong>{agent.name}</strong><span>{agent.role}</span></div><div className="card-actions"><button className="icon-button" title={layout.sizing === 'content' ? 'Use fixed size' : 'Grow with content'} aria-label="Grow with content" aria-pressed={layout.sizing === 'content'} onClick={() => commitLayout(agent.id, { ...layout, sizing: layout.sizing === 'content' ? 'fixed' : 'content' })}><Maximize2 size={14} /></button><button className="icon-button" title={layout.locked ? 'Unlock position' : 'Lock position'} aria-pressed={layout.locked} onClick={() => { const next = { ...layout, locked: !layout.locked }; setLayouts(p => ({ ...p, [agent.id]: next })); persist(agent.id, next); }}>{layout.locked ? <Lock size={14} /> : <Unlock size={14} />}</button><button className="icon-button" title={isCollapsed ? 'Expand agent' : 'Collapse agent'} aria-expanded={!isCollapsed} onClick={() => setCollapsed(p => { const next = new Set(p); next.has(agent.id) ? next.delete(agent.id) : next.add(agent.id); return next; })}>{isCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}</button><button className={`icon-button ${agent.status === 'completed' ? 'archive-completed' : ''}`} title={agent.status === 'completed' ? 'Task completed — archive card' : 'Archive agent'} onClick={() => api(`/api/agents/${encodeURIComponent(agent.id)}/archive`, 'POST', {}).catch(e => report(e.message))}><Archive size={14} />{agent.status === 'completed' && <span>Archive</span>}</button></div></header>{!isCollapsed && <CardSurface id={agent.id} onInteractionChange={active => contentInteraction(agent.id, active)} store={cardCameras.current} active={activeCard === agent.id} deactivate={() => activateCard(null)} canvasOwnsPointer={id => touches.current.pointers.has(id)} forceCanvas={() => spaceHeld.current} panPastEdge={(x, y) => panCardEdge(agent.id, x, y)} canvasCamera={camera} getCanvasCamera={() => cameraRef.current} getCanvasBounds={() => canvasElement.current!.getBoundingClientRect()} zoomBeforeCard={(factor, anchor) => zoomBeforeCard(agent.id, factor, anchor)} zoomPastCard={(factor, anchor) => zoomPastCard(agent.id, factor, anchor)}><MeasuredContent watch={layout.sizing} onHeight={height => growContent(agent.id, height)}><AgentContent agent={agent} agents={snapshot.agents} settings={snapshot.settings} arrivals={arrivals.current} /></MeasuredContent></CardSurface>}<footer className="card-footer"><span>{agent.status === 'active' ? 'LIVE' : agent.status.toUpperCase()}</span><code title={agent.id}>{agent.agentId}</code><RunTimes agent={agent} /><span className="sizing-label">{layout.sizing === 'content' ? 'CONTENT' : 'FIXED'}</span>{layout.locked && <Lock size={10} />}</footer>{!isCollapsed && <button className="resize-handle" title="Drag to resize - arrow keys adjust dimensions" aria-label={`Resize ${agent.name}. Use arrow keys to adjust width and height.`} onPointerDown={e => resizeCard(e, agent.id)} onKeyDown={e => resizeKeyboard(e, agent.id)}><span /></button>}</article>; })}
     {settingsRect && (isVisible(settingsRect, viewport) || contentInteractions.current.has('settings') || activeDrag.current === 'settings') && <article className={`world-card settings-card ${activeCard === 'settings' ? 'is-active' : ''}`} data-card-id="settings" onDoubleClick={e => { if (!(e.target as HTMLElement).closest('button,a,input,select,textarea')) focusCard('settings'); }} style={{ left: settingsRect.x, top: settingsRect.y, width: settingsRect.width, height: settingsRect.height, zIndex: 100000 }}><header className="card-header" onPointerDown={e => dragCard(e, 'settings')}><div className="settings-icon"><Cog size={17} /></div><div className="agent-title"><strong>Workspace settings</strong><span>Your installation, your rules</span></div><button className="icon-button" title="Close settings" onClick={() => setSettingsRect(null)}><X size={17} /></button></header><CardSurface id="settings" onInteractionChange={active => contentInteraction('settings', active)} store={cardCameras.current} active={activeCard === 'settings'} deactivate={() => activateCard(null)} canvasOwnsPointer={id => touches.current.pointers.has(id)} forceCanvas={() => spaceHeld.current} panPastEdge={(x, y) => panCardEdge('settings', x, y)} canvasCamera={camera} getCanvasCamera={() => cameraRef.current} getCanvasBounds={() => canvasElement.current!.getBoundingClientRect()} zoomBeforeCard={(factor, anchor) => zoomBeforeCard('settings', factor, anchor)} zoomPastCard={(factor, anchor) => zoomPastCard('settings', factor, anchor)}><SettingsBody settings={snapshot.settings} stats={snapshot.stats} save={async settings => { await api('/api/settings', 'PUT', settings); setSnapshot(s => ({ ...s, settings })); }} report={report} /></CardSurface></article>}
     </div></div>{createPortal(<div className="viewport-hud"><header className="topbar chrome" onPointerDown={e => { if (e.button === 0 && !(e.target as Element).closest('button,a,input')) windowCommand('drag'); }} onDoubleClick={e => { if (!(e.target as Element).closest('button,a,input')) windowCommand('maximize'); }}><a className="brand" href="/" aria-label="AgenticView"><Radio size={19} /><span>Agentic<span>View</span></span><small>LOCAL</small></a><div className="connection-status"><i className={online ? 'connected' : ''} />{online ? 'Connected' : 'Reconnecting'}<span className="topbar-divider" />{snapshot.stats.active} active{snapshot.stats.updatesPerSecond > 0 && <span className="update-rate">{snapshot.stats.updatesPerSecond.toFixed(1)} updates/s</span>}</div></header>
-    <div className="bottom-left chrome"><button className={`settings-toggle ${settingsRect ? 'active' : ''}`} title="Workspace settings" aria-label="Workspace settings" aria-pressed={!!settingsRect} onClick={openSettings}><Cog size={20} /><span className="settings-label">Settings</span></button><span className="canvas-help">Canvas navigation <span>·</span> Click a card to interact <span>·</span> Space to pan <span>·</span> F to fit</span></div><div className="viewport-controls chrome"><button title="Zoom out" aria-label="Zoom out" onClick={() => zoom(1 / 1.2)}><Minus size={15} /></button><button className="zoom-value" title="Reset zoom" onClick={resetZoom}>{formatZoom(camera.zoom)}</button><button title="Zoom in" aria-label="Zoom in" onClick={() => zoom(1.2)}><Plus size={15} /></button><span /><button className="fit-all" title="Fit all cards (F or Home)" aria-label="Fit all cards" onClick={fit}><Focus size={16} /><span>Fit all</span></button><button className="fit-all arrange-all" title={`Pack all ${movableCount} unlocked cards; keep older positions where possible`} aria-label="Arrange all cards" disabled={packing} onClick={arrangeAll}><LayoutGrid size={16} /><span>{packing ? 'Arranging…' : `Arrange all · ${movableCount}`}</span></button></div>{arrival && <div className="arrival-notice chrome" role="status"><Radio size={14} /><span>New agent: {arrival.name}</span><button onClick={() => focusCard(arrival.id)}>Show card <Focus size={13} /></button></div>}{notice && <div className="toast chrome" role="status">{notice}<button className="icon-button" aria-label="Dismiss message" onClick={() => setNotice('')}><X size={14} /></button></div>}
+    <div className="bottom-left chrome"><button className={`settings-toggle ${settingsRect ? 'active' : ''}`} title="Workspace settings" aria-label="Workspace settings" aria-pressed={!!settingsRect} onClick={openSettings}><Cog size={20} /><span className="settings-label">Settings</span></button><span className="canvas-help">Canvas navigation <span>·</span> Click a card to interact <span>·</span> Space to pan <span>·</span> F to fit</span></div><div className="viewport-controls chrome"><button title="Zoom out" aria-label="Zoom out" onClick={() => zoom(1 / 1.2)}><Minus size={15} /></button><button className="zoom-value" title="Reset zoom" onClick={resetZoom}>{formatZoom(camera.zoom)}</button><button title="Zoom in" aria-label="Zoom in" onClick={() => zoom(1.2)}><Plus size={15} /></button><span /><button className="fit-all" title="Fit all cards (F or Home)" aria-label="Fit all cards" onClick={fit}><Focus size={16} /><span>Fit all</span></button><button className="fit-all arrange-all" title={`Pack all ${movableCount} unlocked cards; keep older positions where possible`} aria-label="Arrange all cards" disabled={packing} onClick={arrangeAll}><LayoutGrid size={16} /><span>{packing ? 'Arranging…' : `Arrange all · ${movableCount}`}</span></button></div>{notice && <div className="toast chrome" role="status">{notice}<button className="icon-button" aria-label="Dismiss message" onClick={() => setNotice('')}><X size={14} /></button></div>}
   </div>, document.body)}</main>;
 }

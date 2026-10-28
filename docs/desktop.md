@@ -10,6 +10,7 @@ The host requires Windows x64, .NET 10 Windows Desktop Runtime, and Microsoft Ed
 WebView2 Runtime. The .NET 10 Windows SDK supplies the build targeting pack. No
 installer, system setting, browser extension, or LLM is involved. The server is a
 separate process and closing the window keeps it running.
+The native window and task switcher reuse the monitor title's signal icon.
 
 ## Build and launch
 
@@ -32,6 +33,14 @@ diagnostics. Repeated launches reuse a matching live host. `-Replace` stops only
 the previously recorded process after matching its PID, creation time, command
 line and private profile. The host also locks its profile to prevent concurrent
 windows from sharing it. It never closes unrelated windows or processes.
+
+For a bounded passive input diagnosis, set `AV_INPUT_TRACE=1` before launching.
+For ten minutes the trusted main document may send up to 4,096 numeric gesture
+records to the staged host's private stdout log. Records contain fixed event
+labels and numeric coordinates, scroll offsets and routing values, never panel
+text or credentials. The host validates the document, shape and numeric bounds;
+diagnostic messages grant no window actions. Relaunch with `AV_INPUT_TRACE=0`
+to disable tracing. The launcher treats trace mode as part of host identity.
 
 `--url` defaults to `http://127.0.0.1:4317/`. Only HTTPS or loopback HTTP is
 accepted; credentials, queries and fragments are rejected in launch URLs.

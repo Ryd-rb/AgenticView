@@ -26,9 +26,12 @@ export const componentSchema = z.discriminatedUnion('kind', [
 export type Component = z.infer<typeof componentSchema>;
 export type Layout = { x: number; y: number; width: number; height: number; locked: boolean; z: number; sizing?: 'content' | 'fixed'; automatic?: boolean };
 export type AgentStatus = 'active' | 'stale' | 'completed' | 'error';
+export type TaskTiming = { key: string; line: number; firstSeenAt: number; startedAt?: number; completedAt?: number; updatedAt: number };
 export type AgentView = {
   id: string; agentId: string; name: string; role: string; context: string;
   parentId: string | null; createdAt: number; lastSeen: number; status: AgentStatus;
+  updatedAt?: number; completedAt?: number; componentTimes?: Record<string, number>;
+  taskTimes?: Record<string, TaskTiming[]>;
   sequence: number; components: Record<string, Component>; layout: Layout;
 };
 export const settingsSchema = z.object({
@@ -43,7 +46,7 @@ export type Stats = { active: number; stale: number; archived: number; updates: 
 export type Snapshot = { revision: number; agents: AgentView[]; settings: Settings; stats: Stats };
 export type AgentChange = { id: string; meta?: Omit<AgentView, 'components'>; components?: Component[]; removeComponents?: string[]; clear?: boolean };
 export type Patch = { revision: number; changes: AgentChange[]; removed: string[]; settings?: Settings; stats: Stats };
-export type ArchiveSummary = { id: string; name: string; agentId: string; role: string; parentId: string | null; status: AgentStatus; archivedAt: number; bytes: number; rawBytes: number };
+export type ArchiveSummary = { id: string; name: string; agentId: string; role: string; parentId: string | null; status: AgentStatus; archivedAt: number; createdAt?: number; updatedAt?: number; completedAt?: number; bytes: number; rawBytes: number };
 export const registerSchema = z.object({
   requestId: idSchema,
   registrationKey: z.string().min(32).max(256).describe('Private random recovery secret. Generate locally and never include in display content.'),

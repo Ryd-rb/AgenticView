@@ -1,10 +1,10 @@
 import { memo, useContext, useEffect, useRef, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { diffLines } from 'diff';
-import { Activity, Code2, ExternalLink, FileText, Pause, ShieldCheck } from 'lucide-react';
-import type { Component } from '../shared/protocol.js';
+import { Activity, Code2, FileText, Pause, ShieldCheck } from 'lucide-react';
+import type { Component, TaskTiming } from '../shared/protocol.js';
 import { CardInteraction } from './CardInteraction.js';
+import { TaskMarkdown } from './TaskMarkdown.js';
+import { compactTime, exactTime } from '../shared/time-format.js';
 
 const colors = ['#b4a2ff', '#70d6c3', '#e8be79', '#8bbbf5', '#e891b1'];
 const stringify = (v: unknown) => typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v ?? '—');
@@ -59,13 +59,13 @@ function Tree({ nodes }: { nodes: Extract<Component, { kind: 'tree' }>['data']['
   const branch = (parent: string | undefined, seen: Set<string>, depth: number): React.ReactNode => depth > 12 ? <small>Further levels omitted</small> : <ul className="data-tree">{nodes.filter(n => n.parentId === parent || parent === undefined && n.parentId && !ids.has(n.parentId)).map(n => <li key={n.id}><span>{n.label}</span>{n.detail && <small>{n.detail}</small>}{!seen.has(n.id) && branch(n.id, new Set([...seen, n.id]), depth + 1)}</li>)}</ul>;
   return branch(undefined, new Set(), 0);
 }
-export const ComponentView = memo(function ComponentView({ component: c, embeds, runId }: { component: Component; embeds: boolean; runId: string }) {
+export const ComponentView = memo(function ComponentView({ component: c, embeds, runId, updatedAt, taskTimes }: { component: Component; embeds: boolean; runId: string; updatedAt?: number; taskTimes?: TaskTiming[] }) {
   let body: React.ReactNode;
   switch (c.kind) {
     case 'metric': body = <div className={`metric tone-${c.data.tone ?? 'neutral'}`}><div><strong>{stringify(c.data.value)}</strong><span>{c.data.unit}</span></div>{c.data.change && <small>{c.data.change}</small>}{!!c.data.history?.length && <Sparkline values={c.data.history} />}</div>; break;
     case 'chart': body = <Chart data={c.data} />; break;
     case 'table': body = <Table data={c.data} />; break;
-    case 'markdown': body = <div className="markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({ children, href }) => <a href={href} target="_blank" rel="noreferrer noopener">{children}<ExternalLink size={11} /></a> }}>{c.data.text}</ReactMarkdown></div>; break;
+    case 'markdown': body = <TaskMarkdown text={c.data.text} tasks={taskTimes} updatedAt={updatedAt} />; break;
     case 'code': body = <><div className="code-language"><Code2 size={12} />{c.data.language || 'text'}</div><pre><code>{c.data.code}</code></pre></>; break;
     case 'diff': body = <pre className="diff">{diffLines(c.data.before, c.data.after).map((p, i) => <span className={p.added ? 'added' : p.removed ? 'removed' : ''} key={i}>{p.value}</span>)}</pre>; break;
     case 'logs': body = <Logs entries={c.data.entries} />; break;
@@ -77,5 +77,5 @@ export const ComponentView = memo(function ComponentView({ component: c, embeds,
     case 'status': body = <div className={`status-display ${c.data.state}`}><Activity size={17} /><div><strong>{c.data.label}</strong>{c.data.detail && <p>{c.data.detail}</p>}</div></div>; break;
     case 'embed': body = <Embed key={c.data.html} data={c.data} enabled={embeds} runId={runId} componentId={c.id} />; break;
   }
-  return <section className={`component component-${c.kind}`}><h3><FileText size={12} />{c.title || c.kind}</h3>{body}</section>;
+  return <section className={`component component-${c.kind}`}><h3><FileText size={12} />{c.title || c.kind}{updatedAt !== undefined && <time className="component-time" dateTime={new Date(updatedAt).toISOString()} title={`Updated: ${exactTime(updatedAt)}`}>{compactTime(updatedAt)}</time>}</h3>{body}</section>;
 });

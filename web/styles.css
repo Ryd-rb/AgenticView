@@ -6,7 +6,7 @@
 /* All input modes share the same world transform. Touch scrolling is handled in screen-to-world units. */
 .canvas{overscroll-behavior:none;outline-offset:-3px}.canvas:focus-visible{outline-color:#b5a2fa35}.viewport-controls .fit-all{display:flex;align-items:center;justify-content:center;gap:6px;width:auto;padding:0 9px;font-size:10px;color:#c2b3df}.viewport-controls .fit-all>span{white-space:nowrap}.card-body,.settings-content,.child-body{touch-action:none}.canvas-help{user-select:none}@media(pointer:coarse){.viewport-controls button{min-height:38px;min-width:36px}.settings-toggle{width:46px;height:46px}.canvas-help{display:none}}
 
-.arrival-notice{left:50%;top:76px;transform:translateX(-50%);max-width:calc(100vw - 40px);display:flex;align-items:center;gap:10px;padding:8px 12px;background:#25222e;border:1px solid #a597bd30;border-radius:9px;color:#c8bfd8;font-size:11px;box-shadow:0 8px 30px #0004}.arrival-notice>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.arrival-notice>button{display:flex;align-items:center;gap:6px;white-space:nowrap;padding:5px 8px;border-radius:5px;background:#b5a2fa12;color:#d6c4ff}@media(max-width:650px){.viewport-controls .arrange-all>span{display:none}}@media(max-width:420px){.viewport-controls .fit-all>span{display:none}}
+@media(max-width:650px){.viewport-controls .arrange-all>span{display:none}}@media(max-width:420px){.viewport-controls .fit-all>span{display:none}}
 
 /* Only the world camera moves the canvas; oversized content scrolls inside cards. */
 html,body,#root{width:100%;height:100%;min-width:0;max-width:100%;overflow:hidden;overflow:clip;overscroll-behavior:none}
@@ -81,3 +81,17 @@ table{font-size:12px;line-height:1.25}th{font-size:11px;line-height:1.25;color:#
 .markdown .task-list-item input[type=checkbox]::after{content:none}
 .markdown .task-list-item input[type=checkbox]:checked{background:#b5a2fa;border-color:#b5a2fa}
 .markdown .task-list-item input[type=checkbox]:checked::after{content:'';position:absolute;left:3px;top:1px;width:4px;height:7px;border:0;border-right:2px solid #201a32;border-bottom:2px solid #201a32;border-radius:0;background:transparent;transform:rotate(45deg)}
+.task-time{display:inline-block;margin-inline-start:8px;color:#9493a3;font-size:9px;font-weight:400;font-variant-numeric:tabular-nums;white-space:nowrap;opacity:.72;vertical-align:baseline;letter-spacing:0}
+.component h3 .component-time{margin-left:auto;font-size:9px;font-weight:400;font-variant-numeric:tabular-nums;letter-spacing:0;text-transform:none;color:#858492;white-space:nowrap}
+.run-times{display:flex;gap:8px;min-width:0;overflow:hidden;color:#898b9a;font-size:9px;font-variant-numeric:tabular-nums;font-weight:400;letter-spacing:0}
+.run-times time{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card-footer>.run-times{margin-left:auto;flex:1;justify-content:flex-end}.card-footer code{min-width:0;max-width:64px;overflow:hidden;text-overflow:ellipsis}
+.child-times{padding:5px 11px;border-top:1px solid #ffffff08}.child-card{position:relative}
+.agent-card.status-active,.child-card.status-active{border-color:#70c7a24a}.agent-card.status-stale,.child-card.status-stale{border-color:#e5b56780}.agent-card.status-error,.child-card.status-error{border-color:#ea879bcc}.agent-card.status-completed,.child-card.status-completed{border-color:#9caeff99}
+.agent-card.is-active{outline:1px solid #cdbbff88;outline-offset:2px}
+.card-actions .archive-completed,.child-card>header .archive-completed{display:inline-flex;align-items:center;gap:5px;width:auto;padding:4px 7px;border:1px solid #a4b5ff88;border-radius:5px;background:#9caeff20;color:#d5dfff;font-size:10px;font-weight:600;white-space:nowrap}
+.archive-completed:hover{background:#9caeff38}
+.arrival-halo{position:absolute;inset:0;z-index:5;pointer-events:none;border-radius:inherit;opacity:0}
+.arrival-halo.arrival-visible{box-shadow:inset 0 0 0 2px #79d9f4;animation:arrival-fade 6s ease-out both}
+@keyframes arrival-fade{0%,18%{opacity:1}100%{opacity:0}}
+.reduced-motion .arrival-halo.arrival-visible{animation:none;opacity:1}

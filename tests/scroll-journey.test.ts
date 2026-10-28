@@ -24,17 +24,19 @@ test('visibility recovery is directional, bounded, and independent on each axis'
 });
 
 function nestedFixture(reverse = false) {
-  const leaf = { left: reverse ? 0 : 100, top: reverse ? 0 : 100 }, parent = { left: reverse ? 0 : 100, top: reverse ? 0 : 100 };
-  const card = { left: reverse ? 0 : 200, top: reverse ? 0 : 200 }, world = { left: reverse ? -300 : 300, top: reverse ? -300 : 300 };
+  const leaf = { left: reverse ? 0 : 100, top: reverse ? 0 : 100 }, parent = { left: reverse ? 200 : 0, top: reverse ? 200 : 0 };
+  const card = { left: reverse ? 400 : 0, top: reverse ? 400 : 0 }, world = { left: 0, top: 0 };
   const scroll = (state: typeof leaf, max: number) => (x: number, y: number) => { const next = consumeScrollDelta({ ...state, maxLeft: max, maxTop: max }, x, y); state.left = next.left; state.top = next.top; return { x: next.remainingX, y: next.remainingY }; };
   const bodyBounds = () => ({ left: 50 - world.left, top: 50 - world.top, width: 200, height: 200 });
   const parentBounds = () => { const body = bodyBounds(), base = reverse ? 300 : 20; return { left: body.left + base - card.left, top: body.top + base - card.top, width: 100, height: 100 }; };
   const childBounds = () => { const bounds = parentBounds(), base = reverse ? 150 : 10; return { left: bounds.left + base - parent.left, top: bounds.top + base - parent.top, width: 60, height: 60 }; };
-  const journey = new ScrollJourney([scroll(leaf, 100), scroll(parent, 200), scroll(card, 400), (x, y) => { world.left += x; world.top += y; return { x: 0, y: 0 }; }], [undefined,
+  const journey = new ScrollJourney([scroll(leaf, 100), scroll(parent, reverse ? 200 : 100), scroll(card, reverse ? 400 : 200), (x, y) => { world.left += x; world.top += y; return { x: 0, y: 0 }; }], [undefined,
     (x, y) => revealScrollDelta(childBounds(), parentBounds(), x, y, 1),
     (x, y) => revealScrollDelta(parentBounds(), bodyBounds(), x, y, 1),
     (x, y) => revealScrollDelta(bodyBounds(), { left: 0, top: 0, width: 300, height: 300 }, x, y, 1)
   ]);
+  // Create real outward handoffs; initial clipping alone is not a direction reversal.
+  journey.move(reverse ? -900 : 600, reverse ? -900 : 600);
   return { journey, leaf, parent, card, world };
 }
 test('multiple hidden layers recover outside-in until children fit, then the leaf scrolls', () => {

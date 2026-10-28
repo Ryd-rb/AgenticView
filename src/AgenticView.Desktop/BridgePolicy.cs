@@ -31,4 +31,23 @@ public sealed class BridgePolicy(Uri document)
     public string InitializationScript => "if(window===window.top&&location.origin===" +
         JsonSerializer.Serialize(document.GetLeftPart(UriPartial.Authority)) + "&&location.pathname===" +
         JsonSerializer.Serialize(document.AbsolutePath) + "&&location.search===''){Object.defineProperty(window,'agenticViewDesktop',{value:Object.freeze({version:1,platform:'windows'}),writable:false,configurable:false});}";
+
+    public bool TryReadInputTrace(string source, string currentSource, string json, out string trace)
+    {
+        trace = "";
+        if (!IsTrustedDocument(source) || !IsTrustedDocument(currentSource) || json.Length > 2048) return false;
+        try
+        {
+            using var message = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = 3 }); var root = message.RootElement;
+            if (root.ValueKind != JsonValueKind.Object || root.EnumerateObject().Count() != 3 ||
+                !root.TryGetProperty("type", out var type) || type.GetString() != "agenticview:input-trace" ||
+                !root.TryGetProperty("phase", out var phase) || phase.ValueKind != JsonValueKind.String ||
+                phase.GetString() is not ("pointer" or "down" or "move" or "route" or "clear" or "navigation" or "blur" or "inactive" or "unmount") ||
+                !root.TryGetProperty("values", out var values) || values.ValueKind != JsonValueKind.Array || values.GetArrayLength() > 32) return false;
+            foreach (var value in values.EnumerateArray()) if (value.ValueKind != JsonValueKind.Number || !value.TryGetDouble(out var number) || !double.IsFinite(number) || Math.Abs(number) > 1e12) return false;
+            trace = root.GetRawText(); return true;
+        }
+        catch (JsonException) { return false; }
+        catch (InvalidOperationException) { return false; }
+    }
 }

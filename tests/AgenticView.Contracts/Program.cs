@@ -15,6 +15,51 @@ if (args.Contains("--layout-probe"))
 var cases = new (string Name, Action Test)[]
 {
     ("efficient deterministic bin packing respects fixed obstacles", PackingContracts.Run),
+    ("observed Markdown row times survive reorder, transitions, duplicates and recovery", () => Run((hub, directory) => {
+        var a=Register(hub); var id=S(a,"runId"); long sequence=0;
+        void Markdown(string text) => Publish(hub,a,Batch(++sequence,new{op="upsert",component=new{id="tasks",title="Tasks",kind="markdown",data=new{text}}}));
+        JsonArray Rows() => hub.GetRun(id)!["taskTimes"]!["tasks"]!.AsArray();
+        Markdown("- [ ] Alpha\n- [x] Beta\n- [ ] Repeat\n- [ ] Repeat\n```md\n- [ ] Fenced\n```\n~~~\n- [x] Hidden\n~~~\n- ```md\n    - [ ] Nested fenced\n    ```\n> ~~~\n> - [ ] Quoted fenced\n> ~~~");
+        var first=(JsonArray)Rows().DeepClone(); Check(first.Count==4,"Fenced task rows were observed");
+        Check(first[0]!["startedAt"] is not null && first[0]!["completedAt"] is null,"Unchecked observation lacks start");
+        Check(first[1]!["completedAt"] is not null && first[1]!["startedAt"] is null,"Initially completed task fabricated start");
+        Check(first[2]!["key"]!.ToJsonString()!=first[3]!["key"]!.ToJsonString(),"Duplicate labels share timing identity");
+        Markdown("- [x] Beta\n- [ ] Alpha\n- [ ] Repeat\n- [ ] Repeat"); var reordered=Rows();
+        Check(reordered[0]!["key"]!.ToJsonString()==first[1]!["key"]!.ToJsonString() && reordered[0]!["line"]!.GetValue<int>()==1,"Reorder lost stable key or current line");
+        Check(reordered[0]!["completedAt"]!.ToJsonString()==first[1]!["completedAt"]!.ToJsonString() && reordered[1]!["startedAt"]!.ToJsonString()==first[0]!["startedAt"]!.ToJsonString(),"Reorder rewrote observed times");
+        Markdown("- [x] Beta\n- [x] Alpha\n- [ ] Repeat\n- [ ] Repeat"); var complete=(JsonArray)Rows().DeepClone(); Check(complete[1]!["completedAt"] is not null && complete[1]!["startedAt"] is not null,"Completion lost start or finish");
+        Markdown("- [x] Beta\n- [x] Alpha\n- [ ] Repeat\n- [ ] Repeat"); Check(JsonNode.DeepEquals(complete,Rows()),"Unchanged report reset row times");
+        Markdown("- [x] Beta\n- [ ] Alpha\n- [ ] Repeat\n- [ ] Repeat"); var reopened=Rows()[1]!;
+        Check(reopened["completedAt"] is null && reopened["startedAt"]!.ToJsonString()==reopened["updatedAt"]!.ToJsonString() && reopened["firstSeenAt"]!.ToJsonString()==first[0]!["firstSeenAt"]!.ToJsonString(),"Reopen did not create new observed interval");
+        var before=hub.GetRun(id)!.ToJsonString(); Throws(()=>Publish(hub,a,Batch(sequence+1,new{op="upsert",component=new{id="tasks",title="Tasks",kind="markdown",data=new{text="- [x] Wrong"}}},new{op="unsupported"})),400); Check(hub.GetRun(id)!.ToJsonString()==before,"Rejected batch leaked task times");
+        var retained=(JsonObject)hub.GetRun(id)!["taskTimes"]!.DeepClone(); hub.Archive(id); hub.Dispose(); using var restored=new Hub(directory,Keys()); restored.Restore(id); Check(JsonNode.DeepEquals(restored.GetRun(id)!["taskTimes"],retained),"Archive/recovery lost row history");
+        restored.Publish(id,S(a,"runToken"),Batch(++sequence,new{op="upsert",component=new{id="tasks",title="Replacement",kind="metric",data=new{value=1}}})); Check(restored.GetRun(id)!["taskTimes"]!["tasks"] is null,"Non-Markdown replacement retained row metadata");
+        restored.Publish(id,S(a,"runToken"),Batch(++sequence,new{op="upsert",component=new{id="tasks",title="Tasks",kind="markdown",data=new{text="- [ ] New"}}},new{op="remove",componentId="tasks"})); Check(restored.GetRun(id)!["taskTimes"]!.AsObject().Count==0,"Remove retained row metadata");
+        restored.Publish(id,S(a,"runToken"),Batch(++sequence,new{op="upsert",component=new{id="tasks",title="Tasks",kind="markdown",data=new{text="- [ ] New"}}},new{op="clear"})); Check(restored.GetRun(id)!["taskTimes"]!.AsObject().Count==0,"Clear retained row metadata");
+    })),
+    ("receipt timestamps are atomic, durable and independent from heartbeat or cleanup", () => Run((hub, directory) => {
+        var a=Register(hub); var id=S(a,"runId"); Check(hub.GetRun(id)!["completedAt"] is null,"Registration fabricated completion");
+        JsonObject? patch=null; hub.Patched+=p=>patch=p;
+        Publish(hub,a,Batch(1,new{op="upsert",component=new{id="logs",title="Logs",kind="logs",data=new{entries=new object[]{new{message="received"},new{message="supplied",time="owner-time"}}}}},new{op="context",text="Started"}));
+        var first=hub.GetRun(id)!; var updated=first["updatedAt"]!.GetValue<long>();
+        Check(updated==first["lastSeen"]!.GetValue<long>() && first["componentTimes"]!["logs"]!.GetValue<long>()==updated,"Receipt metadata diverged");
+        Check(DateTimeOffset.TryParse(S((JsonObject)first["components"]!["logs"]!["data"]!["entries"]![0]!,"time"),out _),"Missing log time not assigned receipt ISO");
+        Check(first["components"]!["logs"]!["data"]!["entries"]![1]!["time"]!.GetValue<string>()=="owner-time","Supplied entry time replaced");
+        hub.Heartbeat(id,S(a,"runToken")); Check(hub.GetRun(id)!["updatedAt"]!.GetValue<long>()==updated,"Heartbeat reset content update time");
+        var before=hub.GetRun(id)!.ToJsonString(); Throws(()=>Publish(hub,a,Batch(2,new{op="upsert",component=Metric()},new{op="status",status="completed"},new{op="unsupported"})),409);
+        Check(hub.GetRun(id)!.ToJsonString()==before,"Rejected batch leaked timestamps or completion");
+        Publish(hub,a,Batch(2,new{op="append",componentId="logs",items=new[]{new{message="appended"}}}));
+        var appended=hub.GetRun(id)!; Check(appended["componentTimes"]!["logs"]!.GetValue<long>()==appended["updatedAt"]!.GetValue<long>(),"Append did not refresh component receipt");
+        Check(appended["components"]!["logs"]!["data"]!["entries"]![2]!["time"] is not null,"Append missing receipt time");
+        Publish(hub,a,Batch(3,new{op="remove",componentId="logs"},new{op="upsert",component=Metric()})); Check(hub.GetRun(id)!["componentTimes"]!["logs"] is null,"Remove retained obsolete component receipt");
+        Publish(hub,a,Batch(4,new{op="clear"},new{op="upsert",component=Metric()},new{op="status",status="completed"}));
+        var completed=hub.GetRun(id)!; var finished=completed["completedAt"]!.GetValue<long>(); Check(completed["componentTimes"]!.AsObject().Count==1,"Clear retained component times");
+        hub.Flush(); Check(patch!["changes"]!.AsArray().Any(n=>n!["meta"]?["completedAt"]?.GetValue<long>()==finished),"Live patch omitted timestamps");
+        var summary=hub.Archive(id); Check(summary["completedAt"]!.GetValue<long>()==finished,"Archive summary omitted completion");
+        hub.Dispose(); using var reopened=new Hub(directory,Keys()); Check(reopened.ReadArchive(id)["completedAt"]!.GetValue<long>()==finished,"Archive lost completion");
+        reopened.Publish(id,S(a,"runToken"),Batch(5,new{op="clear"})); var recovered=reopened.GetRun(id)!;
+        Check(recovered["completedAt"]!.GetValue<long>()==finished && recovered["componentTimes"]!.AsObject().Count==0,"Cleanup recovery rewrote completion or retained obsolete component times");
+    })),
     ("interaction leases preserve layout, isolate views and release without changing manual reservations", () => Run((hub, _) => {
         var a=Register(hub); hub.Flush(); var id=S(a,"runId"); var original=hub.GetRun(id)!["layout"]!.DeepClone();
         var admitted=hub.SetInteraction(id,Json.Object(new{active=true,leaseId="view-a"}));

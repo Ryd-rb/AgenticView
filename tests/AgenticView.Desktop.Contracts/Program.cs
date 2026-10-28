@@ -18,6 +18,13 @@ foreach (var bad in new[] { "{}", "[]", "null", "{", "{\"type\":\"agenticview:wi
     Check(!policy.TryReadAction(options.Url.AbsoluteUri, options.Url.AbsoluteUri, bad, out _), "Malformed command accepted");
 Check(policy.IsTrustedDocument("http://127.0.0.1:4317/#canvas"), "Same document fragment rejected");
 Check(policy.InitializationScript.Contains("window===window.top", StringComparison.Ordinal), "Bridge lacks top-level gate");
+var inputTrace = "{\"type\":\"agenticview:input-trace\",\"phase\":\"move\",\"values\":[1,20,-10,0]}";
+Check(policy.TryReadInputTrace(options.Url.AbsoluteUri, options.Url.AbsoluteUri, inputTrace, out _), "Bounded numeric trace rejected");
+Check(!policy.TryReadAction(options.Url.AbsoluteUri, options.Url.AbsoluteUri, inputTrace, out _), "Diagnostic trace granted window authority");
+foreach (var source in new[] { "https://example.com/", "http://127.0.0.1:4317/api/embeds/run/view", "about:srcdoc" })
+    Check(!policy.TryReadInputTrace(source, options.Url.AbsoluteUri, inputTrace, out _), "Untrusted diagnostic source accepted");
+foreach (var bad in new[] { "{}", "[]", "null", "{", "{\"type\":42,\"phase\":\"move\",\"values\":[]}", "{\"type\":\"agenticview:input-trace\",\"phase\":\"execute\",\"values\":[]}", "{\"type\":\"agenticview:input-trace\",\"phase\":\"move\",\"values\":[\"private content\"]}", "{\"type\":\"agenticview:input-trace\",\"phase\":\"move\",\"values\":[1e100]}", "{\"type\":\"agenticview:input-trace\",\"phase\":\"move\",\"values\":[],\"secret\":\"never logged\"}", new string('x', 2049) })
+    Check(!policy.TryReadInputTrace(options.Url.AbsoluteUri, options.Url.AbsoluteUri, bad, out _), "Malformed or content-bearing trace accepted");
 Reject(["--url", "https://example.com/", "--viewer-key-file", "C:\\private\\viewer.txt"]);
 Reject(["--viewer-key-file", "\\\\server\\viewer.txt"]);
 Reject(["--viewer-key-file", "relative-viewer.txt"]);

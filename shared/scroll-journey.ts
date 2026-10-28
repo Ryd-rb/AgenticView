@@ -17,8 +17,12 @@ export class ScrollJourney {
     for (let i = this.stages.length - 1; i > 0; i--) {
       const debt = this.debt[i]!;
       const visible = this.reveal[i]?.(x, y);
-      const reverseX = visible?.x ?? (x * debt.x < 0 ? Math.sign(x) * Math.min(Math.abs(x), Math.abs(debt.x)) : 0);
-      const reverseY = visible?.y ?? (y * debt.y < 0 ? Math.sign(y) * Math.min(Math.abs(y), Math.abs(debt.y)) : 0);
+      // Visibility recovery is a return path for movement this journey handed outward.
+      // It must never steal a fresh child's input, especially when the child cannot fit.
+      const reverseX = x * debt.x < 0 ? Math.sign(x) * Math.min(Math.abs(x), Math.abs(debt.x), Math.abs(visible?.x ?? x)) : 0;
+      const reverseY = y * debt.y < 0 ? Math.sign(y) * Math.min(Math.abs(y), Math.abs(debt.y), Math.abs(visible?.y ?? y)) : 0;
+      if (visible && x * debt.x < 0 && Math.abs(visible.x) < 1e-7) debt.x = 0;
+      if (visible && y * debt.y < 0 && Math.abs(visible.y) < 1e-7) debt.y = 0;
       if (!reverseX && !reverseY) continue;
       const remaining = this.stages[i]!(reverseX, reverseY), usedX = reverseX - remaining.x, usedY = reverseY - remaining.y;
       debt.x += usedX; debt.y += usedY; x -= usedX; y -= usedY;
