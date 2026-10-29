@@ -126,3 +126,6 @@ table{font-size:12px;line-height:1.25}th{font-size:11px;line-height:1.25;color:#
 
 .agent-content-measure .session-view pre{max-height:340px;overflow:auto}
 .agent-content-measure .control-view pre{max-height:240px;overflow:auto}
+.login-card .login-remember{display:flex;align-items:center;gap:9px;margin-top:14px;color:#c7c0d4;font-size:12px;line-height:1.5;cursor:pointer}
+.login-card .login-remember input{width:16px;height:16px;flex:none;padding:0;margin:0;accent-color:#b4a0e6}
+.login-card>small{font-size:12px;line-height:1.5;color:#aaa0b6}

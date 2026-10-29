@@ -64,15 +64,20 @@ public static class AppHost
         });
         app.UseRateLimiter();
         app.MapGet("/health", () => new { status = "ok", version = "0.4.0", runtime = ".NET 10" });
-        app.MapGet("/api/session", (HttpContext c) => new { authenticated = Authentication.Viewer(c.Request, config.Secrets) });
+        app.MapGet("/api/session", (HttpContext c) => { c.Response.Headers.CacheControl = "no-store"; return new { authenticated = Authentication.Viewer(c.Request, config.Secrets) }; });
         app.MapPost("/api/login", (Func<HttpContext, Task<IResult>>)(async c =>
         {
+            c.Response.Headers.CacheControl = "no-store";
             var input = await Body(c);
             if (!Authentication.Equal(Json.String(input, "token"), config.Secrets.ViewerToken)) throw new HubError(401, "Invalid viewer key.");
-            c.Response.Cookies.Append("av_session", Authentication.Session(config.Secrets), new CookieOptions { HttpOnly = true, SameSite = SameSiteMode.Strict, Secure = config.PublicUrl.Scheme == "https", Path = "/", MaxAge = TimeSpan.FromHours(12) });
+            var remember = true;
+            if (input.ContainsKey("remember") && (input["remember"] is not JsonValue choice || !choice.TryGetValue<bool>(out remember))) throw new HubError(400, "Remember sign-in must be a boolean.");
+            var lifetime = remember ? Authentication.RememberedLifetime : Authentication.SessionLifetime;
+            var expires = DateTimeOffset.UtcNow.Add(lifetime);
+            c.Response.Cookies.Append("av_session", Authentication.Session(config.Secrets, expires), new CookieOptions { HttpOnly = true, SameSite = SameSiteMode.Strict, Secure = config.PublicUrl.Scheme == "https", Path = "/", MaxAge = remember ? lifetime : null, Expires = remember ? expires : null });
             return Results.Json(new { authenticated = true });
         })).RequireRateLimiting("login");
-        app.MapPost("/api/logout", (HttpContext c) => { c.Response.Cookies.Delete("av_session"); return new { authenticated = false }; });
+        app.MapPost("/api/logout", (HttpContext c) => { c.Response.Headers.CacheControl = "no-store"; c.Response.Cookies.Delete("av_session", new CookieOptions { HttpOnly = true, SameSite = SameSiteMode.Strict, Secure = config.PublicUrl.Scheme == "https", Path = "/" }); return new { authenticated = false }; });
         app.MapGet("/api/snapshot", () => hub.Snapshot());
         app.MapGet("/api/monitoring", () => hub.Monitoring());
         app.MapPost("/api/agents/register", (Func<HttpContext, Task<IResult>>)(async c => Results.Json(hub.Register(await Body(c)), statusCode: 201)));

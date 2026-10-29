@@ -45,6 +45,8 @@ public sealed record RuntimeConfig(string DataDir, string Host, int Port, Uri Pu
 }
 public static class Authentication
 {
+    public static readonly TimeSpan RememberedLifetime = TimeSpan.FromDays(365);
+    public static readonly TimeSpan SessionLifetime = TimeSpan.FromHours(12);
     public static bool Equal(string a, string b) => CryptographicOperations.FixedTimeEquals(SHA256.HashData(Encoding.UTF8.GetBytes(a)), SHA256.HashData(Encoding.UTF8.GetBytes(b)));
     private static string Sign(string text, string key) => Convert.ToHexString(HMACSHA256.HashData(Encoding.UTF8.GetBytes(key), Encoding.UTF8.GetBytes(text))).ToLowerInvariant();
     public static string Bearer(HttpRequest request) { var value = request.Headers.Authorization.ToString(); return value.StartsWith("Bearer ", StringComparison.Ordinal) ? value[7..] : ""; }
@@ -55,9 +57,9 @@ public static class Authentication
         var parts = cookie.Split('.');
         return parts.Length == 3 && long.TryParse(parts[1], out var expires) && expires > DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() && Equal(parts[2], Sign(parts[0] + "." + parts[1], secrets.ViewerToken));
     }
-    public static string Session(Secrets secrets)
+    public static string Session(Secrets secrets, DateTimeOffset? expires = null)
     {
-        var value = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)) + "." + DateTimeOffset.UtcNow.AddHours(12).ToUnixTimeMilliseconds();
+        var value = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)) + "." + (expires ?? DateTimeOffset.UtcNow.Add(RememberedLifetime)).ToUnixTimeMilliseconds();
         return value + "." + Sign(value, secrets.ViewerToken);
     }
 }

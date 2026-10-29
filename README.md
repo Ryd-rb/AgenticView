@@ -103,6 +103,12 @@ pnpm keys
 Open [localhost:4317](http://127.0.0.1:4317) and sign in with the viewer key. Give
 agents the ingestion key; keep the server's `runSecret` private.
 
+**Keep me signed in on this device** is enabled by default and saves your sign-in
+for one year in the same browser or desktop profile. Uncheck it for a browser
+session lasting up to 12 hours. **Settings → General → Sign out** clears the saved
+sign-in. The viewer key is exchanged for a protected HttpOnly cookie and is never
+stored in page scripts or browser local storage.
+
 For frontend development, run `pnpm dev` and `pnpm dev:web` in separate terminals.
 `pnpm check` and `pnpm test` run the project's checks.
 

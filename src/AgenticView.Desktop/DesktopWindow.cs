@@ -105,7 +105,7 @@ internal sealed class DesktopWindow : Form
         var cookies = new CookieContainer();
         using var handler = new HttpClientHandler { CookieContainer = cookies, AllowAutoRedirect = false, UseProxy = false };
         using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(5) };
-        using var response = await client.PostAsJsonAsync(new Uri(origin, "/api/login"), new { token = options.ReadViewerKey() });
+        using var response = await client.PostAsJsonAsync(new Uri(origin, "/api/login"), new { token = options.ReadViewerKey(), remember = true });
         if (!response.IsSuccessStatusCode) throw new InvalidOperationException("Local sign-in failed.");
         var session = cookies.GetCookies(origin)["av_session"];
         if (session is null || !session.HttpOnly || session.Path != "/" || session.Value.Length is < 16 or > 1024)

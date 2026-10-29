@@ -18,6 +18,7 @@ import { ArrivalHalo } from './ArrivalHalo.js';
 import { RunTimes } from './RunTimes.js';
 import { MonitoringView } from './MonitoringView.js';
 import { ArchiveBrowser } from './ArchiveBrowser.js';
+import { Login } from './Login.js';
 const SshMachines = lazy(() => import('./SshMachines.js').then(module => ({default:module.SshMachines})));
 const ApplicationLibrary = lazy(() => import('./ApplicationLibrary.js').then(module => ({ default: module.ApplicationLibrary })));
 
@@ -49,11 +50,6 @@ function MeasuredContent({ children, watch, onHeight }: { children: React.ReactN
   return <div className="agent-content-measure" ref={element}>{children}</div>;
 }
 
-function Login({ complete }: { complete: () => void }) {
-  const [token, setToken] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false);
-  return <div className="login-shell"><form className="login-card" onSubmit={async e => { e.preventDefault(); setBusy(true); try { await api('/api/login', 'POST', { token }); setToken(''); complete(); } catch (e) { setError(String((e as Error).message)); } finally { setBusy(false); } }}><div className="brand-mark"><Radio size={22} /></div><div className="eyebrow">YOUR AGENTS, IN VIEW</div><h1>AgenticView</h1><p>Connect to your private observability canvas.</p><label htmlFor="token">Installation access token</label><input id="token" type="password" autoComplete="current-password" value={token} onChange={e => setToken(e.target.value)} autoFocus required placeholder="Enter your viewer token" />{error && <div className="form-error" role="alert">{error}</div>}<button className="primary" disabled={busy}>{busy ? 'Connecting…' : 'Open canvas'}<ArrowUpRight size={16} /></button><small>Credentials stay in your installation.</small></form><div className="login-grid" /></div>;
-}
-
 type AgentContentProps = { agent: AgentView; agents: AgentView[]; settings: Settings; depth?: number; arrivals?: ArrivalTracker; branch?: AgentBranch; readOnly?: boolean };
 export const AgentContent = memo(function AgentContentBody({ agent, agents, settings, depth = 0, arrivals, branch, readOnly = false }: AgentContentProps) {
   const [error, setError] = useState('');
@@ -66,11 +62,20 @@ export const AgentContent = memo(function AgentContentBody({ agent, agents, sett
 
 function SettingsBody({ settings, save, stats, report }: { settings: Settings; save: (s: Settings) => Promise<void>; stats: Snapshot['stats']; report: (s: string) => void }) {
   const [tab, setTab] = useState<'general' | 'archives' | 'connect' | 'applications' | 'ssh'>('general');
+  const [signingOut, setSigningOut] = useState(false);
+  async function signOut() {
+    if (signingOut) return;
+    setSigningOut(true);
+    try { await api('/api/logout', 'POST', {}); window.dispatchEvent(new Event('agenticview:unauthorized')); }
+    catch (error) { report((error as Error).message); }
+    finally { setSigningOut(false); }
+  }
   const [connection, setConnection] = useState<{ mcpUrl: string; ingestUrl: string; credentialHelp: string } | null>(null), [copied, setCopied] = useState('');
   useEffect(() => { if (tab === 'connect') api<typeof connection>('/api/connection').then(setConnection).catch(e => report(e.message)); }, [tab]);
   const update = (part: Partial<Settings>) => save({ ...settings, ...part }).catch(e => report(e.message));
   const copy = (text: string) => navigator.clipboard.writeText(text).then(() => { setCopied(text); setTimeout(() => setCopied(''), 1500); }).catch(() => report('Clipboard unavailable. Select and copy the address.'));
   return <><nav className="settings-tabs" aria-label="Settings sections">{(['general', 'archives', 'applications', 'ssh', 'connect'] as const).map(t => <button className={tab === t ? 'selected' : ''} onClick={() => setTab(t)} key={t}>{t === 'general' ? <Cog size={14} /> : t === 'archives' ? <Archive size={14} /> : <Link2 size={14} />}{t === 'ssh' ? 'SSH machines' : t[0].toUpperCase() + t.slice(1)}{t === 'archives' && <span>{stats.archived}</span>}</button>)}</nav><div className="settings-content">{tab === 'general' && <><div className="section-label">INSTALLATION PREFERENCES</div><label className="setting-row"><div><strong>Trusted embedded views</strong><p>Run agent-generated views with scripts and network access, inside isolated documents.</p></div><input type="checkbox" role="switch" checked={settings.trustedEmbeds} onChange={e => update({ trustedEmbeds: e.target.checked })} /></label><label className="setting-row"><div><strong>Automatic archival</strong><p>Archive finished cards after the configured review period. Off keeps them on your canvas.</p></div><input type="checkbox" role="switch" checked={settings.autoArchiveMinutes !== null} onChange={e => update({ autoArchiveMinutes: e.target.checked ? 5 : null })} /></label>{settings.autoArchiveMinutes !== null && <label className="number-setting">Archive after <input aria-label="Automatic archival minutes" type="number" min="1" max="525600" value={settings.autoArchiveMinutes} onChange={e => { if (+e.target.value >= 1) update({ autoArchiveMinutes: +e.target.value }); }} /> minutes after completion</label>}<label className="setting-row"><div><strong>Archive completed agents</strong><p>Allow automatic archival of explicitly completed runs after the review period.</p></div><input type="checkbox" role="switch" checked={settings.archiveAfterCompletion} onChange={e => update({ archiveAfterCompletion: e.target.checked })} /></label><label className="number-setting">Mark stale after <input type="number" min="15" max="86400" value={settings.staleSeconds} onChange={e => { if (+e.target.value >= 15) update({ staleSeconds: +e.target.value }); }} /> seconds</label><label className="setting-row"><div><strong>Reduce motion</strong><p>Keep interface transitions minimal.</p></div><input type="checkbox" role="switch" checked={settings.reducedMotion} onChange={e => update({ reducedMotion: e.target.checked })} /></label><div className="settings-note"><Zap size={16} /><div><strong>Explore with a synthetic workspace</strong><p>Add example agents and components. Demo data is explicitly labeled.</p><button className="secondary" onClick={() => api('/api/demo', 'POST', {}).then(() => report('Synthetic agents added to your canvas.')).catch(e => report(e.message))}>Add demo agents <ArrowUpRight size={13} /></button></div></div></>}
+    {tab === 'general' && <div className="setting-row"><div><strong>Saved sign-in</strong><p>Sign out to clear this device's saved access to the canvas.</p></div><button className="secondary" disabled={signingOut} onClick={() => void signOut()}>{signingOut ? 'Signing out…' : 'Sign out'}</button></div>}
     {tab === 'archives' && <ArchiveBrowser count={stats.archived} request={api} report={report} renderContent={agent => <AgentContent agent={agent} agents={[]} readOnly settings={{ ...settings, trustedEmbeds: false }} />} />}
     {tab === 'ssh' && <Suspense fallback={<p role="status">Loading SSH machines…</p>}><SshMachines report={report} /></Suspense>}
     {tab === 'applications' && <Suspense fallback={<p role="status">Loading application library…</p>}><ApplicationLibrary report={report} /></Suspense>}
@@ -431,7 +436,7 @@ function Monitor() {
     return () => { clearInterval(leaseTimer); element.removeEventListener('wheel', wheel, true); window.removeEventListener('blur', clear); window.removeEventListener('keydown', key); window.removeEventListener('keyup', key); clear(); };
   }, [auth, size.width, size.height]);
   if (auth === null) return <div className="boot"><Radio size={22} /><span>Connecting to AgenticView</span></div>;
-  if (!auth) return <Login complete={() => setAuth(true)} />;
+  if (!auth) return <Login complete={() => setAuth(true)} signIn={input => api('/api/login', 'POST', input)} />;
   const viewport: Rect = { x: -camera.x / camera.zoom - 150, y: -camera.y / camera.zoom - 150, width: size.width / camera.zoom + 300, height: size.height / camera.zoom + 300 };
   function monitoringCard(rect: Rect) {
     return <article className={`world-card monitoring-card ${activeCard === 'monitoring' ? 'is-active' : ''}`} data-card-id="monitoring" style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height, zIndex: 100001 }} onDoubleClick={e => { if (!(e.target as HTMLElement).closest('button,a,input,select,textarea')) focusCard('monitoring'); }}>

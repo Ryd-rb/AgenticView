@@ -61,6 +61,14 @@ SameSite and the URL's Secure setting. `--diagnose` never reads the token or sen
 a login request. Never put viewer or ingestion keys into command lines, injected
 JavaScript, logs or launch URLs; only the private file path is passed to the host.
 
+Manual sign-in defaults to **Keep me signed in on this device**, retaining a
+one-year signed session cookie in this private WebView profile. Unchecking it
+uses a browser-session cookie with a 12-hour server limit. **Settings → General →
+Sign out** clears that profile's cookie. A launcher explicitly configured with a
+viewer-key file signs in again when reopened; the file remains installation-owned.
+Keep the same `--data-dir` and server origin to reuse a saved sign-in. The raw
+viewer key is never saved in JavaScript or browser local storage.
+
 ## Window bridge
 
 Only the configured top-level document receives the frozen marker:

@@ -53,6 +53,9 @@
   secrets, real telemetry, private infrastructure details, or local machine paths.
 - Keep agent-provided content untrusted. Preserve authentication boundaries and
   validate protocol inputs before rendering or persisting them.
+- Keep viewer sign-in across browser/app restarts in the same profile by default,
+  with a session-only option and Sign out. Persist protected HttpOnly session
+  cookies; never store raw viewer keys in browser storage or page scripts.
 - Keep runtime state, local configuration, and task evidence outside tracked files.
 - Keep wheel and pinch zoom anchored under the pointer or finger midpoint across
   main-view/card handoffs; never recenter a card during a zoom gesture.
