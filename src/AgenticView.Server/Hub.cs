@@ -187,7 +187,15 @@ public sealed class Hub : IDisposable
     internal string OwnedToken(string id) { lock (gate) { if (!runs.ContainsKey(id)) throw new HubError(404, "Card unavailable. Restore it first."); return Token(id); } }
     public JsonObject Cards(int offset, int limit)
     {
-        lock (gate) { if (offset < 0 || limit is < 1 or > 100) throw new HubError(400, "Use a bounded card page (1..100)."); return new JsonObject { ["total"] = runs.Count, ["offset"] = offset, ["cards"] = new JsonArray(runs.Values.OrderBy(r => Integer(r.View, "createdAt")).ThenBy(r => String(r.View, "id"), StringComparer.Ordinal).Skip(offset).Take(limit).Select(r => (JsonNode)Metadata(r.View)).ToArray()) }; }
+        lock (gate) { if (offset < 0 || limit is < 1 or > 100) throw new HubError(400, "Use a bounded card page (1..100)."); return new JsonObject { ["total"] = runs.Count, ["offset"] = offset, ["cards"] = new JsonArray(runs.Values.OrderBy(r => Integer(r.View, "createdAt")).ThenBy(r => String(r.View, "id"), StringComparer.Ordinal).Skip(offset).Take(limit).Select(r => (JsonNode)CardSummary(r.View)).ToArray()) }; }
+    }
+    private static JsonObject CardSummary(JsonObject view)
+    {
+        // Component/task timing arrays can approach the full per-card budget. List pages contain only bounded summaries.
+        var result = new JsonObject { ["permanent"] = view["application"] is not null };
+        foreach (var key in new[] { "id", "agentId", "name", "role", "status", "parentId", "createdAt", "lastSeen", "updatedAt", "completedAt", "sequence", "layout", "icon", "managedSessionId", "orphanComponentId", "sessionId", "sessionProvider" })
+            if (view.TryGetPropertyValue(key, out var value)) result[key] = value?.DeepClone();
+        return result;
     }
     public JsonObject Rename(string id, string name)
     {
