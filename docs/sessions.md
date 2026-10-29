@@ -39,6 +39,9 @@ Save a portable launcher as `.agenticview.json` using `application_define` and
 logical bindings supplied on import. Passwords, machine records, running session
 IDs and native transcripts belong to the installation, never the repository.
 See [the launcher example](../examples/applications/agent-sessions.agenticview.json).
+It provides six buttons: local and SSH launches for Codex, Claude Code and OpenCode.
+On import, bind `worker` to the session connector and `stage` to a saved SSH machine
+assigned to that connector. The launcher retains the providers' configured defaults.
 
 ## Local and SSH profiles
 
@@ -71,6 +74,13 @@ on the remote machine. The fixed `remoteCommand` invokes:
 ```sh
 dotnet /opt/agenticview/AgenticView.Server.dll --session-stdio /private/codex.json
 ```
+
+The example's `ssh-agent` handler allowlists three `remoteProfiles`. Each object
+sets the matching `provider` and a fixed `command` selecting its remote private
+profile. Create those remote profiles with `type: "agent-session"`, the matching
+`provider`, its installed `executable` and an authorized `workingDirectory`, just
+as for local handlers. Replace the example hosts and paths privately and retain
+the connector's host allowlist. The example sets no model or permission overrides.
 
 Set `remoteShell` to `posix` or `powershell` to match the SSH server. Each fixed
 argument is quoted for that shell. Prompts, session IDs and scoped reporting

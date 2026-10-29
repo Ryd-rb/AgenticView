@@ -7,7 +7,17 @@
   "handlers": {
     "local-codex": {
       "type": "agent-session", "provider": "codex", "executable": "codex",
-      "workingDirectory": "./workspace", "extraStartArguments": ["--sandbox", "workspace-write"],
+      "workingDirectory": "./workspace",
+      "maxTurnSeconds": 3600
+    },
+    "local-claude": {
+      "type": "agent-session", "provider": "claude", "executable": "claude",
+      "workingDirectory": "./workspace",
+      "maxTurnSeconds": 3600
+    },
+    "local-opencode": {
+      "type": "agent-session", "provider": "opencode", "executable": "opencode",
+      "workingDirectory": "./workspace",
       "maxTurnSeconds": 3600
     },
     "ssh-agent": {
@@ -18,7 +28,9 @@
       "remoteShell": "posix", "reportingUrl": "https://monitor.example.invalid",
       "remoteCommand": ["dotnet", "/opt/agenticview/AgenticView.Server.dll", "--session-stdio", "/private/codex-session.json"],
       "remoteProfiles": {
-        "codex": ["dotnet", "/opt/agenticview/AgenticView.Server.dll", "--session-stdio", "/private/codex-session.json"]
+        "codex": {"provider":"codex","command":["dotnet", "/opt/agenticview/AgenticView.Server.dll", "--session-stdio", "/private/codex-session.json"]},
+        "claude": {"provider":"claude","command":["dotnet", "/opt/agenticview/AgenticView.Server.dll", "--session-stdio", "/private/claude-session.json"]},
+        "opencode": {"provider":"opencode","command":["dotnet", "/opt/agenticview/AgenticView.Server.dll", "--session-stdio", "/private/opencode-session.json"]}
       },
       "maxTurnSeconds": 3600
     }

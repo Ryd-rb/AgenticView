@@ -1,18 +1,26 @@
 {
-  "schemaVersion": 1, "id": "agent-sessions", "version": "1.0.0",
-  "name": "Agent sessions", "description": "Launch local or SSH agent sessions from persistent prompt cards.", "permanent": true,
+  "schemaVersion": 1, "id": "agent-sessions", "version": "1.1.0",
+  "name": "Agent sessions", "description": "Launch Codex, Claude Code or OpenCode locally or over SSH from persistent prompt cards.", "permanent": true, "icon": "terminal",
   "bindings": [
     {"id":"worker","label":"Session connector"},
     {"id":"stage","label":"Saved SSH machine"}
   ],
   "actions": [
     {"id":"local","label":"Local Codex","kind":"session","target":"worker","handler":"local-codex","fields":[]},
-    {"id":"remote","label":"SSH Codex","kind":"session","target":"worker","handler":"ssh-agent","connection":{"machineId":"stage","remoteProfileId":"codex"},"fields":[]}
+    {"id":"remote","label":"SSH Codex","kind":"session","target":"worker","handler":"ssh-agent","connection":{"machineId":"stage","remoteProfileId":"codex"},"fields":[]},
+    {"id":"local-claude","label":"Local Claude Code","kind":"session","target":"worker","handler":"local-claude","fields":[]},
+    {"id":"remote-claude","label":"SSH Claude Code","kind":"session","target":"worker","handler":"ssh-agent","connection":{"machineId":"stage","remoteProfileId":"claude"},"fields":[]},
+    {"id":"local-opencode","label":"Local OpenCode","kind":"session","target":"worker","handler":"local-opencode","fields":[]},
+    {"id":"remote-opencode","label":"SSH OpenCode","kind":"session","target":"worker","handler":"ssh-agent","connection":{"machineId":"stage","remoteProfileId":"opencode"},"fields":[]}
   ],
   "components": [
-    {"id":"plan","title":"Current task list","kind":"markdown","data":{"text":"- [ ] Choose a local or remote session\n- [ ] Enter a task in the new prompt card"}},
-    {"id":"local","title":"Local workspace","kind":"session-launcher","data":{"actionId":"local","label":"New local session"}},
-    {"id":"remote","title":"SSH workspace","kind":"session-launcher","data":{"actionId":"remote","label":"New SSH session"}}
+    {"id":"plan","title":"Current task list","kind":"markdown","data":{"text":"- [ ] Choose Codex, Claude Code or OpenCode locally or over SSH\n- [ ] Enter a task in the new prompt card\n- [ ] Press Start when ready; choosing a launcher only creates a draft"}},
+    {"id":"local","title":"Local Codex","kind":"session-launcher","data":{"actionId":"local","label":"Local Codex"}},
+    {"id":"remote","title":"SSH Codex","kind":"session-launcher","data":{"actionId":"remote","label":"SSH Codex"}},
+    {"id":"local-claude","title":"Local Claude Code","kind":"session-launcher","data":{"actionId":"local-claude","label":"Local Claude Code"}},
+    {"id":"remote-claude","title":"SSH Claude Code","kind":"session-launcher","data":{"actionId":"remote-claude","label":"SSH Claude Code"}},
+    {"id":"local-opencode","title":"Local OpenCode","kind":"session-launcher","data":{"actionId":"local-opencode","label":"Local OpenCode"}},
+    {"id":"remote-opencode","title":"SSH OpenCode","kind":"session-launcher","data":{"actionId":"remote-opencode","label":"SSH OpenCode"}}
   ],
   "layout":{"width":480,"height":480,"sizing":"content"}
 }
