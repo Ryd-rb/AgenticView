@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "codex-subscription-setup",
+  "version": "1.0.0",
+  "name": "Codex subscription connection",
+  "description": "Optional, explicit setup controls. Attach beneath an existing permanent launcher without changing its session action versions.",
+  "permanent": true,
+  "icon": "terminal",
+  "bindings": [{"id":"setup","label":"Subscription setup connector on the gateway machine"}],
+  "actions": [
+    {"id":"connect-subscription","label":"Connect Codex subscription","kind":"custom","target":"setup","handler":"subscription-connect","confirmation":"Start a fresh separate gateway login, or reuse its saved authentication? This makes no inference request.","fields":[]},
+    {"id":"subscription-status","label":"Check connection status","kind":"custom","target":"setup","handler":"subscription-status","fields":[]}
+  ],
+  "components": [
+    {"id":"plan","title":"Current task list","kind":"markdown","data":{"text":"- [ ] Connect the separately prepared gateway when ready\n- [ ] Complete the current device login before its expiry\n- [ ] Check connection status; no model check is automatic"}},
+    {"id":"subscription-connection","title":"Subscription connection","kind":"action-panel","data":{"actionIds":["connect-subscription","subscription-status"]}}
+  ]
+}

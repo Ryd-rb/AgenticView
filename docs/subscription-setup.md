@@ -1,6 +1,11 @@
 # Deferred subscription connection controls
 
-The ordinary six-launcher template has no gateway requirement. The optional
+The ordinary six-launcher template has no gateway requirement. For an existing
+launcher, attach `codex-subscription-setup.agenticview.json` as a permanent child
+using [the console update guide](console-update.md). This preserves the parent's
+session action configuration and its version.
+
+For a new installation, the optional
 `agent-sessions-with-subscription.agenticview.json` template adds **Connect Codex
 subscription** and **Check connection status** to the same permanent application.
 It binds `setup` to a connector on the machine that owns the separately installed
