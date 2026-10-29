@@ -51,6 +51,7 @@ $sourceFiles = @(
     'scripts/build-offline.ps1', 'docs/design.md', 'docs/offline-build.md', 'docs/protocol.md', 'docs/performance.md', 'docs/desktop.md', 'docs/native-components.md', 'docs/controls.md', 'docs/applications.md', 'examples/applications/service-console.agenticview.json', 'examples/connector/profile.example.json', 'examples/connector/row-service.py', 'docs/media/agenticview-demo.gif'
     'docs/sessions.md', 'examples/applications/agent-sessions.agenticview.json', 'examples/connector/sessions.example.json'
     'docs/view-management.md'
+    'docs/subscription-setup.md', 'examples/applications/agent-sessions-with-subscription.agenticview.json', 'examples/connector/subscription-profile.example.json', 'examples/connector/subscription-connection.ps1'
 )
 foreach ($relative in $sourceFiles) { $file = Assert-PlainPath (Join-Path $repository $relative) $repository; if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Missing allowed source file: $relative" } }
 $packages = @{}

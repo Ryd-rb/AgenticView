@@ -1,0 +1,182 @@
+{
+  "schemaVersion": 1,
+  "id": "agent-sessions",
+  "version": "1.2.0",
+  "name": "Agent sessions",
+  "description": "Launch Codex, Claude Code or OpenCode locally or over SSH from persistent prompt cards. Optional explicit subscription connection controls use a separately configured setup connector.",
+  "permanent": true,
+  "icon": "terminal",
+  "bindings": [
+    {
+      "id": "worker",
+      "label": "Session connector"
+    },
+    {
+      "id": "stage",
+      "label": "Saved SSH machine"
+    },
+    {
+      "id": "setup",
+      "label": "Subscription setup connector on the gateway machine"
+    }
+  ],
+  "actions": [
+    {
+      "id": "local",
+      "label": "Local Codex",
+      "kind": "session",
+      "target": "worker",
+      "handler": "local-codex",
+      "fields": []
+    },
+    {
+      "id": "remote",
+      "label": "SSH Codex",
+      "kind": "session",
+      "target": "worker",
+      "handler": "ssh-agent",
+      "connection": {
+        "machineId": "stage",
+        "remoteProfileId": "codex"
+      },
+      "fields": []
+    },
+    {
+      "id": "local-claude",
+      "label": "Local Claude Code",
+      "kind": "session",
+      "target": "worker",
+      "handler": "local-claude",
+      "fields": []
+    },
+    {
+      "id": "remote-claude",
+      "label": "SSH Claude Code",
+      "kind": "session",
+      "target": "worker",
+      "handler": "ssh-agent",
+      "connection": {
+        "machineId": "stage",
+        "remoteProfileId": "claude"
+      },
+      "fields": []
+    },
+    {
+      "id": "local-opencode",
+      "label": "Local OpenCode",
+      "kind": "session",
+      "target": "worker",
+      "handler": "local-opencode",
+      "fields": []
+    },
+    {
+      "id": "remote-opencode",
+      "label": "SSH OpenCode",
+      "kind": "session",
+      "target": "worker",
+      "handler": "ssh-agent",
+      "connection": {
+        "machineId": "stage",
+        "remoteProfileId": "opencode"
+      },
+      "fields": []
+    },
+    {
+      "id": "connect-subscription",
+      "label": "Connect Codex subscription",
+      "kind": "custom",
+      "target": "setup",
+      "handler": "subscription-connect",
+      "confirmation": "Start a fresh separate gateway login, or reuse its saved authentication? This makes no inference request.",
+      "fields": []
+    },
+    {
+      "id": "subscription-status",
+      "label": "Check connection status",
+      "kind": "custom",
+      "target": "setup",
+      "handler": "subscription-status",
+      "fields": []
+    }
+  ],
+  "components": [
+    {
+      "id": "plan",
+      "title": "Current task list",
+      "kind": "markdown",
+      "data": {
+        "text": "- [ ] Choose Codex, Claude Code or OpenCode locally or over SSH\n- [ ] Enter a task in the new prompt card\n- [ ] Press Start when ready; choosing a launcher only creates a draft"
+      }
+    },
+    {
+      "id": "local",
+      "title": "Local Codex",
+      "kind": "session-launcher",
+      "data": {
+        "actionId": "local",
+        "label": "Local Codex"
+      }
+    },
+    {
+      "id": "remote",
+      "title": "SSH Codex",
+      "kind": "session-launcher",
+      "data": {
+        "actionId": "remote",
+        "label": "SSH Codex"
+      }
+    },
+    {
+      "id": "local-claude",
+      "title": "Local Claude Code",
+      "kind": "session-launcher",
+      "data": {
+        "actionId": "local-claude",
+        "label": "Local Claude Code"
+      }
+    },
+    {
+      "id": "remote-claude",
+      "title": "SSH Claude Code",
+      "kind": "session-launcher",
+      "data": {
+        "actionId": "remote-claude",
+        "label": "SSH Claude Code"
+      }
+    },
+    {
+      "id": "local-opencode",
+      "title": "Local OpenCode",
+      "kind": "session-launcher",
+      "data": {
+        "actionId": "local-opencode",
+        "label": "Local OpenCode"
+      }
+    },
+    {
+      "id": "remote-opencode",
+      "title": "SSH OpenCode",
+      "kind": "session-launcher",
+      "data": {
+        "actionId": "remote-opencode",
+        "label": "SSH OpenCode"
+      }
+    },
+    {
+      "id": "subscription-connection",
+      "title": "Codex subscription connection",
+      "kind": "action-panel",
+      "data": {
+        "actionIds": [
+          "connect-subscription",
+          "subscription-status"
+        ]
+      }
+    }
+  ],
+  "layout": {
+    "width": 480,
+    "height": 480,
+    "sizing": "content"
+  }
+}

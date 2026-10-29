@@ -1,0 +1,25 @@
+{
+  "id": "subscription-setup-worker",
+  "name": "Explicit subscription setup",
+  "url": "http://127.0.0.1:4317",
+  "ingestionKey": "replace-with-installation-ingestion-key",
+  "registrationKey": "replace-with-a-private-random-32-character-or-longer-proof",
+  "handlers": {
+    "subscription-connect": {
+      "type": "process",
+      "kind": "custom",
+      "executable": "pwsh",
+      "arguments": ["-NoProfile", "-NonInteractive", "-File", "./subscription-connection.ps1", "-GatewayRoot", "./gateway", "-Operation", "Connect"],
+      "input": "json-stdin",
+      "output": "json"
+    },
+    "subscription-status": {
+      "type": "process",
+      "kind": "custom",
+      "executable": "pwsh",
+      "arguments": ["-NoProfile", "-NonInteractive", "-File", "./subscription-connection.ps1", "-GatewayRoot", "./gateway", "-Operation", "Status"],
+      "input": "json-stdin",
+      "output": "json"
+    }
+  }
+}
