@@ -26,6 +26,11 @@ test('subscription status never starts authentication or exposes credentials or 
     };
     writeFileSync(join(root, 'login-private.log'), 'Old device code AAAA-BBBBB\n');
     assert.equal(call().state, 'deferred'); assert.equal(call().deviceCode, undefined);
+    writeFileSync(join(root, 'connection-worker.json'), JSON.stringify({ phase: 'running', pid: 42, executable: 'synthetic-pwsh', startedUtc: '2024-01-02T03:04:05.1234565Z', deadlineUtc: new Date(Date.now() + 60000).toISOString() }));
+    const probe = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-File', resolve('tests/fixtures/subscription-status-probe.ps1'), '-Script', script, '-Root', root], { encoding: 'utf8', timeout: 15000, windowsHide: true });
+    assert.equal(probe.status, 0, probe.stderr); assert.equal(JSON.parse(probe.stdout).state, 'login_pending', 'CIM microsecond precision must match the same native start receipt');
+    writeFileSync(join(root, 'connection-worker.json'), JSON.stringify({ phase: 'launch-intent', deadlineUtc: new Date(Date.now() + 60000).toISOString() }));
+    assert.equal(call().deviceCode, undefined, 'An uncertain launch must not reveal a stale code');
     mkdirSync(join(root, 'auth')); writeFileSync(join(root, 'auth/auth.json'), JSON.stringify({ access_token: 'SYNTHETIC_ACCESS_TOKEN', refresh_token: 'SYNTHETIC_REFRESH_TOKEN' }));
     const authenticated = call(); assert.equal(authenticated.authenticationPresent, true); assert.equal(authenticated.automaticInferenceRequests, 0);
     assert.ok(!JSON.stringify(authenticated).includes('SYNTHETIC_')); assert.equal(authenticated.deviceCode, undefined);

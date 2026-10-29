@@ -9,12 +9,16 @@ $root = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($GatewayR
 $workerState = Join-Path $root 'connection-worker.json'
 $authPath = Join-Path $root 'auth/auth.json'
 function Read-Private([string]$Path) { if (Test-Path -LiteralPath $Path -PathType Leaf) { Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json } }
+function Same-Start([datetime]$Actual,[datetime]$Saved) {
+    # CIM reports microseconds; Process.StartTime can retain a seventh fractional digit.
+    return $Actual.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.ffffffZ') -ceq $Saved.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.ffffffZ')
+}
 function Auth-Present { $auth=Read-Private $authPath; return $null -ne $auth -and [bool]$auth.access_token }
 function Worker-Process {
     $saved=Read-Private $workerState
     if (!$saved -or $saved.phase -ne 'running') { return $null }
     $process=Get-CimInstance Win32_Process -Filter ('ProcessId='+[int]$saved.pid) -ErrorAction SilentlyContinue
-    if ($process -and $process.ExecutablePath -eq $saved.executable -and $process.CommandLine.Contains('LoginWorker') -and $process.CommandLine.Contains($root) -and $process.CreationDate.ToUniversalTime() -eq ([datetime]$saved.startedUtc).ToUniversalTime() -and [DateTime]::UtcNow -lt ([datetime]$saved.deadlineUtc).ToUniversalTime()) { return $process }
+    if ($process -and $process.ExecutablePath -eq $saved.executable -and $process.CommandLine.Contains('LoginWorker') -and $process.CommandLine.Contains($root) -and (Same-Start $process.CreationDate $saved.startedUtc) -and [DateTime]::UtcNow -lt ([datetime]$saved.deadlineUtc).ToUniversalTime()) { return $process }
     return $null
 }
 function Status {
@@ -38,7 +42,7 @@ function Start-ConfiguredGateway {
         $saved=Read-Private (Join-Path $root 'process.json')
         if (!$saved) { throw 'Gateway port has an unidentified listener.' }
         $process=Get-CimInstance Win32_Process -Filter ('ProcessId='+[int]$saved.pid) -ErrorAction SilentlyContinue
-        if (!$process -or $process.ExecutablePath -ne $saved.executable -or !$process.CommandLine.Contains((Join-Path $root 'start-gateway.py')) -or $process.CreationDate.ToUniversalTime() -ne ([datetime]$saved.startedAt).ToUniversalTime() -or @($listener | Where-Object OwningProcess -ne $process.ProcessId).Count -gt 0) { throw 'Gateway listener ownership differs from the private receipt.' }
+        if (!$process -or $process.ExecutablePath -ne $saved.executable -or !$process.CommandLine.Contains((Join-Path $root 'start-gateway.py')) -or !(Same-Start $process.CreationDate $saved.startedAt) -or @($listener | Where-Object OwningProcess -ne $process.ProcessId).Count -gt 0) { throw 'Gateway listener ownership differs from the private receipt.' }
         return
     }
     & (Join-Path $root 'Start-Gateway.ps1') *> (Join-Path $root 'connection-start-private.log')
