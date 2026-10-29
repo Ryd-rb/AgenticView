@@ -12,15 +12,19 @@ in local archives, and build permanent consoles for your services and tools.
 
 C# · .NET 10 · React · MIT
 
-[Get started](#get-started) · [Connect an agent](#connect-an-agent) · [Offline builds](docs/offline-build.md) · [Windows desktop](docs/desktop.md) · [View management](docs/view-management.md)
+[Get started](#get-started) · [Connect an agent](#connect-an-agent) · [Offline builds](docs/offline-build.md) · [Windows desktop](docs/desktop.md) · [Console updates](docs/console-update.md) · [View management](docs/view-management.md)
 
 ## A workspace that stays yours
 
 - **Keep your place.** Pan and zoom around the canvas. Selected cards hold their
   position and size while reports arrive; new runs appear without moving your view.
+  Arrivals pack around established cards. Use **Arrange all** to deliberately
+  repack unlocked cards.
 - **Stay responsive.** Unchanged card content is reused while you navigate and
   receive updates. Compressed assets and conditional caching reduce loading work.
-- **Look closer.** Ordinary content expands naturally. Large logs, paged grids and deliberate fixed views keep bounded scrolling. Mouse, keyboard and touch inputs share the same navigation model.
+- **Look closer.** Ordinary cards and nested components expand naturally. Large
+  logs, paged grids and deliberate fixed views keep bounded scrolling. Mouse,
+  keyboard and touch inputs share the same navigation model.
 - **Choose the right view.** Use 36 built-in types: task lists, query results,
   commands, traces, charts, heatmaps, comparisons, code, diffs and more. Native
   components handle display and interaction; custom HTML is an escape hatch with
@@ -28,7 +32,9 @@ C# · .NET 10 · React · MIT
 - **Follow the work.** Declared child agents stay with their parent. Status colors,
   first-visible arrival cues, timestamps and compact elapsed task durations make
   changes easier to scan. Exact observed times remain available on hover.
-- **Keep the evidence.** Completed cards archive after a configurable review delay, five minutes by default. Review and restore them in the Archived cards world card. Permanent launchers remain visible.
+- **Keep the evidence.** Completed cards archive after a configurable review delay,
+  five minutes by default. Review and restore them in the draggable **Archived
+  cards** browser. Permanent launchers remain visible.
 - **Watch the hub.** The monitoring icon beside settings opens a world card with
   agent counts, update and payload rates, recent curves, component activity and
   server health. Larger working text stays within the existing card sizes.
@@ -40,6 +46,9 @@ C# · .NET 10 · React · MIT
   output and reported components, pause/resume and recover interrupted work in
   the same card. Agents can prepare machines, reusable encrypted logins and
   launcher recipes through MCP. See the [session guide](docs/sessions.md).
+- **Reconnect without duplicate cards.** External agents can retain their native
+  provider/session identity and private registration proof to reuse their card,
+  components and layout across reconnects. See [session registration](docs/view-management.md#stable-native-session-registration).
 - **Keep an application.** Permanent cards outlive their creating agent. Follow
   bounded log tails or page through millions of source rows. Generic add/edit/delete
   callbacks send full rows to your scripts or services; persistence and history
@@ -49,6 +58,14 @@ C# · .NET 10 · React · MIT
   settings card, binding reusable controls to local workers. Definitions exclude
   installed credentials and automatically captured telemetry. See
   [portable applications](docs/applications.md).
+- **Manage the whole view.** Authorized operator MCP tools can read other cards,
+  change settings and layouts, restore archives, and create standalone native
+  components. Operator access requires the viewer credential; ordinary run and
+  session tokens retain their scope. See [view management](docs/view-management.md#operator-mcp-capability).
+- **Keep summaries current.** Optional quick-text actions route bounded card
+  context to a configured agent inbox or connector for titles, summaries or
+  component text. Schedules support cancellation, deadlines and explicit failure
+  states. See [quick-text actions](docs/view-management.md#optional-quick-text-actions).
 
 AgenticView has no LLM dependency. The hub records and routes configured actions;
 execution belongs to the owning agent or a connector with local profiles.
@@ -106,6 +123,32 @@ built during bundle preparation. See the guide for key retrieval and verificatio
 The optional [Windows host](docs/desktop.md) opens a dedicated fullscreen window
 with custom controls and the same signal icon as the web title. It requires the
 Windows Desktop and WebView2 runtimes; closing the window leaves the server running.
+
+### Update an existing console
+
+The [console updater](docs/console-update.md) stages a hash-verified runtime ZIP
+from a local file or an existing outbound SSH route before an explicit Apply.
+It checks managed session activity, retains generated-output backups, and updates
+the owned hub and desktop using their existing data and private desktop profile.
+Startup receipts retain process identity and latest data when recovery needs
+inspection. Pause or finish sessions and prevent concurrent new actions while
+applying; these preflight checks are not an atomic maintenance lock.
+
+The Windows deployment helpers use PowerShell 7.2+. Apply additionally needs an
+existing Python 3.10+ interpreter with SQLite JSON support for read-only session
+inspection; this is a deployment tool, not a server dependency.
+
+### Optional subscription connection controls
+
+A separately prepared gateway can expose **Connect Codex subscription** and
+**Check connection status** through a configured connector. Existing launchers
+use a permanent child utility so their saved session action versions stay intact.
+Importing or attaching the controls starts neither OAuth nor inference; Connect
+is an explicit action, and Status reads local metadata only.
+
+The examples do not install a gateway or establish subscription compatibility.
+See [subscription setup](docs/subscription-setup.md) for prerequisites, portable
+templates and the separate authentication cache.
 
 ## Connect an agent
 
