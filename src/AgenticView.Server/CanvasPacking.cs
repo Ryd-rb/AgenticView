@@ -57,8 +57,8 @@ public static class CanvasPacking
             throw new HubError(400, "Invalid packing bounds or aspect ratio.");
         var ids = new HashSet<string>(StringComparer.Ordinal);
         foreach (var item in items)
-            if (string.IsNullOrEmpty(item.Id) || !ids.Add(item.Id) || !Dimension(item.Width, 320) || !Dimension(item.Height, 240))
-                throw new HubError(400, "Packing items require unique identifiers, widths from 320 to 1600 and heights from 240 to 1600.");
+            if (string.IsNullOrEmpty(item.Id) || !ids.Add(item.Id) || !Dimension(item.Width, 320, 1600) || !Dimension(item.Height, 240, 100000))
+                throw new HubError(400, "Packing items require unique identifiers, widths from 320 to 1600 and heights from 240 to 100000.");
         foreach (var obstacle in obstacles)
             if (!double.IsFinite(obstacle.X) || !double.IsFinite(obstacle.Y) || !double.IsFinite(obstacle.Width) || !double.IsFinite(obstacle.Height) || obstacle.Width <= 0 || obstacle.Height <= 0 || Math.Abs(obstacle.X) > Bound || Math.Abs(obstacle.Y) > Bound || !double.IsFinite(obstacle.X + obstacle.Width) || !double.IsFinite(obstacle.Y + obstacle.Height))
                 throw new HubError(400, "Packing obstacles require finite positive geometry within canvas bounds.");
@@ -108,6 +108,6 @@ public static class CanvasPacking
         return result;
     }
 
-    private static bool Dimension(double value, double minimum) => double.IsFinite(value) && value >= minimum && value <= 1600;
+    private static bool Dimension(double value, double minimum, double maximum) => double.IsFinite(value) && value >= minimum && value <= maximum;
     private static bool Overlaps(PackingRect a, PackingRect b) => a.X < b.X + b.Width + Gap && a.X + a.Width + Gap > b.X && a.Y < b.Y + b.Height + Gap && a.Y + a.Height + Gap > b.Y;
 }

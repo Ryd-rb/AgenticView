@@ -43,8 +43,10 @@
   content sizing and manual fixed sizing. Native displays are agent subcards.
 - Support mouse, keyboard and touchscreen pinch/tap input. Fit all must frame
   every world card without a fixed zoom-out floor.
-- Agents own cleanup. Optional automatic archiving defaults off. Compressed archives
-  and settings live behind one bottom-left cog that opens a card in the world.
+- Agents own cleanup. Completed session and monitoring cards archive after a
+  configurable delay, default five minutes; permanent launchers remain visible.
+  Show a draggable Archived cards browser with restore for review or continued
+  session interaction. Keep compressed archives local and settings behind the cog.
 - Trusted embeds may execute scripts and load external resources; preserve host
   credential and origin boundaries.
 - Publish source code and synthetic examples only. Never commit personal data,
@@ -71,8 +73,9 @@
 - Keep the page within the viewport, with the settings cog fixed at bottom left.
   Put monitoring beside the cog; open its live statistics as a draggable world card.
   Keep monitoring history and counters bounded and its polling paused while hidden.
-  Automatically bin pack all unlocked cards, favor older positions and close gaps.
-  Preserve sizes and active gestures. Provide Arrange all beside zoom.
+  Automatically place arrivals around established card geometry without moving
+  previously packed cards. Preserve sizes, selected geometry and active gestures.
+  Provide explicit Arrange all beside zoom for deliberate repacking.
 - Keep the top-left brand to its signal icon and AgenticView name; omit the
   Monitor subtitle and navigation-help text beside the cog. Manual archiving
   shows a quiet accessible Undo notification. Header icons are configurable via
@@ -80,6 +83,14 @@
 - Default to canvas navigation until a card is explicitly activated. Global
   controls always retain canvas authority. Keep text legible within component bounds.
   Card zoom and pan must stay within content fit and native scroll boundaries.
+- Ordinary cards and nested components grow to content without internal scrolling.
+  Keep large logs, paged grids and deliberate fixed or constrained views bounded.
+- Reuse the monitoring card for a stable provider session identity, with private
+  registration proof; resume/handoff retains the managed session card.
+- Authorized operator MCP controls can configure the full view, read other cards
+  and create standalone native components. Scoped run/session tokens remain scoped.
+  Optional context-aware quick-text actions use configured agent inboxes or
+  connector allowlists, with bounded intervals, cancellation and explicit failures.
 - Use readable working text and strong contrast without increasing fixed card
   dimensions. Avoid forced bitmap layers that soften text under nested transforms.
 - Reuse unchanged agent branches and telemetry state; navigation and stats updates

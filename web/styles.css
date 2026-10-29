@@ -69,7 +69,7 @@ table{font-size:12px;line-height:1.25}th{font-size:11px;line-height:1.25;color:#
 
 .card-content-scroll::-webkit-scrollbar-thumb{background:#b5a2fa40}.card-content-scroll::-webkit-scrollbar-thumb:hover{background:#b5a2fa70}@media(pointer:coarse){.card-local-controls>button{min-width:30px;height:30px}.window-controls>button{width:38px;height:36px}}
 
-.card-content-scroll{overflow:scroll}.card-scroll-extent>.card-content-plane{contain:layout style}
+.card-content-scroll{overflow:auto}.card-scroll-extent>.card-content-plane{contain:layout style}
 .embed-frame{position:relative;line-height:0}
 .embed-navigation-shield{position:absolute;inset:0;touch-action:none;cursor:grab;border-radius:6px}
 .embed-frame iframe{display:block}
@@ -98,3 +98,31 @@ table{font-size:12px;line-height:1.25}th{font-size:11px;line-height:1.25;color:#
 .arrival-halo.arrival-visible{box-shadow:inset 0 0 0 2px #79d9f4;animation:arrival-fade 6s ease-out both}
 @keyframes arrival-fade{0%,18%{opacity:1}100%{opacity:0}}
 .reduced-motion .arrival-halo.arrival-visible{animation:none;opacity:1}
+
+/* Ordinary native content contributes its full height to content-sized cards.
+   Fixed cards retain the outer CardSurface viewport; logs and provider grids keep
+   their own bounded viewports. Reserve room for the active navigation toolbar. */
+.agent-content-measure{display:flow-root}
+.child-body{max-height:none;overflow:visible}
+.timeline{max-height:none;overflow:visible}
+.agent-content-measure pre{max-height:none;white-space:pre-wrap;overflow-wrap:anywhere;overflow:visible}
+.agent-content-measure .diff span{white-space:pre-wrap;overflow-wrap:anywhere}
+.agent-content-measure .bounded-output,.agent-content-measure .command-output{max-height:600px;overflow:auto}
+.agent-card[data-sizing=content]>.card-surface{padding-top:46px}
+.agent-card[data-sizing=content]>.card-surface>.card-content-scroll{overflow:auto;scrollbar-gutter:auto}
+.archive-browser{min-width:0}
+.archive-browser-heading{display:flex;gap:12px;align-items:flex-start;margin-bottom:12px}
+.archive-browser-heading>div{flex:1;min-width:0}
+.archive-browser-heading strong{font-size:14px}
+.archive-browser-heading p{font-size:12px;margin:6px 0;line-height:1.5}
+.archive-browser .archive-row{gap:6px;align-items:center}
+.archive-browser .archive-row strong,.archive-browser .archive-row small,.archive-browser .archive-row>button>span{overflow-wrap:anywhere}
+.archive-browser .archive-row small{font-size:11px}
+.archive-browser .archive-row>button>span{font-size:10px}
+.archive-browser .archive-restore{flex:none;padding:7px 9px}
+.archive-browser .archive-heading{gap:10px;flex-wrap:wrap}
+.archive-browser .archive-heading>div{flex:1;min-width:0;overflow-wrap:anywhere}
+.archives-toggle>span{font-size:12px;min-width:1ch}
+
+.agent-content-measure .session-view pre{max-height:340px;overflow:auto}
+.agent-content-measure .control-view pre{max-height:240px;overflow:auto}

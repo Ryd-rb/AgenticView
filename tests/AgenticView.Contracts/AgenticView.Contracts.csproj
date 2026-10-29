@@ -4,5 +4,5 @@
     <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
-  <ItemGroup><ProjectReference Include="../../src/AgenticView.Server/AgenticView.Server.csproj" /></ItemGroup>
+  <ItemGroup><ProjectReference Include="../../src/AgenticView.Server/AgenticView.Server.csproj" /><FrameworkReference Include="Microsoft.AspNetCore.App" /></ItemGroup>
 </Project>

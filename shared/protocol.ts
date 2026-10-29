@@ -77,12 +77,13 @@ export type AgentView = {
   updatedAt?: number; completedAt?: number; componentTimes?: Record<string, number>;
   taskTimes?: Record<string, TaskTiming[]>;
   application?: { name: string; description?: string };
+  managedSessionId?: string; sessionId?: string; sessionProvider?: string; orphanComponentId?: string;
   sequence: number; components: Record<string, Component>; layout: Layout;
 };
 export const settingsSchema = z.object({
   staleSeconds: z.number().int().min(15).max(86_400).default(45),
-  autoArchiveMinutes: z.number().int().min(1).max(525_600).nullable().default(null),
-  archiveAfterCompletion: z.boolean().default(false),
+  autoArchiveMinutes: z.number().int().min(1).max(525_600).nullable().default(5),
+  archiveAfterCompletion: z.boolean().default(true),
   trustedEmbeds: z.boolean().default(true),
   reducedMotion: z.boolean().default(false),
 });
@@ -100,6 +101,7 @@ export const registerSchema = z.object({
   role: z.string().max(160).default('Agent'),
   context: z.string().max(8_192).default(''),
   icon:cardStyleSchema.shape.icon.optional(),
+  sessionId: z.string().min(1).max(256).optional(), sessionProvider: z.string().min(1).max(80).optional(),
   parentId: idSchema.optional(), parentToken: z.string().max(256).optional(),
 });
 export type RegisterInput = z.input<typeof registerSchema>;
@@ -114,4 +116,4 @@ export const operationSchema = z.discriminatedUnion('op', [
 ]);
 export type Operation = z.infer<typeof operationSchema>;
 export const publishSchema = z.object({ sequence: z.number().int().positive(), operations: z.array(operationSchema).min(1).max(256) });
-export const layoutSchema = z.object({ x: z.number().finite().min(-1e7).max(1e7), y: z.number().finite().min(-1e7).max(1e7), width: z.number().min(320).max(1_600), height: z.number().min(240).max(1_600), locked: z.boolean(), z: z.number().int().min(0).max(1e9), sizing: z.enum(['content', 'fixed']).default('fixed'), automatic: z.boolean().optional() });
+export const layoutSchema = z.object({ x: z.number().finite().min(-1e7).max(1e7), y: z.number().finite().min(-1e7).max(1e7), width: z.number().min(320).max(1_600), height: z.number().min(240).max(100_000), locked: z.boolean(), z: z.number().int().min(0).max(1e9), sizing: z.enum(['content', 'fixed']).default('fixed'), automatic: z.boolean().optional() }).refine(layout => layout.sizing === 'content' || layout.height <= 1600, { message: 'Fixed height exceeds 1600', path: ['height'] });

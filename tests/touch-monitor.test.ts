@@ -123,23 +123,25 @@ test('measured content growth remains deferred after contact release until selec
     await act(() => { pointer(view.target, 'pointerdown', 200); pointer(view.target, 'pointermove', 160); pointer(view.target, 'pointerup', 160); });
     assert.equal(captures.has(11), false, 'contact ended but card remains selected');
     assert.ok(card.classList.contains('is-active'));
-    Object.defineProperty(measured, 'offsetHeight', { configurable: true, get: () => 600 });
+    Object.defineProperty(measured, 'offsetHeight', { configurable: true, get: () => 2600 });
     await act(() => { ControlledResizeObserver.resize(measured); flushFrames(); });
     assert.deepEqual({ left: card.style.left, top: card.style.top, height: card.style.height }, original, 'real measured growth cannot resize the selected card');
     await act(() => { deselect(view.host); });
     await act(() => { flushFrames(); });
-    assert.equal(card.style.height, '725px', 'pending measured content height applies after deselection');
+    assert.equal(card.style.height, '2755px', 'ordinary content grows beyond 1600 after deselection with room for navigation controls');
     assert.equal(card.style.left, original.left); assert.equal(card.style.top, original.top);
   } finally { await view.close(); }
 });
 
-test('explicit fit content expands a selected fixed card while retaining its canvas position', async () => {
+test('explicit fit content defers selected fixed-card geometry until deselection', async () => {
   const view=await mount();
   try {
     const card=view.target.closest<HTMLElement>('[data-card-id]')!, measured=view.host.querySelector<HTMLElement>('.agent-content-measure')!;
-    const position={left:card.style.left,top:card.style.top};Object.defineProperty(measured,'offsetHeight',{configurable:true,get:()=>620});
+    const position={left:card.style.left,top:card.style.top},height=card.style.height;Object.defineProperty(measured,'offsetHeight',{configurable:true,get:()=>620});
     await act(()=>{view.host.querySelector<HTMLButtonElement>('[aria-label="Fit card to content"]')!.click();flushFrames();});
-    assert.equal(card.style.height,'745px');assert.deepEqual({left:card.style.left,top:card.style.top},position);assert.match(card.textContent!,/CONTENT/);
+    assert.equal(card.style.height,height,'selection holds geometry even when switching to content sizing');assert.deepEqual({left:card.style.left,top:card.style.top},position);assert.match(card.textContent!,/CONTENT/);
+    await act(()=>{deselect(view.host);});await act(()=>{flushFrames();});
+    assert.equal(card.style.height,'775px');assert.deepEqual({left:card.style.left,top:card.style.top},position);
   }finally{await view.close();}
 });
 
@@ -415,4 +417,26 @@ test('live memoized descendants update and promote without interrupting selected
     assert.ok(scroller.scrollTop>before,'same captured contact continues scrolling after all tree changes');
     await act(()=>{pointer(document.body,'pointerup',140);}); assert.equal(captures.has(11),false);
   } finally {await view.close();}
+});
+
+
+test('archived cards auto-open as a draggable world card without stealing selection or camera', async () => {
+  const view = await mount();
+  try {
+    const camera = view.host.querySelector<HTMLElement>('.world')!.style.transform;
+    const next = snapshot(); next.stats.archived = 1;
+    await act(async () => { Stream.current.snapshot(next); await new Promise<void>(resolve => setImmediate(resolve)); });
+    const archives = view.host.querySelector<HTMLElement>('[data-card-id="archives"]')!;
+    assert.ok(archives, 'existing archives create a visible world utility');
+    assert.match(archives.querySelector('.card-header')!.textContent!, /Archived cards/);
+    assert.equal(view.host.querySelector<HTMLElement>('[data-card-id="agent"]')!.classList.contains('is-active'), true);
+    assert.equal(view.host.querySelector<HTMLElement>('.world')!.style.transform, camera);
+    const header = archives.querySelector<HTMLElement>('.card-header')!, left = Number.parseFloat(archives.style.left);
+    await act(() => { header.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); });
+    await act(() => { header.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })); });
+    assert.ok(Number.parseFloat(archives.style.left) > left, 'archive utility participates in keyboard card dragging');
+    assert.equal(requestPaths.some(path => path.startsWith('/api/agents/archives/')), false, 'utility movement never uses agent mutation APIs');
+    await act(() => { archives.querySelector<HTMLButtonElement>('[aria-label="Close archived cards"]')!.click(); });
+    assert.equal(view.host.querySelector('[data-card-id="archives"]'), null);
+  } finally { await view.close(); }
 });

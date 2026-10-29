@@ -20,6 +20,7 @@ if (args.Contains("--layout-probe"))
 
 var cases = new (string Name, Action Test)[]
 {
+    ("native session identity, stable layouts, delayed archives, operator view and optional text actions", ViewManagementContracts.Run),
     ("monitoring is bounded and counts only accepted operations without content", () => Run((hub, _) => {
         var a=Register(hub); var id=S(a,"runId");
         var batch=Batch(1,new{op="upsert",component=Metric()},new{op="context",text="PRIVATE_SYNTHETIC_CONTEXT"});
@@ -151,12 +152,12 @@ var cases = new (string Name, Action Test)[]
         Throws(()=>hub.SetInteraction(id,Json.Object(new{active="yes",leaseId="view"})),400);
         Throws(()=>hub.SetInteraction("missing",Json.Object(new{active=true,leaseId="view"})),404);
     })),
-    ("default packing includes all cards, preserves older positions, sizes and locks", () => Run((hub, directory) => {
+    ("automatic packing preserves established positions and explicit arrangement includes unlocked cards", () => Run((hub, directory) => {
         var a=Register(hub); var b=hub.Register(Input("b")); var c=hub.Register(Input("c")); hub.Flush();
         var manual=(JsonObject)hub.GetRun(S(a,"runId"))!["layout"]!.DeepClone(); manual["x"]=-1500; manual["y"]=-1500; manual["automatic"]=false; hub.SetLayout(S(a,"runId"),manual);
         var locked=(JsonObject)hub.GetRun(S(b,"runId"))!["layout"]!.DeepClone(); locked["locked"]=true; hub.SetLayout(S(b,"runId"),locked); hub.Flush();
         var kept=(JsonObject)hub.GetRun(S(a,"runId"))!["layout"]!; Check(kept["x"]!.ToJsonString()==manual["x"]!.ToJsonString() && kept["y"]!.ToJsonString()==manual["y"]!.ToJsonString(),"Stable packing moved an older card without a gap event");
-        Check(kept["automatic"]!.GetValue<bool>(),"Default packing excluded a legacy/manual card");
+        Check(!kept["automatic"]!.GetValue<bool>(),"Automatic packing changed established manual ownership");
         Check(JsonNode.DeepEquals(hub.GetRun(S(b,"runId"))!["layout"],locked),"Automatic packing moved a locked card");
         var beforeReservation=(JsonObject)hub.GetRun(S(c,"runId"))!["layout"]!.DeepClone(); var reserved=hub.MarkManual(S(c,"runId"));
         Check(!reserved["automatic"]!.GetValue<bool>() && reserved["x"]!.ToJsonString()==beforeReservation["x"]!.ToJsonString() && reserved["y"]!.ToJsonString()==beforeReservation["y"]!.ToJsonString(),"Manual reservation changed geometry");
@@ -171,12 +172,14 @@ var cases = new (string Name, Action Test)[]
         var accepted=hub.SetLayout(S(a,"runId"),collision); Check(accepted["x"]!.ToJsonString()!=locked["x"]!.ToJsonString() || accepted["y"]!.ToJsonString()!=locked["y"]!.ToJsonString(),"Concurrent drag overlap was not resolved");
         hub.Dispose(); using var reopened=new Hub(directory,Keys()); Check(JsonNode.DeepEquals(reopened.GetRun(S(a,"runId"))!["layout"],accepted),"Accepted layout was not durable");
     })),
-    ("removals close gaps and old manual sizes remain unchanged", () => Run((hub, _) => {
+    ("removals retain reading positions and Arrange all deliberately closes gaps", () => Run((hub, _) => {
         var a=Register(hub); var b=hub.Register(Input("b")); hub.Flush();
         var edited=(JsonObject)hub.GetRun(S(b,"runId"))!["layout"]!.DeepClone(); edited["x"]=5000; edited["height"]=600; edited["automatic"]=false; hub.SetLayout(S(b,"runId"),edited); hub.Flush();
-        Check(hub.GetRun(S(b,"runId"))!["layout"]!["x"]!.GetValue<double>()<5000,"Default resize packing excluded a manual card");
+        Check(hub.GetRun(S(b,"runId"))!["layout"]!["x"]!.GetValue<double>()==5000,"Automatic packing moved a resized established card");
         hub.Archive(S(a,"runId")); hub.Flush(); var remaining=(JsonObject)hub.GetRun(S(b,"runId"))!["layout"]!;
-        Check(remaining["x"]!.GetValue<double>()==0 && remaining["y"]!.GetValue<double>()==0 && remaining["height"]!.GetValue<double>()==600,"Removal did not close gap or changed manual dimensions");
+        Check(remaining["x"]!.GetValue<double>()==5000 && remaining["height"]!.GetValue<double>()==600,"Removal moved a reading card or changed manual dimensions");
+        hub.PackLayout(Json.Object(new{mode="all"})); remaining=(JsonObject)hub.GetRun(S(b,"runId"))!["layout"]!;
+        Check(remaining["x"]!.GetValue<double>()==0 && remaining["y"]!.GetValue<double>()==0 && remaining["height"]!.GetValue<double>()==600,"Explicit arrangement failed to close gaps or changed dimensions");
     })),
     ("registration identity, recovery proof and credential boundaries", () => Run((hub, _) => {
         var a = Register(hub); var retry = Register(hub); Check(a.ToJsonString() == retry.ToJsonString(), "Retry changed credentials");
@@ -254,7 +257,7 @@ var cases = new (string Name, Action Test)[]
         Throws(()=>Publish(hub,a,Batch(2,new {op="status",status="active"})),409); Publish(hub,a,Batch(2,new {op="clear"}));
         hub.Heartbeat(S(a,"runId"),S(a,"runToken")); Check(S(hub.GetRun(S(a,"runId"))!,"status")=="completed","Heartbeat resurrected completed run");
         hub.Archive(S(a,"runId")); hub.Restore(S(a,"runId")); Throws(()=>Publish(hub,a,Batch(3,new {op="status",status="active"})),409);
-        Check(hub.Settings["autoArchiveMinutes"] is null && !hub.Settings["archiveAfterCompletion"]!.GetValue<bool>(),"Unexpected automatic cleanup");
+        Check(hub.Settings["autoArchiveMinutes"]!.GetValue<int>()==5 && hub.Settings["archiveAfterCompletion"]!.GetValue<bool>(),"Completed cards need a default five-minute review delay");
     })),
     ("orphan promotion remains collision-free and preserves ancestry", () => Run((hub, _) => {
         var parent=Register(hub); var one=Input("one"); one["parentId"]=S(parent,"runId"); one["parentToken"]=S(parent,"runToken"); var a=hub.Register(one);

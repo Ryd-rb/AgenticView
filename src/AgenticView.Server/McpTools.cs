@@ -6,20 +6,33 @@ using ModelContextProtocol.Server;
 namespace AgenticView.Server;
 
 [McpServerToolType]
-public sealed class McpTools(Hub hub, ControlStore controls)
+public sealed class McpTools(Hub hub, ControlStore controls, OperatorView view)
 {
     private static JsonObject Invoke(Func<JsonObject> action)
     {
         try { return action(); }
         catch (HubError error) { throw new McpException(error.Message); }
     }
-    [McpServerTool(Name = "agent_register", Idempotent = true, UseStructuredContent = true), Description("Register one run per execution. Keep a random registrationKey private for safe retries. Children supply parentId and parentToken. Returns runId and private runToken; heartbeat every 15 seconds and clean up your components when finished.")]
-    public JsonObject Register(string requestId, string registrationKey, string agentId, string name, string role = "Agent", string context = "", string? parentId = null, string? parentToken = null,string? icon=null) => Invoke(() =>
+    [McpServerTool(Name="view_read",ReadOnly=true,Idempotent=true,UseStructuredContent=true),Description("Read the whole view with explicit operator authority. operatorToken is the installation viewer key supplied only to authorized managing agents; ingestion/run/session keys never qualify. resource: cards (metadata pages 1..100), card, settings, archives, archive, controls or session; cardId selects the resource. Never publish returned installation-private content or credentials.")]
+    public JsonObject ReadView(string operatorToken,string resource,string? cardId=null,int offset=0,int limit=25)=>Invoke(()=>view.Read(operatorToken,resource,cardId,offset,limit));
+
+    [McpServerTool(Name="view_configure",Idempotent=false,UseStructuredContent=true),Description("Configure the full view using an explicit installation operator/viewer key. operation/input: settings(settings object), arrange({mode,aspectRatio?}), orphan({requestId,registrationKey,component}), layout({cardId,layout}), style({cardId,style:{icon}}), name({cardId,name}), publish({cardId,batch:{sequence,operations}}), controls({cardId,configuration:{actions,application?}}), archive/restore({cardId}), session({cardId,sessionId,control}). Orphans render as standalone native component cards outside agent containers. Actions still execute only through owning agents/connector allowlists. Existing layout/confirmation/auth boundaries apply; no host credentials are returned. Retry publish with identical sequence/content; orphan creation with identical request/proof/component.")]
+    public JsonObject ConfigureView(string operatorToken,string operation,JsonObject input)=>Invoke(()=>view.Configure(operatorToken,operation,input));
+
+    [McpServerTool(Name="quick_text_configure",Idempotent=true,UseStructuredContent=true),Description("Optionally schedule context-aware text through your configured agent inbox or connector action; no hub LLM dependency. configuration: actionId,intervalSeconds(15..86400,default60),timeoutSeconds(5..120,default30),target(title/context/component),componentId?,label?,callbackActionId?,enabled?. Actions/callbacks must be prompt/custom with declared JSON context field and no confirmation. Context contains bounded card/progress summaries, never reporting credentials. Return result {text:string} (1..512 chars) through agent_action_complete or connector completion. Only one request per configuration; three failures or an uncertain timeout disable it. Disable with {enabled:false}; late responses are ignored. Action-version changes/archive cancel; claimed work is never replayed. Callbacks use the same allowlisted dispatch and exact request identity.")]
+    public JsonObject ConfigureQuickText(string runId,string runToken,string id,JsonObject configuration)=>Invoke(()=>controls.ConfigureQuickText(runId,runToken,id,configuration));
+
+    [McpServerTool(Name="quick_text_settings",ReadOnly=true,Idempotent=true,UseStructuredContent=true),Description("Read your bounded quick-text configuration states, failures, last text and next due time. No model call is made.")]
+    public JsonObject QuickTextSettings(string runId,string runToken)=>Invoke(()=>controls.QuickTextSettings(runId,runToken));
+    [McpServerTool(Name = "agent_register", Idempotent = true, UseStructuredContent = true), Description("Register a monitoring card. Resumed native sessions supply the same sessionProvider/sessionId and private random registrationKey to reuse their existing card; use a fresh requestId for a new continuation and preserve it for exact retries. Children supply parentId and parentToken. Returns runId and private runToken; heartbeat every 15 seconds and clean up your components when finished.")]
+    public JsonObject Register(string requestId, string registrationKey, string agentId, string name, string role = "Agent", string context = "", string? parentId = null, string? parentToken = null,string? icon=null,string? sessionId=null,string? sessionProvider=null) => Invoke(() =>
     {
         var input = Json.Object(new { requestId, registrationKey, agentId, name, role, context });
         if (parentId is not null) input["parentId"] = parentId;
         if (parentToken is not null) input["parentToken"] = parentToken;
         if(icon is not null) input["icon"]=icon;
+        if(sessionId is not null) input["sessionId"]=sessionId;
+        if(sessionProvider is not null) input["sessionProvider"]=sessionProvider;
         return hub.Register(input);
     });
 
@@ -77,6 +90,6 @@ public sealed class McpTools(Hub hub, ControlStore controls)
         ["schema"] = JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "components.schema.json"))),
         ["applicationSchema"] = JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "application-manifest.schema.json"))),
         ["limits"] = Json.Object(new { componentsPerRun = 64, liveRunBytes = 2_097_152, appendItems = 512, retainedRetryBatches = 256 }),
-        ["cleanup"] = "Remove obsolete components or clear the view. Explicitly archive your run when finished. Automatic archiving is optional and disabled by default."
+        ["cleanup"] = "Completed cards archive after a configurable review delay (default five minutes). Permanent applications remain visible. Restore cards from Archived cards; restored completed cards receive a fresh review delay."
     };
 }

@@ -29,7 +29,6 @@ public sealed class Hub : IDisposable
     private long revision, updates, totalBytes, archiveCount;
     private double rate;
     private bool settingsDirty, disposed, packingDirty;
-    private bool compactPacking;
     private double packingAspectRatio = 1.6;
     private SqliteTransaction? transaction;
     private long registrationLayoutTicks;
@@ -63,6 +62,7 @@ public sealed class Hub : IDisposable
                 CREATE TABLE IF NOT EXISTS archive_batches(run_id TEXT NOT NULL REFERENCES archives(id) ON DELETE CASCADE,sequence INTEGER NOT NULL,digest TEXT NOT NULL,PRIMARY KEY(run_id,sequence));
                 CREATE INDEX IF NOT EXISTS requests_run_id ON requests(run_id);
                 CREATE TABLE IF NOT EXISTS settings(id INTEGER PRIMARY KEY CHECK(id=1),payload TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS session_bindings(identity TEXT PRIMARY KEY,run_id TEXT NOT NULL,proof_hash TEXT NOT NULL,parent_id TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS layout_policy(id INTEGER PRIMARY KEY CHECK(id=1),version INTEGER NOT NULL,aspect REAL NOT NULL);
                 """;
             command.ExecuteNonQuery();
@@ -78,7 +78,7 @@ public sealed class Hub : IDisposable
         }
         archiveCount = Convert.ToInt64(Scalar("SELECT COUNT(*) FROM archives"));
         // Migrate old layouts once, then retain the operator's chosen footprint across restarts.
-        packingDirty = Scalar("SELECT version FROM layout_policy WHERE id=1") is null; compactPacking = packingDirty;
+        packingDirty = Scalar("SELECT version FROM layout_policy WHERE id=1") is null;
         packingAspectRatio = Convert.ToDouble(Scalar("SELECT aspect FROM layout_policy WHERE id=1") ?? 1.6, System.Globalization.CultureInfo.InvariantCulture);
     }
     private static JsonObject Clone(JsonObject value) => (JsonObject)value.DeepClone();
@@ -184,6 +184,36 @@ public sealed class Hub : IDisposable
         lock (gate) { if ((!runs.ContainsKey(id) && Scalar("SELECT id FROM archives WHERE id=$p0", id) is null) || !Equal(token, Token(id))) throw new HubError(403, "Invalid run credentials or unavailable run."); }
     }
     public JsonObject? GetRun(string id) { lock (gate) return runs.TryGetValue(id, out var run) ? Clone(run.View) : null; }
+    internal string OwnedToken(string id) { lock (gate) { if (!runs.ContainsKey(id)) throw new HubError(404, "Card unavailable. Restore it first."); return Token(id); } }
+    public JsonObject Cards(int offset, int limit)
+    {
+        lock (gate) { if (offset < 0 || limit is < 1 or > 100) throw new HubError(400, "Use a bounded card page (1..100)."); return new JsonObject { ["total"] = runs.Count, ["offset"] = offset, ["cards"] = new JsonArray(runs.Values.OrderBy(r => Integer(r.View, "createdAt")).ThenBy(r => String(r.View, "id"), StringComparer.Ordinal).Skip(offset).Take(limit).Select(r => (JsonNode)Metadata(r.View)).ToArray()) }; }
+    }
+    public JsonObject Rename(string id, string name)
+    {
+        ComponentValidator.Text(AgenticView.Server.Json.Object(new { name }), "name", 160, true, 1);
+        lock (gate) { var run = Authorize(id, OwnedToken(id)); var view = Clone(run.View); view["name"] = name; SaveView(run, view); Queue(view); revision++; return Metadata(view); }
+    }
+    public JsonObject Orphan(JsonObject input)
+    {
+        var component = Clone(ComponentValidator.Object(input["component"])); ComponentValidator.Validate(component);
+        lock (gate)
+        {
+            // Registration proof protects retries; an orphan has no agent parent or inbox authority.
+            var proof = ComponentValidator.Text(input, "registrationKey", 256, true, 32);
+            var registration = Register(AgenticView.Server.Json.Object(new { requestId = ComponentValidator.Id(input, "requestId"), registrationKey = Hash(proof + ":" + Digest(component)), agentId = "standalone-component", name = String(component, "title"), role = "Component" }));
+            var id = String(registration, "runId"); var run = runs.TryGetValue(id, out var live) ? live : null;
+            if (run is null) { Restore(id); run = runs[id]; }
+            if (run.View["orphanComponentId"] is not null)
+            {
+                if (!JsonNode.DeepEquals(run.View["components"]?[String(component, "id")], component)) throw new HubError(409, "Standalone creation retry changed content. Use view_configure to edit it.");
+                return Metadata(run.View);
+            }
+            PublishNext(id, Token(id), new JsonArray(AgenticView.Server.Json.Object(new { op = "upsert", component })));
+            var view = Clone(run.View); view["orphanComponentId"] = String(component, "id"); view["application"] = AgenticView.Server.Json.Object(new { name = String(component, "title"), description = "Standalone component" });
+            SaveView(run, view); Queue(view); revision++; return Metadata(view);
+        }
+    }
     public JsonObject SetCardStyle(string id,string token,JsonObject style)
     {
         CardStyles.Validate(style); lock(gate) { if(!runs.ContainsKey(id)){AuthorizeArchive(id,token);Restore(id);} var run=Authorize(id,token); var view=Clone(run.View); view["icon"]=style["icon"]!.DeepClone(); SaveView(run,view); Queue(view); revision++; return new JsonObject{["icon"]=String(view,"icon")}; }
@@ -197,6 +227,10 @@ public sealed class Hub : IDisposable
     {
         lock(gate) { var run=Authorize(id,token); var view=Clone(run.View); var layout=Clone((JsonObject)view["layout"]!); layout["width"]=size["width"]!.DeepClone(); layout["height"]=size["height"]!.DeepClone(); layout["sizing"]=size["sizing"]!.DeepClone(); view["layout"]=FreePosition(layout,EffectiveRoots().Where(r=>String(r.View,"id")!=id).Select(r=>(JsonObject)r.View["layout"]!).ToList()); SaveView(run,view); Queue(view); packingDirty=true; revision++; }
     }
+    public void MarkManagedSession(string id, string token, string sessionId)
+    {
+        lock (gate) { if (!runs.ContainsKey(id)) { AuthorizeArchive(id, token); Restore(id); } var run = Authorize(id, token); if (String(run.View, "managedSessionId") == sessionId) return; var view = Clone(run.View); view["managedSessionId"] = sessionId; SaveView(run, view); Queue(view); revision++; }
+    }
     public JsonObject Register(JsonObject raw)
     {
         lock (gate)
@@ -207,12 +241,33 @@ public sealed class Hub : IDisposable
             var role = raw.ContainsKey("role") ? ComponentValidator.Text(raw, "role", 160) : "Agent";
             var context = ComponentValidator.Text(raw, "context", 8192, false); var parent = ComponentValidator.Id(raw, "parentId", false); var proof = ComponentValidator.Text(raw, "parentToken", 256, false);
             var registration = new JsonObject { ["requestId"] = request, ["registrationKey"] = registrationKey, ["agentId"] = agentId, ["name"] = name, ["role"] = role, ["context"] = context };
+            var sessionId = ComponentValidator.Text(raw, "sessionId", 256, false);
+            var sessionProvider = ComponentValidator.Text(raw, "sessionProvider", 80, false);
+            if (sessionId.Length > 0 && sessionProvider.Length == 0) throw new HubError(400, "sessionProvider is required with a native sessionId.");
+            if (sessionProvider.Length > 0 && sessionId.Length == 0) throw new HubError(400, "sessionId is required with sessionProvider.");
+            var identity = sessionId.Length == 0 ? "" : Digest(AgenticView.Server.Json.Object(new { sessionProvider, sessionId }));
+            if (identity.Length > 0) { registration["sessionId"] = sessionId; registration["sessionProvider"] = sessionProvider; }
             if(raw.ContainsKey("icon")) { CardStyles.Validate(raw); registration["icon"]=raw["icon"]!.DeepClone(); }
             if (raw.ContainsKey("parentId")) registration["parentId"] = parent; if (raw.ContainsKey("parentToken")) registration["parentToken"] = proof;
             var hash = Digest(registration);
             using (var reader = Command("SELECT run_id,request_hash FROM requests WHERE request_id=$p0", request).ExecuteReader())
                 if (reader.Read()) { var existingId = reader.GetString(0); if (!Equal(reader.GetString(1), hash)) throw new HubError(409, "Registration ID was already used with different content or proof."); return Registration(existingId, runs.TryGetValue(existingId, out var existing) ? existing.View : ReadArchive(existingId)); }
             if (parent.Length > 0) Authorize(parent, proof);
+            if (identity.Length > 0)
+            {
+                string? boundId = null, boundProof = null, boundParent = null;
+                using (var reader = Command("SELECT run_id,proof_hash,parent_id FROM session_bindings WHERE identity=$p0", identity).ExecuteReader())
+                    if (reader.Read()) { boundId = reader.GetString(0); boundProof = reader.GetString(1); boundParent = reader.GetString(2); }
+                if (boundId is not null)
+                {
+                    if (!Equal(boundProof!, Hash(registrationKey)) || boundParent != parent) throw new HubError(409, "Native session belongs to another registration proof or parent.");
+                    if (!runs.ContainsKey(boundId)) Restore(boundId);
+                    SetSessionStatus(boundId, Token(boundId), "active");
+                    var boundView = runs[boundId].View;
+                    Execute("INSERT INTO requests VALUES($p0,$p1,$p2)", request, boundId, hash);
+                    return Registration(boundId, boundView);
+                }
+            }
             if (runs.Count >= 2000 || totalBytes >= MaxLiveBytes) throw new HubError(429, "Live capacity reached. Archive completed runs first.");
             var id = Guid.NewGuid().ToString(); var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             var layoutStart = Stopwatch.GetTimestamp();
@@ -221,9 +276,10 @@ public sealed class Hub : IDisposable
             registrationLayoutTicks += Stopwatch.GetTimestamp() - layoutStart;
             var view = new JsonObject { ["id"] = id, ["agentId"] = agentId, ["name"] = name, ["role"] = role, ["context"] = context, ["parentId"] = parent.Length > 0 ? parent : null, ["createdAt"] = now, ["lastSeen"] = now, ["status"] = "active", ["sequence"] = 0L, ["components"] = new JsonObject(), ["layout"] = layout };
             if(registration.ContainsKey("icon")) view["icon"]=registration["icon"]!.DeepClone();
+            if (identity.Length > 0) { view["sessionId"] = sessionId; view["sessionProvider"] = sessionProvider; }
             var bytes = Size(view); if (totalBytes + bytes > MaxLiveBytes) throw new HubError(429, "Live capacity reached.");
             var run = new Run(view, Hash(Token(id)), bytes);
-            Transaction(() => { Execute("INSERT INTO runs VALUES($p0,$p1,$p2,$p3,$p4,$p5)", id, Serialize(Metadata(view)), request, hash, run.TokenHash, ""); Execute("INSERT INTO requests VALUES($p0,$p1,$p2)", request, id, hash); });
+            Transaction(() => { Execute("INSERT INTO runs VALUES($p0,$p1,$p2,$p3,$p4,$p5)", id, Serialize(Metadata(view)), request, hash, run.TokenHash, ""); Execute("INSERT INTO requests VALUES($p0,$p1,$p2)", request, id, hash); if (identity.Length > 0) Execute("INSERT INTO session_bindings VALUES($p0,$p1,$p2,$p3)", identity, id, Hash(registrationKey), parent); });
             runs[id] = run; totalBytes += bytes; Queue(view); freshLayouts.Add(id); packingDirty = true; revision++; return Registration(id, view);
         }
     }
@@ -253,6 +309,16 @@ public sealed class Hub : IDisposable
             else run = Authorize(id, token);
             var sequence = (long)ComponentValidator.Number(raw, "sequence", 1, 9007199254740991, true, true);
             var operations = ComponentValidator.Array(raw, "operations", 256, 1); var authorized = Stopwatch.GetTimestamp(); var hash = Digest(raw, out var payloadBytes); var digested = Stopwatch.GetTimestamp();
+            if (run.View["orphanComponentId"] is JsonValue standalone)
+            {
+                var componentId = standalone.GetValue<string>();
+                foreach (var node in operations)
+                {
+                    var op = ComponentValidator.Object(node); var kind = String(op, "op");
+                    if (kind is "clear" or "remove" || kind == "upsert" && String(ComponentValidator.Object(op["component"]), "id") != componentId || kind == "append" && String(op, "componentId") != componentId)
+                        throw new HubError(400, "A standalone card contains its designated component only. Edit that component or archive the card.");
+                }
+            }
             if (sequence <= Integer(run.View, "sequence"))
             {
                 var previous = Scalar(recovering ? "SELECT digest FROM archive_batches WHERE run_id=$p0 AND sequence=$p1" : "SELECT digest FROM batches WHERE run_id=$p0 AND sequence=$p1", id, sequence) as string;
@@ -309,8 +375,6 @@ public sealed class Hub : IDisposable
             else { totalBytes += bytes - run.Bytes; run.Bytes = bytes; run.View = view; QueueBatch(view, operations); }
             revision++; updates += operations.Count;
             monitoring.Accepted(id, operations, view, previousView, payloadBytes, start, entered, authorized, digested, copied, mutated, budgeted, committed, Stopwatch.GetTimestamp());
-            if (view["application"] is null && settings["archiveAfterCompletion"]!.GetValue<bool>() && String(view, "status") is "completed" or "error")
-                try { Archive(id); } catch { Console.Error.WriteLine("Automatic archive failed; accepted live state remains retained."); }
             return new JsonObject { ["sequence"] = sequence, ["duplicate"] = false, ["trimmed"] = trimmed, ["restored"] = recovering };
         }
     }
@@ -355,7 +419,7 @@ public sealed class Hub : IDisposable
         lock (gate)
         {
             if (!runs.TryGetValue(id, out var run)) throw new HubError(404, "Run unavailable."); var layout = Clone(raw);
-            ComponentValidator.Number(layout, "x", -1e7, 1e7); ComponentValidator.Number(layout, "y", -1e7, 1e7); ComponentValidator.Number(layout, "width", 320, 1600); ComponentValidator.Number(layout, "height", 240, 1600); ComponentValidator.Number(layout, "z", 0, 1e9, true, true);
+            ComponentValidator.Number(layout, "x", -1e7, 1e7); ComponentValidator.Number(layout, "y", -1e7, 1e7); ComponentValidator.Number(layout, "width", 320, 1600); ComponentValidator.Number(layout, "height", 240, String(layout, "sizing") == "content" ? 100000 : 1600); ComponentValidator.Number(layout, "z", 0, 1e9, true, true);
             if (!layout.ContainsKey("locked")) throw new HubError(400, "locked is required."); ComponentValidator.Boolean(layout, "locked"); ComponentValidator.Choice(layout, "sizing", ["content", "fixed"], "fixed");
             layout = new JsonObject { ["x"] = N(layout, "x"), ["y"] = N(layout, "y"), ["width"] = N(layout, "width"), ["height"] = N(layout, "height"), ["z"] = (long)N(layout, "z"), ["locked"] = layout["locked"]!.GetValue<bool>(), ["sizing"] = String(layout, "sizing"), ["automatic"] = ComponentValidator.Boolean(layout, "automatic") };
             var current = (JsonObject)run.View["layout"]!;
@@ -366,15 +430,14 @@ public sealed class Hub : IDisposable
                 if (!ComponentValidator.Boolean(raw, "resolveOverlap") || current["locked"]!.GetValue<bool>() || layout["locked"]!.GetValue<bool>()) throw new HubError(409, "Cards cannot overlap.");
                 layout = FreePosition(layout, obstacles);
             }
-            var dimensionsChanged = N(current, "width") != N(layout, "width") || N(current, "height") != N(layout, "height");
-            var view = Clone(run.View); view["layout"] = layout; SaveView(run, view); Queue(view); manualReservations.Remove(id); freshLayouts.Remove(id); packingDirty = true; compactPacking |= dimensionsChanged; revision++; return Clone(layout);
+            var view = Clone(run.View); view["layout"] = layout; SaveView(run, view); Queue(view); manualReservations.Remove(id); freshLayouts.Remove(id); packingDirty = true; revision++; return Clone(layout);
         }
     }
     private static JsonObject NormalizeSettings(JsonObject raw)
     {
         var stale = raw.ContainsKey("staleSeconds") ? (int)ComponentValidator.Number(raw, "staleSeconds", 15, 86400, true, true) : 45;
-        int? archive = raw["autoArchiveMinutes"] is null ? null : (int)ComponentValidator.Number(raw, "autoArchiveMinutes", 1, 525600, true, true);
-        return new JsonObject { ["staleSeconds"] = stale, ["autoArchiveMinutes"] = archive, ["archiveAfterCompletion"] = ComponentValidator.Boolean(raw, "archiveAfterCompletion"), ["trustedEmbeds"] = ComponentValidator.Boolean(raw, "trustedEmbeds", true), ["reducedMotion"] = ComponentValidator.Boolean(raw, "reducedMotion") };
+        int? archive = !raw.ContainsKey("autoArchiveMinutes") ? 5 : raw["autoArchiveMinutes"] is null ? null : (int)ComponentValidator.Number(raw, "autoArchiveMinutes", 1, 525600, true, true);
+        return new JsonObject { ["staleSeconds"] = stale, ["autoArchiveMinutes"] = archive, ["archiveAfterCompletion"] = ComponentValidator.Boolean(raw, "archiveAfterCompletion", true), ["trustedEmbeds"] = ComponentValidator.Boolean(raw, "trustedEmbeds", true), ["reducedMotion"] = ComponentValidator.Boolean(raw, "reducedMotion") };
     }
     public JsonObject SetSettings(JsonObject raw) { lock (gate) { var next = NormalizeSettings(raw); Execute("INSERT INTO settings VALUES(1,$p0) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload", Serialize(next)); settings = next; settingsDirty = true; revision++; return Clone(next); } }
     public JsonObject Archive(string id)
@@ -391,7 +454,7 @@ public sealed class Hub : IDisposable
             if (promoted.Any(child => Size(child.View) > MaxRunBytes) || totalBytes - run.Bytes + promoted.Sum(child => Size(child.View) - child.Run.Bytes) > MaxLiveBytes) throw new HubError(413, "Promoted child layout exceeds the live data budget.");
             Transaction(() => { Execute("INSERT INTO archives VALUES($p0,$p1,$p2)", id, Serialize(summary), compressed); Execute("INSERT INTO archive_batches SELECT run_id,sequence,digest FROM batches WHERE run_id=$p0", id); Execute("DELETE FROM runs WHERE id=$p0", id); foreach (var child in promoted) Execute("UPDATE runs SET payload=$p0 WHERE id=$p1", Serialize(Metadata(child.View)), String(child.View, "id")); });
             foreach (var child in promoted) { totalBytes += Size(child.View) - child.Run.Bytes; child.Run.Bytes = Size(child.View); child.Run.View = child.View; Queue(child.View); }
-            runs.Remove(id); monitoring.Remove(id); totalBytes -= run.Bytes; archiveCount++; pending.Remove(id); removed.Add(id); manualReservations.Remove(id); foreach (var key in interactionReservations.Keys.Where(key => key.RunId == id).ToArray()) interactionReservations.Remove(key); freshLayouts.Remove(id); packingDirty = true; compactPacking = true; revision++; return summary;
+            runs.Remove(id); monitoring.Remove(id); totalBytes -= run.Bytes; archiveCount++; pending.Remove(id); removed.Add(id); manualReservations.Remove(id); foreach (var key in interactionReservations.Keys.Where(key => key.RunId == id).ToArray()) interactionReservations.Remove(key); freshLayouts.Remove(id); packingDirty = true; revision++; return summary;
         }
     }
     // Recovery keeps the same identity and credentials; only placement may change to avoid live cards.
@@ -406,7 +469,7 @@ public sealed class Hub : IDisposable
     private void PersistRestore(JsonObject view, string tokenHash)
     {
         var id = String(view, "id");
-        var count = Command("INSERT INTO runs SELECT $p0,$p1,request_id,request_hash,$p2,'' FROM requests WHERE run_id=$p0", id, Serialize(Metadata(view)), tokenHash).ExecuteNonQuery();
+        var count = Command("INSERT INTO runs SELECT $p0,$p1,request_id,request_hash,$p2,'' FROM requests WHERE run_id=$p0 ORDER BY rowid LIMIT 1", id, Serialize(Metadata(view)), tokenHash).ExecuteNonQuery();
         if (count != 1) throw new HubError(409, "Registration evidence is unavailable; archive retained.");
         foreach (var pair in (JsonObject)view["components"]!) Execute("INSERT INTO components VALUES($p0,$p1,$p2)", id, pair.Key, Serialize(pair.Value!));
         Execute("INSERT INTO batches SELECT run_id,sequence,digest FROM archive_batches WHERE run_id=$p0", id);
@@ -423,7 +486,7 @@ public sealed class Hub : IDisposable
         lock (gate)
         {
             if (runs.TryGetValue(id, out var existing)) return Clone(existing.View);
-            var view = ReadArchive(id); PrepareRestore(view); view["lastSeen"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(); if (String(view, "status") == "stale") view["status"] = "active";
+            var view = ReadArchive(id); PrepareRestore(view); view["lastSeen"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(); view["restoredAt"] = view["lastSeen"]!.DeepClone(); if (String(view, "status") == "stale") view["status"] = "active";
             var run = new Run(view, Hash(Token(id)), 0); Transaction(() => PersistRestore(view, run.TokenHash)); AcceptRestore(run, view); revision++; return Clone(view);
         }
     }
@@ -443,7 +506,7 @@ public sealed class Hub : IDisposable
         {
             ComponentValidator.Choice(request, "mode", ["all", "automatic"], "all");
             var aspect = request.ContainsKey("aspectRatio") ? ComponentValidator.Number(request, "aspectRatio", .3, 4) : packingAspectRatio;
-            var result = PackCards(String(request, "mode") == "all" || compactPacking, aspect); packingAspectRatio = aspect; packingDirty = false; compactPacking = false; freshLayouts.Clear(); return result;
+            var result = PackCards(String(request, "mode") == "all", aspect); packingAspectRatio = aspect; packingDirty = false; freshLayouts.Clear(); return result;
         }
     }
     private JsonObject PackCards(bool all, double aspect)
@@ -451,7 +514,7 @@ public sealed class Hub : IDisposable
         var roots = EffectiveRoots().ToArray();
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var interactingRuns = interactionReservations.Where(pair => pair.Value > now).Select(pair => pair.Key.RunId).ToHashSet();
-        bool Movable(Run run) { var layout = (JsonObject)run.View["layout"]!; var id = String(run.View, "id"); return !ComponentValidator.Boolean(layout, "locked") && !manualReservations.ContainsKey(id) && !interactingRuns.Contains(id); }
+        bool Movable(Run run) { var layout = (JsonObject)run.View["layout"]!; var id = String(run.View, "id"); return (all || freshLayouts.Contains(id)) && !ComponentValidator.Boolean(layout, "locked") && !manualReservations.ContainsKey(id) && !interactingRuns.Contains(id); }
         var movable = roots.Where(Movable).ToArray(); var fixedCards = roots.Where(r => !Movable(r)).ToArray();
         var packed = CanvasPacking.PackStable(movable.Select(r => { var l = (JsonObject)r.View["layout"]!; var id = String(r.View, "id"); return new PositionedPackingItem(id, N(l, "x"), N(l, "y"), N(l, "width"), N(l, "height"), Integer(r.View, "createdAt"), !freshLayouts.Contains(id)); }).ToArray(), fixedCards.Select(r => { var l = (JsonObject)r.View["layout"]!; return new PackingRect(N(l, "x"), N(l, "y"), N(l, "width"), N(l, "height")); }).ToArray(), aspect, all);
         var changed = new List<(Run Run, JsonObject View, long Bytes)>();
@@ -498,7 +561,7 @@ public sealed class Hub : IDisposable
         JsonObject patch; lock (gate)
         {
             if (disposed) return;
-            if (packingDirty) { packingDirty = false; try { PackCards(compactPacking, packingAspectRatio); freshLayouts.Clear(); compactPacking = false; } catch { Console.Error.WriteLine("Automatic arrangement failed; existing layouts retained."); } }
+            if (packingDirty) { packingDirty = false; try { PackCards(false, packingAspectRatio); freshLayouts.Clear(); } catch { Console.Error.WriteLine("Automatic arrangement failed; existing layouts retained."); } }
             patch = new JsonObject { ["revision"] = revision, ["changes"] = new JsonArray(pending.Select(pair => (JsonNode)new JsonObject { ["id"] = pair.Key, ["meta"] = Clone(pair.Value.Meta), ["components"] = new JsonArray(pair.Value.Components.Values.Select(c => (JsonNode)Clone(c)).ToArray()), ["removeComponents"] = new JsonArray(pair.Value.Removed.Select(x => (JsonNode?)JsonValue.Create(x)).ToArray()), ["clear"] = pair.Value.Clear }).ToArray()), ["removed"] = new JsonArray(removed.Select(x => (JsonNode?)JsonValue.Create(x)).ToArray()), ["stats"] = Stats() };
             if (settingsDirty) patch["settings"] = Clone(settings); pending.Clear(); removed.Clear(); settingsDirty = false;
         }
@@ -513,10 +576,14 @@ public sealed class Hub : IDisposable
             foreach (var key in interactionReservations.Where(pair => pair.Value <= now).Select(pair => pair.Key).ToArray()) { interactionReservations.Remove(key); packingDirty = true; }
             foreach (var run in runs.Values.ToArray())
             {
-                if (run.View["application"] is not null) continue;
+                if (run.View["application"] is not null && run.View["managedSessionId"] is null) continue;
                 var inactive = now - Integer(run.View, "lastSeen");
                 if (String(run.View, "status") == "active" && inactive >= N(settings, "staleSeconds") * 1000) { var view = Clone(run.View); view["status"] = "stale"; SaveView(run, view); Queue(view); revision++; }
-                if (settings["autoArchiveMinutes"] is not null && inactive >= N(settings, "autoArchiveMinutes") * 60000)
+                var completed = String(run.View, "status") == "completed";
+                var age = now - Math.Max(Integer(run.View, "completedAt"), Integer(run.View, "restoredAt"));
+                var delay = settings["autoArchiveMinutes"] is null ? double.PositiveInfinity : N(settings, "autoArchiveMinutes") * 60000;
+                var eligible = settings["archiveAfterCompletion"]!.GetValue<bool>() && completed && age >= delay;
+                if (settings["autoArchiveMinutes"] is not null && eligible && !interactionReservations.Any(pair => pair.Key.RunId == String(run.View, "id") && pair.Value > now))
                     try { Archive(String(run.View, "id")); } catch { Console.Error.WriteLine("Automatic archive failed; live state remains retained."); }
             }
             monitoring.Sample(now, runs.Values.Count(r => String(r.View, "status") == "active"), runs.Values.Count(r => String(r.View, "status") == "stale")); rate = monitoring.UpdateRate;

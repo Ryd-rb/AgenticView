@@ -12,7 +12,7 @@ in local archives, and build permanent consoles for your services and tools.
 
 C# · .NET 10 · React · MIT
 
-[Get started](#get-started) · [Connect an agent](#connect-an-agent) · [Offline builds](docs/offline-build.md) · [Windows desktop](docs/desktop.md)
+[Get started](#get-started) · [Connect an agent](#connect-an-agent) · [Offline builds](docs/offline-build.md) · [Windows desktop](docs/desktop.md) · [View management](docs/view-management.md)
 
 ## A workspace that stays yours
 
@@ -20,9 +20,7 @@ C# · .NET 10 · React · MIT
   position and size while reports arrive; new runs appear without moving your view.
 - **Stay responsive.** Unchanged card content is reused while you navigate and
   receive updates. Compressed assets and conditional caching reduce loading work.
-- **Look closer.** Activate a card to explore its content. Nested tables, logs and
-  code scroll within their bounds, with movement continuing through the surrounding
-  card and canvas. Mouse, keyboard and touch inputs share the same navigation model.
+- **Look closer.** Ordinary content expands naturally. Large logs, paged grids and deliberate fixed views keep bounded scrolling. Mouse, keyboard and touch inputs share the same navigation model.
 - **Choose the right view.** Use 36 built-in types: task lists, query results,
   commands, traces, charts, heatmaps, comparisons, code, diffs and more. Native
   components handle display and interaction; custom HTML is an escape hatch with
@@ -30,8 +28,7 @@ C# · .NET 10 · React · MIT
 - **Follow the work.** Declared child agents stay with their parent. Status colors,
   first-visible arrival cues, timestamps and compact elapsed task durations make
   changes easier to scan. Exact observed times remain available on hover.
-- **Keep the evidence.** Inspect, restore or export compressed local archives from
-  the bottom-left settings cog. Automatic archiving is optional and off by default.
+- **Keep the evidence.** Completed cards archive after a configurable review delay, five minutes by default. Review and restore them in the Archived cards world card. Permanent launchers remain visible.
 - **Watch the hub.** The monitoring icon beside settings opens a world card with
   agent counts, update and payload rates, recent curves, component activity and
   server health. Larger working text stays within the existing card sizes.

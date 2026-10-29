@@ -61,9 +61,9 @@ labels in both live and archived content.
 Send `POST /api/agents/{runId}/heartbeat` every 15 seconds. Use
 `POST /api/agents/{runId}/archive` to retire your card and preserve its current
 retained view. Archiving is idempotent. A completed status allows cleanup, and
-does not automatically archive under the default settings.
+archives after a configurable review delay, five minutes by default. Permanent application launchers remain visible.
 
-Archives are reversible. The viewer can restore a card from Settings → Archives,
+Archives are reversible. The viewer can restore a card from the Archived cards world card or Settings → Archives,
 or `POST /api/archives/{runId}/restore` with viewer authentication. Restoration
 keeps the run ID, credentials, sequence, components, ancestry and sizing. The card
 returns to its saved position when free, or moves to a nearby free position.
@@ -81,9 +81,7 @@ archiving it again saves its latest retained view.
 
 Viewer layout controls use `POST /api/layout/pack` with
 `{"mode":"all","aspectRatio":1.6}`. All unlocked world cards are packed and
-compacted. Mode `automatic` includes every unlocked card and preserves older
-valid positions where possible. `automatic` remains in layouts for compatibility;
-it no longer excludes manually placed or legacy cards from the default policy.
+compacted. Mode `automatic` places fresh arrivals around established geometry. Existing packed, manual and legacy cards remain fixed.
 Before a real drag/resize starts, `POST /api/agents/{id}/layout/manual` reserves
 a 30-second gesture reservation without changing position. Final layout PATCH
 releases it; abandoned reservations expire. A layout PATCH may set
@@ -137,3 +135,5 @@ addEventListener('agenticview:state', event => {
 The latest state is also `window.agenticViewState`. State updates travel through
 the bridge. Replacing HTML reloads the component; independent navigation loses
 the bridge. Archived embeds remain paused. Keep secrets out of HTML and state.
+
+See [view management](view-management.md) for native session identity, operator MCP, standalone components and optional quick-text actions.

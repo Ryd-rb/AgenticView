@@ -42,3 +42,32 @@ test('large tables paginate and logs render a bounded visible range', () => {
   const table = render({ id: 'table', kind: 'table', title: 'Results', data: { columns: [{ key: 'name', label: 'Name' }], rows: Array.from({ length: 100 }, (_, i) => ({ name: `row-${i}` })) } }); assert.match(table, /row-24/); assert.doesNotMatch(table, /row-25</); assert.match(table, /100 rows/);
   const logs = render(componentSchema.parse({ id: 'logs', kind: 'logs', title: 'Logs', data: { entries: Array.from({ length: 2_000 }, (_, i) => ({ message: `entry-${i}`, level: 'info' })) } })); assert.match(logs, /2000 log entries/); assert.doesNotMatch(logs, /entry-1999/);
 });
+
+
+test('ordinary code expands while unusually large output keeps a bounded viewport', () => {
+  const ordinary = render({ id: 'ordinary', title: 'Ordinary code', kind: 'code', data: { code: 'line\n'.repeat(40) } });
+  assert.doesNotMatch(ordinary, /bounded-output/);
+  const large = render({ id: 'large', title: 'Large code', kind: 'code', data: { code: 'line\n'.repeat(301) } });
+  assert.match(large, /bounded-output/);
+});
+
+test('archived content does not mount live controls or managed session readers', () => {
+  const archived: AgentView = { id: 'saved', agentId: 'synthetic', name: 'Saved', role: 'Worker', context: 'Retained context', parentId: null, createdAt: 1, lastSeen: 2, status: 'completed', sequence: 1,
+    layout: { x: 0, y: 0, width: 480, height: 420, locked: false, z: 1 }, components: {
+      session: { id: 'session', title: 'Retained session', kind: 'agent-session', data: { sessionId: 'session-1' } },
+      evidence: { id: 'evidence', title: 'Retained evidence', kind: 'markdown', data: { text: 'Finished investigation' } },
+      grid: { id: 'grid', title: 'Configured reader', kind: 'table', data: { sourceAction: 'read', columns: [], rows: [] } }
+    } };
+  const html = renderToStaticMarkup(createElement(AgentContent, { agent: archived, agents: [], readOnly: true, settings: { staleSeconds: 45, autoArchiveMinutes: null, archiveAfterCompletion: false, trustedEmbeds: false, reducedMotion: true } }));
+  assert.match(html, /Retained context/); assert.match(html, /Finished investigation/); assert.match(html, /Managed agent session/); assert.match(html, /restore this card/);
+  assert.doesNotMatch(html, /session-view|control-view/);
+});
+
+test('orphan components render directly without agent context or nested child frames', () => {
+  const orphan: AgentView = { id: 'orphan', agentId: 'synthetic', name: 'Internal identity', role: 'Internal role', context: 'Hidden agent wrapper context', parentId: null, createdAt: 1, lastSeen: 2, status: 'active', sequence: 1,
+    orphanComponentId: 'display', layout: { x: 0, y: 0, width: 480, height: 420, locked: false, z: 1 }, components: { display: { id: 'display', title: 'Standalone display', kind: 'markdown', data: { text: 'Direct native content' } } } };
+  const child = { ...orphan, id: 'child', parentId: orphan.id, name: 'Hidden child wrapper' };
+  const html = renderToStaticMarkup(createElement(AgentContent, { agent: orphan, agents: [orphan, child], settings: { staleSeconds: 45, autoArchiveMinutes: null, archiveAfterCompletion: false, trustedEmbeds: false, reducedMotion: true } }));
+  assert.match(html, /Standalone display/); assert.match(html, /Direct native content/); assert.match(html, /Built-in/);
+  assert.doesNotMatch(html, /Hidden agent wrapper|Hidden child wrapper|child-card/);
+});

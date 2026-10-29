@@ -13,6 +13,7 @@ import { SessionView } from './SessionViews.js';
 
 const colors = ['#b4a2ff', '#70d6c3', '#e8be79', '#8bbbf5', '#e891b1'];
 const icons: Record<string, LucideIcon> = { metric: Activity, chart: BarChart3, table: Table2, code: Code2, diff: GitCompareArrows, logs: Terminal, timeline: Timer, tree: ListTree, json: Braces, checklist: CheckSquare, 'stat-grid': LayoutGrid, 'bar-list': BarChart3, histogram: BarChart3, heatmap: LayoutGrid, gauge: Gauge, query: Database, command: Terminal, trace: Activity, links: Link2, comparison: GitCompareArrows, 'service-map': Network, http: Globe, stacktrace: Layers, 'test-results': ListChecks, gantt: CalendarRange, breakdown: ChartPie, embed: Braces };
+const boundedOutput = (text: string) => text.length > 32000 || text.split('\n', 302).length > 300;
 const stringify = (v: unknown) => typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v ?? '—');
 function Sparkline({ values }: { values: number[] }) {
   const min = Math.min(...values), span = Math.max(...values) - min || 1;
@@ -70,13 +71,13 @@ export const ComponentView = memo(function ComponentView({ component: c, embeds,
     case 'chart': body = <Chart data={c.data} />; break;
     case 'table': body = c.data.sourceAction ? <ControlView component={{kind:'data-grid',data:{readAction:c.data.sourceAction,columns:c.data.columns,pageSize:c.data.pageSize}}} runId={runId} /> : <DataTable data={c.data} />; break;
     case 'markdown': body = <TaskMarkdown text={c.data.text} tasks={taskTimes} updatedAt={updatedAt} />; break;
-    case 'code': body = <><div className="code-language"><Code2 size={12} />{c.data.language || 'text'}</div><pre><code>{c.data.code}</code></pre></>; break;
-    case 'diff': body = <pre className="diff">{diffLines(c.data.before, c.data.after).map((p, i) => <span className={p.added ? 'added' : p.removed ? 'removed' : ''} key={i}>{p.value}</span>)}</pre>; break;
+    case 'code': body = <><div className="code-language"><Code2 size={12} />{c.data.language || 'text'}</div><pre className={boundedOutput(c.data.code) ? 'bounded-output' : undefined}><code>{c.data.code}</code></pre></>; break;
+    case 'diff': body = <pre className={`diff ${boundedOutput(c.data.before) || boundedOutput(c.data.after) ? 'bounded-output' : ''}`}>{diffLines(c.data.before, c.data.after).map((p, i) => <span className={p.added ? 'added' : p.removed ? 'removed' : ''} key={i}>{p.value}</span>)}</pre>; break;
     case 'logs': body = <Logs entries={c.data.entries} />; break;
     case 'timeline': body = <ol className="timeline">{c.data.events.slice(-100).map((e, i) => <li className={`tone-${e.tone ?? 'neutral'}`} key={i}><time>{e.time}</time><strong>{e.title}</strong>{e.detail && <p>{e.detail}</p>}</li>)}</ol>; break;
     case 'progress': body = <div className="progress"><div><span>{c.data.label ?? 'Progress'}</span><b>{Math.round(c.data.value / c.data.max * 100)}%</b></div><progress value={c.data.value} max={c.data.max} /></div>; break;
     case 'keyvalue': body = <dl className="keyvalue">{c.data.items.map((i, n) => <div key={n}><dt>{i.key}</dt><dd>{stringify(i.value)}</dd></div>)}</dl>; break;
-    case 'json': body = <pre>{JSON.stringify(c.data.value, null, 2)}</pre>; break;
+    case 'json': { const text = JSON.stringify(c.data.value, null, 2) ?? ''; body = <pre className={boundedOutput(text) ? 'bounded-output' : undefined}>{text}</pre>; break; }
     case 'tree': body = <Tree nodes={c.data.nodes} />; break;
     case 'status': body = <div className={`status-display ${c.data.state}`}><Activity size={17} /><div><strong>{c.data.label}</strong>{c.data.detail && <p>{c.data.detail}</p>}</div></div>; break;
     case 'embed': body = <Embed key={c.data.html} data={c.data} enabled={embeds} runId={runId} componentId={c.id} />; break;

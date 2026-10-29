@@ -30,6 +30,8 @@ public sealed partial class ControlStore
         """);
         var digest=false; using(var c=Command("PRAGMA table_info(session_reports)")) using(var r=c.ExecuteReader()) while(r.Read()) digest|=r.GetString(1)=="digest";
         if(!digest) Execute("ALTER TABLE session_reports ADD COLUMN digest TEXT NOT NULL DEFAULT ''");
+        var known = new List<JsonObject>(); using (var c = Command("SELECT payload FROM sessions LIMIT 1000")) using (var r = c.ExecuteReader()) while (r.Read()) known.Add(Parse(r.GetString(0)));
+        foreach (var session in known) if (hub.GetRun(Text(session, "runId")) is not null) hub.MarkManagedSession(Text(session, "runId"), Text(session, "runToken"), Text(session, "id"));
     }
     private JsonObject Session(string id) => Scalar("SELECT payload FROM sessions WHERE id=$p0",id) is string value ? Parse(value) : throw new HubError(404,"Session unavailable.");
     private void SaveSession(JsonObject s) { s["updatedAt"]=Now; Execute("INSERT INTO sessions VALUES($p0,$p1,$p2) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload",Text(s,"id"),Text(s,"target"),Json.Text(s)); }
@@ -60,7 +62,8 @@ public sealed partial class ControlStore
             var id=new Guid(SHA256.HashData(Encoding.UTF8.GetBytes("session-draft:"+Text(input,"requestId"))).AsSpan(0,16)).ToString(); var registration=hub.Register(Json.Object(new{requestId="session-"+id,registrationKey=Convert.ToHexStringLower(HMACSHA256.HashData(Encoding.UTF8.GetBytes(secrets.RunSecret),Encoding.UTF8.GetBytes("draft:"+Canonical(input)))),agentId="session-"+id,name=Text(action,"label"),role="Agent session",context="Persistent session; execution runs on its configured connector."}));
             var runId=Text(registration,"runId"); var runToken=Text(registration,"runToken");
             hub.MakeApplication(runId,runToken,Json.Object(new{name=Text(action,"label"),description="Persistent agent session"}));
-            hub.SetApplicationSize(runId,runToken,Json.Object(new{width=640,height=720,sizing="fixed"}));
+            hub.MarkManagedSession(runId,runToken,id);
+            hub.SetApplicationSize(runId,runToken,Json.Object(new{width=640,height=720,sizing="content"}));
             var s=Json.Object(new{id,runId,runToken,launcherRunId=source,actionId,name=Text(action,"label"),agentType=Text(action,"handler"),target=Text(action,"target"),handler=Text(action,"handler"),configurationVersion=Text(config,"version"),confirmation=Text(action,"confirmation"),state="draft",desiredState="paused",generation=0,attempt=0,recoveryCount=0,autoRecover=true,replacementAvailable=false,createdAt=Now,updatedAt=Now,outputRevision=0L,outputBytes=0L,owner="",claimToken="",leaseUntil=0L,prompt="",originalPrompt="",prompts=new JsonArray()});
             if(action["connection"] is JsonObject connection) s["connection"]=connection.DeepClone();
             SaveSession(s); RememberSessionRequest(input,id);
@@ -70,6 +73,7 @@ public sealed partial class ControlStore
     }
     private void EnsureSessionCard(JsonObject s)
     {
+        hub.MarkManagedSession(Text(s,"runId"),Text(s,"runToken"),Text(s,"id"));
         var view=hub.GetRun(Text(s,"runId")); var components=view?["components"] as JsonObject ?? new JsonObject(); var operations=new JsonArray();
         if(!components.ContainsKey("session-plan")) operations.Add(Json.Object(new{op="upsert",component=new{id="session-plan",title="Current task list",kind="markdown",data=new{text="- [ ] Enter a prompt and start the session\n- [ ] Follow progress and reported components"}}}));
         if(!components.ContainsKey("session-console")) operations.Add(Json.Object(new{op="upsert",component=new{id="session-console",title="Agent session",kind="agent-session",data=new{sessionId=Text(s,"id")}}}));

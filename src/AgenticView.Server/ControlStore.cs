@@ -29,6 +29,7 @@ public sealed partial class ControlStore : IDisposable
             """);
         InitializeSessions();
         InitializeSshCredentials();
+        InitializeQuickText();
     }
     private SqliteCommand Command(string sql, params object[] values) { var c = db.CreateCommand(); c.CommandText = sql; for (var i=0;i<values.Length;i++) c.Parameters.AddWithValue("$p"+i,values[i]); return c; }
     private void Execute(string sql, params object[] values) { using var c=Command(sql,values); c.ExecuteNonQuery(); }

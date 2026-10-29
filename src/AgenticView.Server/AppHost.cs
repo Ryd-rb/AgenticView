@@ -21,6 +21,7 @@ public static class AppHost
         builder.Services.AddSingleton<WebAssets>();
         builder.Services.AddSingleton(new Hub(config.DataDir, config.Secrets));
         builder.Services.AddSingleton<ControlStore>();
+        builder.Services.AddSingleton<OperatorView>();
         builder.Services.AddHostedService<HubTicker>();
         builder.Services.AddRateLimiter(o => { o.RejectionStatusCode = 429; o.AddPolicy("login", c => RateLimitPartition.GetFixedWindowLimiter(c.Connection.RemoteIpAddress?.ToString() ?? "local", _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 })); });
         builder.Services.AddMcpServer().WithHttpTransport(o => o.SessionMode = HttpServerSessionMode.Stateless).WithTools<McpTools>();
@@ -161,14 +162,14 @@ public static class AppHost
     }
     private static string EmbedDocument(string html) => "<!doctype html><meta charset=\"utf-8\"><meta name=\"referrer\" content=\"no-referrer\"><style>html{color-scheme:dark}body{margin:12px;font:13px system-ui;color:#dedee8;background:#121318}</style><script>addEventListener('message',function(e){if(e.source!==parent||e.data?.type!=='agenticview:init'||!e.ports[0])return;const p=e.ports[0];p.onmessage=function(m){window.agenticViewState=m.data;dispatchEvent(new CustomEvent('agenticview:state',{detail:m.data}))};p.start()},{once:true});</script>" + html;
 }
-public sealed class HubTicker(Hub hub, ILogger<HubTicker> logger) : BackgroundService
+public sealed class HubTicker(Hub hub, ControlStore controls, ILogger<HubTicker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(100)); var count = 0;
         while (await timer.WaitForNextTickAsync(stoppingToken))
         {
-            try { if (++count % 10 == 0) hub.Tick(); hub.Flush(); }
+            try { if (++count % 10 == 0) { hub.Tick(); controls.TickQuickText(); } hub.Flush(); }
             catch (Exception error) { logger.LogError("Hub maintenance failed ({Type}); local state retained.", error.GetType().Name); }
         }
     }
