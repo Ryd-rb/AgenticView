@@ -5,6 +5,7 @@ import { act, createElement } from 'react';
 import { App } from '../web/App.tsx';
 import type { AgentView, Snapshot, Patch } from '../shared/protocol.ts';
 import type { MonitoringSnapshot } from '../shared/monitoring.ts';
+import { fitToViewport, type Rect } from '../shared/canvas.ts';
 
 // Actual App event/lifecycle contracts in memory; no browser or physical touch claims.
 const dom = new Window({ url: 'http://localhost/', settings: { disableIframePageLoading: true, enableJavaScriptEvaluation: false } });
@@ -60,6 +61,8 @@ const leaseRequests: { active: boolean; leaseId: string }[] = []; let admission:
 let releaseAcknowledgement: Promise<void> | undefined, packHook: (() => void) | undefined;
 const requestOrder: string[] = [];
 const requestPaths: string[] = [];
+let lastPackBody: unknown;
+let packBounds: Rect|undefined;
 function monitoringSnapshot(): MonitoringSnapshot {
   const time = Date.now();
   return { sampledAt: time, uptimeSeconds: 60, active: 1, stale: 0, completed: 0, errors: 0, liveAgents: 1, archived: 0, components: 1, viewerStreams: 1, liveBytes: 1024,
@@ -78,7 +81,7 @@ Object.assign(globalThis, { EventSource: Stream, fetch: async (input: string, in
     if (!body.active && releaseAcknowledgement) await releaseAcknowledgement;
     requestOrder.push(`lease:${body.active}:ack`);
   }
-  if (input === '/api/layout/pack') { requestOrder.push('pack'); packHook?.(); return new Response(JSON.stringify({ arranged: 1 }), { status: 200, headers: { 'Content-Type': 'application/json' } }); }
+  if (input === '/api/layout/pack') { lastPackBody=body; requestOrder.push('pack'); packHook?.(); return new Response(JSON.stringify({ arranged: 1,bounds:packBounds }), { status: 200, headers: { 'Content-Type': 'application/json' } }); }
   return new Response(JSON.stringify(input === '/api/session' ? { authenticated: true } : body), { status: 200, headers: { 'Content-Type': 'application/json' } });
 } });
 after(() => { dom.happyDOM.abort(); dom.happyDOM.close(); });
@@ -319,10 +322,24 @@ test('Arrange all cancels contact, deselects and awaits acknowledged lease relea
     await act(async () => { acknowledge(); await new Promise<void>(resolve => setImmediate(resolve)); });
     assert.ok(requestOrder.indexOf('lease:false:ack') >= 0);
     assert.ok(requestOrder.indexOf('pack') > requestOrder.indexOf('lease:false:ack'), 'server acknowledgement precedes pack request');
+    assert.deepEqual(lastPackBody,{mode:'all',aspectRatio:1},'Arrange all targets a square regardless of window aspect');
     const packed = view.host.querySelector<HTMLElement>('[data-card-id="agent"]')!;
     assert.equal(packed.style.left, '260px', 'previously selected unlocked card accepts packed live position');
     assert.equal(packed.style.height, '480px', 'packed live geometry is no longer held by selection');
   } finally { acknowledge(); releaseAcknowledgement = undefined; packHook = undefined; await view.close(); }
+});
+
+test('Arrange all leaves standalone mode and frames acknowledged packed bounds before the live patch arrives',async()=>{
+ const state=snapshot();state.settings.cardShortcuts=[{id:'app',label:'Example app',cardId:'agent',chord:'Alt+1',mode:'maximize'}];
+ const view=await mount(agent.layout,state);try{
+  await act(()=>{const event=new KeyboardEvent('keydown',{key:'1',altKey:true,bubbles:true,cancelable:true});Object.defineProperty(event,'getModifierState',{value:()=>false});window.dispatchEvent(event);});
+  assert.equal(view.host.querySelector('[data-card-id="agent"]')!.classList.contains('is-maximized'),true);
+  packBounds={x:5000,y:3000,width:1000,height:1000};
+  await act(async()=>{document.querySelector<HTMLButtonElement>('[aria-label="Arrange all cards"]')!.click();await new Promise<void>(resolve=>setImmediate(resolve));});
+  assert.equal(view.host.querySelector('.world')!.classList.contains('has-maximized'),false);
+  const expected=fitToViewport([packBounds],{width:1200,height:800});
+  assert.equal(view.host.querySelector<HTMLElement>('.world')!.style.transform,`translate(${expected.x}px, ${expected.y}px) scale(${expected.zoom})`);
+ }finally{packBounds=undefined;await view.close();}
 });
 
 test('selected-card zoom reaches 200 percent in the main view before content zoom starts', async () => {

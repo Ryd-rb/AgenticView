@@ -325,10 +325,11 @@ function Monitor() {
     setPacking(true);
     try {
       // Explicit global arrangement ends the local hold before asking the server to pack.
-      applyCamera(cameraRef.current); activateCard(null);
+      setMaximized(null); applyCamera(cameraRef.current); activateCard(null);
       await Promise.all([...interactionWrites.current.values()]);
-      const result = await api<{ arranged: number }>('/api/layout/pack', 'POST', { mode: 'all', aspectRatio: Math.max(.3, Math.min(4, (size.width - 120) / Math.max(100, size.height - 160))) });
-      fit(); report(`Arranged ${result.arranged} cards. Locked positions preserved.`);
+      const result = await api<{ arranged: number; bounds?: Rect }>('/api/layout/pack', 'POST', { mode: 'all', aspectRatio: 1 });
+      if(result.bounds)applyCamera(fitToViewport([result.bounds,...utilityRects().map(([,rect])=>rect)],size));else fit();
+      report(`Arranged ${result.arranged} cards. Locked positions preserved.`);
     } catch (error) { report((error as Error).message); } finally { setPacking(false); }
   }
   function openSettings() { setMaximized(null); if (settingsRect) { activateCard(null); setSettingsRect(null); return; } activateCard('settings'); const c = { ...cameraRef.current, zoom: Math.max(.8, cameraRef.current.zoom) }; const placed = findFreePosition({ x: (size.width / 2 - c.x) / c.zoom - 290, y: (size.height / 2 - c.y) / c.zoom - 290, width: 580, height: 610 }, obstacles()); setSettingsRect(placed); setCamera({ ...c, x: size.width / 2 - (placed.x + placed.width / 2) * c.zoom, y: size.height / 2 - (placed.y + placed.height / 2) * c.zoom }); }

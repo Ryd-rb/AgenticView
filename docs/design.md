@@ -16,7 +16,7 @@ before context, children and supporting evidence. Markdown checklists are detect
 from their task syntax; Markdown or tree components named `plan`, `tasks` or `todo`
 in their ID or title also receive this priority. Other components keep arrival order.
 
-Automatic packing places arrivals around established positions. Existing cards stay in place through arrivals and removals. Arrange all deliberately compacts unlocked cards. Content growth can relocate its own unselected, unlocked card to avoid overlap; neighboring cards stay fixed.
+Automatic packing places arrivals around established positions. Existing cards stay in place through arrivals and removals. Arrange all deliberately bin-packs every unlocked world card toward a compact square group, retaining card sizes and treating locked cards as fixed obstacles. Content growth can relocate its own unselected, unlocked card to avoid overlap; neighboring cards stay fixed.
 Sizes and position locks are preserved. Active moves/resizes hold temporary
 reservations so concurrent layout updates cannot move the card under the pointer.
 The chosen packing footprint persists across restarts.

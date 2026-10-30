@@ -85,7 +85,8 @@
   Keep monitoring history and counters bounded and its polling paused while hidden.
   Automatically place arrivals around established card geometry without moving
   previously packed cards. Preserve sizes, selected geometry and active gestures.
-  Provide explicit Arrange all beside zoom for deliberate repacking.
+  Provide explicit Arrange all beside zoom to bin-pack every unlocked world card
+  into a compact square-shaped group, preserving locked positions and card sizes.
 - Keep the top-left brand to its signal icon and AgenticView name; omit the
   Monitor subtitle and navigation-help text beside the cog. Manual archiving
   shows a quiet accessible Undo notification. Header icons are configurable via

@@ -4,19 +4,20 @@ public readonly record struct PackingRect(double X, double Y, double Width, doub
 public readonly record struct PackingItem(string Id, double Width, double Height);
 public readonly record struct PositionedPackingItem(string Id, double X, double Y, double Width, double Height, long Age, bool PreferExisting = true);
 
-/// <summary>Deterministic shelf packing; fixed rectangles reserve space without being moved.</summary>
+/// <summary>Bounded deterministic bin packing; stable arrivals preserve established positions.</summary>
 public static class CanvasPacking
 {
     private const double Gap = 16, Bound = 1e7;
 
-    public static Dictionary<string, PackingRect> Pack(IReadOnlyList<PackingItem> items, IReadOnlyList<PackingRect> obstacles, double aspectRatio = 1.6)
+    public static Dictionary<string, PackingRect> Pack(IReadOnlyList<PackingItem> items, IReadOnlyList<PackingRect> obstacles, double aspectRatio = 1)
     {
         if (obstacles.Count > 2000) throw new HubError(400, "Too many fixed packing obstacles.");
-        return PackCore(items, obstacles, aspectRatio);
+        Validate(items, obstacles, aspectRatio);
+        return PackCompact(items, obstacles, aspectRatio);
     }
 
     /// <summary>Preserve valid older positions on arrivals; explicit compaction repacks every movable item.</summary>
-    public static Dictionary<string, PackingRect> PackStable(IReadOnlyList<PositionedPackingItem> items, IReadOnlyList<PackingRect> obstacles, double aspectRatio = 1.6, bool compact = false)
+    public static Dictionary<string, PackingRect> PackStable(IReadOnlyList<PositionedPackingItem> items, IReadOnlyList<PackingRect> obstacles, double aspectRatio = 1, bool compact = false)
     {
         if (obstacles.Count > 2000) throw new HubError(400, "Too many fixed packing obstacles.");
         var dimensions = items.Select(i => new PackingItem(i.Id, i.Width, i.Height)).ToArray();
@@ -24,6 +25,7 @@ public static class CanvasPacking
         foreach (var item in items)
             if (!double.IsFinite(item.X) || !double.IsFinite(item.Y) || Math.Abs(item.X) > Bound || Math.Abs(item.Y) > Bound)
                 throw new HubError(400, "Existing packing positions must be finite and within canvas bounds.");
+        if (compact) return PackCompact(dimensions, obstacles, aspectRatio, items.ToDictionary(i => i.Id, i => i.Age, StringComparer.Ordinal));
         var result = new Dictionary<string, PackingRect>(StringComparer.Ordinal);
         var fixedRects = new List<PackingRect>(obstacles);
         var pending = new List<PackingItem>();
@@ -48,6 +50,87 @@ public static class CanvasPacking
         foreach (var rect in fixedRects)
             if (rect.X + rect.Width > 0 && rect.X + rect.Width <= Bound) width = Math.Max(width, rect.X + rect.Width);
         foreach (var pair in PackCore(pending, fixedRects, aspectRatio, width, ages)) result.Add(pair.Key, pair.Value);
+        return result;
+    }
+
+    private static Dictionary<string, PackingRect> PackCompact(IReadOnlyList<PackingItem> items, IReadOnlyList<PackingRect> obstacles, double aspectRatio, IReadOnlyDictionary<string,long>? ages = null)
+    {
+        if (items.Count == 0) return new(StringComparer.Ordinal);
+        var ordered = items.OrderByDescending(i => Math.Max(i.Width,i.Height)).ThenByDescending(i => i.Width*i.Height).ThenBy(i => ages is null ? 0 : ages[i.Id]).ThenBy(i => i.Id,StringComparer.Ordinal).ToArray();
+        var area = ordered.Sum(i => (i.Width+Gap)*(i.Height+Gap));
+        var ratio = Math.Sqrt(aspectRatio);
+        var side = Math.Max(Math.Sqrt(area),Math.Max(ordered.Max(i => i.Width)/ratio,ordered.Max(i => i.Height)*ratio));
+        var fixedRects = obstacles.OrderBy(r=>r.X).ThenBy(r=>r.Y).ThenBy(r=>r.Width).ThenBy(r=>r.Height).ToArray();
+        Dictionary<string,PackingRect>? best = null;
+        (double Side,double Area,double Distance,double Width) bestScore = (double.PositiveInfinity,0,0,0);
+        void Consider(Dictionary<string,PackingRect> candidate)
+        {
+            var left=candidate.Values.Min(r=>r.X);var top=candidate.Values.Min(r=>r.Y);
+            var width=candidate.Values.Max(r=>r.X+r.Width)-left;var height=candidate.Values.Max(r=>r.Y+r.Height)-top;
+            var score=(Math.Max(width/ratio,height*ratio),width*height,left*left+top*top,width);
+            if(score.CompareTo(bestScore)<0){best=candidate;bestScore=score;}
+        }
+        // MaxRects fills holes between unequal cards. Trials and geometry work are bounded;
+        // the shelf alternatives retain a predictable fallback for dense fixed obstacles.
+        foreach(var scale in new[]{1.0,1.12,1.3,1.6,2.1,3.0})
+        {
+            var width=Math.Min(Bound,side*ratio*scale);var height=Math.Min(Bound,side/ratio*scale);
+            var candidate=TryBin(ordered,fixedRects,width,height,ratio);
+            if(candidate is not null){Consider(candidate);break;}
+        }
+        var idealWidth=Math.Sqrt(area)*ratio;var minimum=ordered.Max(i=>i.Width);
+        foreach(var width in new[]{.75,.9,1,1.15,1.35,1.65,2.1}.Select(scale=>Math.Max(minimum,Math.Min(Bound,idealWidth*scale))).Distinct())
+        {
+            try{Consider(PackCore(ordered,fixedRects,aspectRatio,width,ages));}catch(HubError error) when(error.Status==409){ /* Another bounded width may clear the blocker. */ }
+        }
+        return best??throw new HubError(409,"No packing position within canvas bounds.");
+    }
+
+    private static Dictionary<string,PackingRect>? TryBin(IReadOnlyList<PackingItem> items,IReadOnlyList<PackingRect> obstacles,double width,double height,double ratio)
+    {
+        const int workLimit=2_000_000;
+        var work=0;var free=new List<PackingRect>{new(0,0,width+Gap,height+Gap)};
+        bool Contains(PackingRect outer,PackingRect inner)=>inner.X>=outer.X&&inner.Y>=outer.Y&&inner.X+inner.Width<=outer.X+outer.Width&&inner.Y+inner.Height<=outer.Y+outer.Height;
+        bool Subtract(PackingRect used)
+        {
+            var next=new List<PackingRect>(free.Count+4);var added=new List<PackingRect>();
+            foreach(var space in free)
+            {
+                if(++work>workLimit)return false;
+                if(space.X>=used.X+used.Width||space.X+space.Width<=used.X||space.Y>=used.Y+used.Height||space.Y+space.Height<=used.Y){next.Add(space);continue;}
+                if(used.X>space.X)added.Add(new(space.X,space.Y,used.X-space.X,space.Height));
+                if(used.X+used.Width<space.X+space.Width)added.Add(new(used.X+used.Width,space.Y,space.X+space.Width-used.X-used.Width,space.Height));
+                if(used.Y>space.Y)added.Add(new(space.X,space.Y,space.Width,used.Y-space.Y));
+                if(used.Y+used.Height<space.Y+space.Height)added.Add(new(space.X,used.Y+used.Height,space.Width,space.Y+space.Height-used.Y-used.Height));
+            }
+            foreach(var rectangle in added)
+            {
+                var contained=false;
+                for(var i=next.Count-1;i>=0;i--){if(++work>workLimit)return false;if(Contains(next[i],rectangle)){contained=true;break;}if(Contains(rectangle,next[i]))next.RemoveAt(i);}
+                if(!contained&&rectangle.Width>0&&rectangle.Height>0)next.Add(rectangle);
+            }
+            free=next;return free.Count<=4096;
+        }
+        foreach(var obstacle in obstacles)if(!Subtract(new(obstacle.X,obstacle.Y,obstacle.Width+Gap,obstacle.Height+Gap)))return null;
+        var result=new Dictionary<string,PackingRect>(StringComparer.Ordinal);
+        var left=double.PositiveInfinity;var top=double.PositiveInfinity;var right=double.NegativeInfinity;var bottom=double.NegativeInfinity;
+        foreach(var item in items)
+        {
+            var w=item.Width+Gap;var h=item.Height+Gap;PackingRect? chosen=null;
+            (double Side,double Area,double Short,double Long,double Y,double X) score=(double.PositiveInfinity,0,0,0,0,0);
+            foreach(var space in free)
+            {
+                if(++work>workLimit)return null;
+                if(w>space.Width||h>space.Height)continue;
+                var groupWidth=Math.Max(right,space.X+item.Width)-Math.Min(left,space.X);var groupHeight=Math.Max(bottom,space.Y+item.Height)-Math.Min(top,space.Y);
+                var candidate=(Math.Max(groupWidth/ratio,groupHeight*ratio),groupWidth*groupHeight,Math.Min(space.Width-w,space.Height-h),Math.Max(space.Width-w,space.Height-h),space.Y,space.X);
+                if(candidate.CompareTo(score)<0){chosen=space;score=candidate;}
+            }
+            if(chosen is not {} at)return null;
+            result.Add(item.Id,new(at.X,at.Y,item.Width,item.Height));
+            left=Math.Min(left,at.X);top=Math.Min(top,at.Y);right=Math.Max(right,at.X+item.Width);bottom=Math.Max(bottom,at.Y+item.Height);
+            if(!Subtract(new(at.X,at.Y,w,h)))return null;
+        }
         return result;
     }
 

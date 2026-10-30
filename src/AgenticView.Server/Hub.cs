@@ -29,7 +29,7 @@ public sealed class Hub : IDisposable
     private long revision, updates, totalBytes, archiveCount;
     private double rate;
     private bool settingsDirty, disposed, packingDirty;
-    private double packingAspectRatio = 1.6;
+    private double packingAspectRatio = 1;
     private SqliteTransaction? transaction;
     private long registrationLayoutTicks;
     private int nextSlot;
@@ -79,7 +79,7 @@ public sealed class Hub : IDisposable
         archiveCount = Convert.ToInt64(Scalar("SELECT COUNT(*) FROM archives"));
         // Migrate old layouts once, then retain the operator's chosen footprint across restarts.
         packingDirty = Scalar("SELECT version FROM layout_policy WHERE id=1") is null;
-        packingAspectRatio = Convert.ToDouble(Scalar("SELECT aspect FROM layout_policy WHERE id=1") ?? 1.6, System.Globalization.CultureInfo.InvariantCulture);
+        packingAspectRatio = Convert.ToDouble(Scalar("SELECT aspect FROM layout_policy WHERE id=1") ?? 1.0, System.Globalization.CultureInfo.InvariantCulture);
     }
     private static JsonObject Clone(JsonObject value) => (JsonObject)value.DeepClone();
     private static JsonObject Parse(string value) => JsonNode.Parse(value, documentOptions: new JsonDocumentOptions { MaxDepth = 64 }) as JsonObject ?? throw new InvalidDataException("Expected stored JSON object.");
@@ -546,8 +546,11 @@ public sealed class Hub : IDisposable
         lock (gate)
         {
             ComponentValidator.Choice(request, "mode", ["all", "automatic"], "all");
-            var aspect = request.ContainsKey("aspectRatio") ? ComponentValidator.Number(request, "aspectRatio", .3, 4) : packingAspectRatio;
-            var result = PackCards(String(request, "mode") == "all", aspect); packingAspectRatio = aspect; packingDirty = false; freshLayouts.Clear(); return result;
+            var aspect = request.ContainsKey("aspectRatio") ? ComponentValidator.Number(request, "aspectRatio", .3, 4) : String(request,"mode")=="all" ? 1 : packingAspectRatio;
+            var result = PackCards(String(request, "mode") == "all", aspect); packingAspectRatio = aspect; packingDirty = false; freshLayouts.Clear();
+            var layouts=EffectiveRoots().Select(r=>(JsonObject)r.View["layout"]!).ToArray();
+            if(layouts.Length>0){var x=layouts.Min(l=>N(l,"x"));var y=layouts.Min(l=>N(l,"y"));result["bounds"]=AgenticView.Server.Json.Object(new{x,y,width=layouts.Max(l=>N(l,"x")+N(l,"width"))-x,height=layouts.Max(l=>N(l,"y")+N(l,"height"))-y});}
+            return result;
         }
     }
     private JsonObject PackCards(bool all, double aspect)

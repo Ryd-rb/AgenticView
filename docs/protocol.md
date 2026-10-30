@@ -80,8 +80,18 @@ and sequence without restoring the card. A restored run leaves the archive list;
 archiving it again saves its latest retained view.
 
 Viewer layout controls use `POST /api/layout/pack` with
-`{"mode":"all","aspectRatio":1.6}`. All unlocked world cards are packed and
-compacted. Mode `automatic` places fresh arrivals around established geometry. Existing packed, manual and legacy cards remain fixed.
+`{"mode":"all"}`. All unlocked world cards, including manually positioned and
+fixed-size cards, are bin-packed into a compact square-shaped group by default.
+Card dimensions and locked positions are preserved. The optional `aspectRatio`
+overrides the square target (0.3–4); omitting it for `all` always restores 1,
+independently of earlier overrides or window dimensions. The bounded packing
+heuristic fills interior gaps and compares candidate layouts by their occupied
+extents; distant locked cards do not stretch the movable group. Mode `automatic`
+places fresh arrivals around established geometry. Existing packed, manual and
+legacy cards remain fixed. Active gesture and interaction leases remain protected;
+the Arrange all UI releases its own selection/contact leases before packing.
+The response includes the resulting world `bounds` so the viewer can frame the
+new geometry immediately, before its next live patch arrives.
 Before a real drag/resize starts, `POST /api/agents/{id}/layout/manual` reserves
 a 30-second gesture reservation without changing position. Final layout PATCH
 releases it; abandoned reservations expire. A layout PATCH may set

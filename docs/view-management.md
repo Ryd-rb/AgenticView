@@ -5,7 +5,9 @@ and collision-constrained locked cards keep bounded scroll areas. Selected-card
 geometry stays fixed until deselection. Automatic packing places arrivals around
 established positions; content growth may find free space for its own unselected,
 unlocked card, without moving neighboring cards. **Arrange all** is the explicit
-operation that repacks unlocked cards.
+operation that bin-packs all unlocked world cards toward a compact square group,
+including manually placed and fixed-size cards. It preserves card dimensions and
+locked geometry. Automatic arrivals continue to preserve established positions.
 
 Completed monitoring and managed session cards archive after a configurable review
 delay, five minutes by default. Permanent application launchers remain visible.
