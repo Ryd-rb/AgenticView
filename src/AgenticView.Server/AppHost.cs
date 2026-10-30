@@ -94,6 +94,7 @@ public static class AppHost
         app.MapPost("/api/connectors/register", (Func<HttpContext, Task<IResult>>)(async c => Results.Json(controls.RegisterConnector(await Body(c)), statusCode: 201)));
         app.MapPost("/api/connectors/{id}/poll", (string id, HttpContext c) => controls.Poll(id, Authentication.Bearer(c.Request), false));
         app.MapPost("/api/connectors/{id}/complete", async (string id, HttpContext c) => controls.Complete(id, Authentication.Bearer(c.Request), false, await Body(c)));
+        app.MapPost("/api/agents/{id}/components/{componentId}/configure", async (string id, string componentId, HttpContext c) => hub.ConfigureComponent(id,componentId,await Body(c)));
         app.MapGet("/api/controls/{id}", (string id) => controls.Configuration(id));
         app.MapPost("/api/controls/{id}/invoke", async (string id, HttpContext c) => controls.Invoke(id, await Body(c)));
         app.MapGet("/api/controls/{id}/invocations/{invocationId}", (string id, string invocationId) => controls.Invocation(id, invocationId));

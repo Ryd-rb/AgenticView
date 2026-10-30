@@ -41,7 +41,7 @@ public sealed partial class ControlStore
                 case "session-launcher": Reference(Json.String(data,"actionId"),"session"); break;
                 case "agent-session": throw new HubError(400,"Portable definitions use session-launcher; managed session IDs are installation state.");
                 case "table": if(data["sourceAction"] is not null) Reference(Json.String(data,"sourceAction"),"query"); break;
-                case "data-grid": foreach(var key in new[]{"readAction","editAction","addAction","deleteAction","bulkAction","historyAction"}) if(data[key] is not null) Reference(Json.String(data,key),key=="readAction"?"query":key=="historyAction"?"history":"edit"); break;
+                case "data-grid": foreach(var key in new[]{"readAction","editAction","addAction","deleteAction","bulkAction","historyAction","evaluateAction"}) if(data[key] is not null) Reference(Json.String(data,key),key=="readAction"?"query":key=="historyAction"?"history":key=="evaluateAction"?"custom":"edit"); break;
             }
         }
         if(manifest["layout"] is not null) {

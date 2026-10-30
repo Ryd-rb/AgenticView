@@ -25,7 +25,7 @@ C# · .NET 10 · React · MIT
 - **Look closer.** Ordinary cards and nested components expand naturally. Large
   logs, paged grids and deliberate fixed views keep bounded scrolling. Mouse,
   keyboard and touch inputs share the same navigation model.
-- **Choose the right view.** Use 36 built-in types: task lists, query results,
+- **Choose the right view.** Use 39 built-in types: task lists, query results,
   commands, traces, charts, heatmaps, comparisons, code, diffs and more. Native
   components handle display and interaction; custom HTML is an escape hatch with
   a distinct frame and **Custom view** label. See the [native catalog](docs/native-components.md).

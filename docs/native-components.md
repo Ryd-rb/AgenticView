@@ -28,7 +28,7 @@ default status dot. Markdown supports large `#` / `##` headings and image links.
 | Services and schedules | `service-map`, `gantt` |
 | References and structured data | `links`, `keyvalue`, `json` |
 
-These are **36 native kinds**. The separate `embed` kind is for agent-authored
+These are **39 native kinds**. The separate `embed` kind is for agent-authored
 views that the native catalog cannot express. Native subcards carry a quiet
 **Built-in** label. Embeds carry a persistent **Custom view** label and a warm,
 distinct frame, including when execution is paused.
@@ -119,3 +119,7 @@ All existing request, run-size and component-count limits still apply. The catal
 also bounds list lengths and validates matrix coordinates, numeric ranges,
 references and HTTP(S) links. Treat all producer content as untrusted and keep
 secrets out of every view.
+
+All built-in kinds accept shared [configuration and manual settings](configurable-components.md).
+Additional native kinds are `stepper`, `bullet` and `accordion`; see their
+[options and chart extensions](native-extensions.md).

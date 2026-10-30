@@ -96,6 +96,9 @@ public sealed partial class ControlStore : IDisposable
         Budget(input,131072); var fields=((JsonArray)action["fields"]!).OfType<JsonObject>().ToDictionary(f=>Text(f,"key"));
         // Native readers use bounded, documented envelopes. Local profiles still decide which operations exist.
         var standard=Text(action,"kind") switch { "logs"=>new[]{"cursor","filter","level"}, "query"=>new[]{"cursor","limit","filter","sort","columns"}, "edit"=>new[]{"operation","row","rows","previousRow","rowId","expectedVersion","changes"}, "history"=>new[]{"rowId","row","cursor"}, _=>Array.Empty<string>() };
+        standard=[..standard,"componentId","rowKey"];
+        if(input.ContainsKey("componentId")) ComponentValidator.Id(input,"componentId");
+        if(input.ContainsKey("rowKey")) {var identity=ComponentValidator.Object(input["rowKey"]);if(identity.Count>32)throw new HubError(400,"Compound row key is too large.");foreach(var pair in identity){ComponentValidator.Id(new JsonObject{["key"]=pair.Key},"key");ComponentConfiguration.Scalar(pair.Value);}}
         foreach(var field in fields.Values) {
             var key=Text(field,"key"); var present=input.TryGetPropertyValue(key,out var value) && value is not null;
             if(!present) { if(ComponentValidator.Boolean(field,"required")) throw new HubError(400,$"{key} is required."); continue; }
@@ -131,6 +134,7 @@ public sealed partial class ControlStore : IDisposable
             if(Text(input,"definitionVersion")!=Text(config,"version")) throw new HubError(409,"Action configuration changed. Reload and review it again.");
             if(Text(action,"confirmation").Length>0 && !ComponentValidator.Boolean(input,"confirmed")) throw new HubError(409,"This action requires explicit confirmation.");
             ValidateInput(action,values);
+            GridValidation.Action(hub.GetRun(runId)!,actionId,values);
             if(Convert.ToInt64(Scalar("SELECT COUNT(*) FROM invocations WHERE state IN ('queued','running')"))>=1000 || Convert.ToInt64(Scalar("SELECT COUNT(*) FROM invocations WHERE run_id=$p0 AND state IN ('queued','running')",runId))>=100) throw new HubError(429,"Action queue is full.");
             var id=Guid.NewGuid().ToString(); var target=Text(action,"target")=="agent"?"agent:"+runId:"connector:"+Text(action,"target");
             var job=Json.Object(new{id,runId,actionId,kind=Text(action,"kind"),handler=Text(action,"handler"),input=values,definitionVersion=Text(config,"version"),state="queued",createdAt=Now,confirmed=ComponentValidator.Boolean(input,"confirmed")});

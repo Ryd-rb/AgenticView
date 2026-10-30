@@ -20,6 +20,7 @@ if (args.Contains("--layout-probe"))
 
 var cases = new (string Name, Action Test)[]
 {
+    ("configurable charts and additional native components", NativeExtensionsContracts.Run),
     ("native session identity, stable layouts, delayed archives, operator view and optional text actions", ViewManagementContracts.Run),
     ("monitoring is bounded and counts only accepted operations without content", () => Run((hub, _) => {
         var a=Register(hub); var id=S(a,"runId");

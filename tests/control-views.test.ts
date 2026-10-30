@@ -274,3 +274,20 @@ test('remote page requests cap page size at 200 and ignore overlarge callback wi
     assert.equal(view.host.querySelectorAll('tbody > tr').length, 200); assert.equal(view.host.querySelector('tbody')!.textContent!.includes('Row 200'), false);
   } finally { await view.close(); }
 });
+
+test('grid column visibility, conditional editors, precedence and compound action envelopes obey configured features', async () => {
+  const component: ControlComponent = {id:'settings',kind:'data-grid',data:{columns:[{key:'Instance',label:'Instance',hidden:true},{key:'Instrument',label:'Instrument'},{key:'Stream',label:'Stream'},{key:'Key',label:'Key'},{key:'Value',label:'Value',editable:true}],rows:[{Instance:'example',Instrument:'ABC',Stream:'',Key:'Enable',Value:'false'}],keyColumn:'Instance',keyColumns:['Instance','Instrument','Stream','Key'],editAction:'edit',rules:[{id:'boolean',column:'Value',when:{all:[{field:'Key',op:'eq',value:'Enable'}]},constraints:{type:'boolean',storage:'string',required:true},presentation:{color:'#88ddaa'},tooltip:'A strict boolean setting'}],precedence:{groupBy:['Key'],mandatory:['Instance'],dimensions:['Instrument','Stream'],context:{Instance:'example',Instrument:'ABC',Stream:'prices'}}}};
+  const view=await fixture(component);
+  try {
+    assert.ok(![...view.host.querySelectorAll('thead th')].some(th=>th.textContent==='Instance'));
+    assert.equal(view.host.querySelector('.grid-precedence')?.getAttribute('data-state'),'active');
+    assert.match(view.host.querySelector('td[title="A strict boolean setting"]')!.textContent!,/false/);
+    await view.click('Edit');assert.ok(view.host.querySelector('select[aria-label="Value for example"]'));
+    await view.input('Value for example','true');await view.click('Save');await view.click('Confirm Edit record');
+    const input=view.requests[1]!.body!.input;
+    assert.equal(input.componentId,'settings');assert.equal(input.row.Value,'true');assert.equal(input.row.Instance,'example');assert.deepEqual(input.rowKey,{Instance:'example',Instrument:'ABC',Stream:'',Key:'Enable'});
+    await view.respond(1,complete('edit',{row:input.row}));
+    await view.render(true,{...component,data:{...component.data,features:{edit:false,hideColumns:false,sort:false,filter:false}}});
+    assert.equal(view.button('Edit'),undefined);assert.doesNotMatch(view.host.textContent!,/Visible columns/);assert.equal(view.host.querySelector('[aria-label="Filter rows"]'),null);
+  } finally {await view.close();}
+});

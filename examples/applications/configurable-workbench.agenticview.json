@@ -1,0 +1,466 @@
+{
+  "schemaVersion": 1,
+  "id": "configurable-workbench",
+  "version": "1.0.0",
+  "name": "Configurable workbench",
+  "description": "Synthetic examples of shared settings and component-specific options. Actions queue to the owning agent; no persistence adapter is bundled.",
+  "permanent": true,
+  "bindings": [],
+  "actions": [
+    {
+      "id": "save",
+      "label": "Save settings row",
+      "kind": "edit",
+      "target": "agent",
+      "confirmation": "Send this synthetic row to the owning agent?"
+    }
+  ],
+  "components": [
+    {
+      "id": "plan",
+      "title": "Current task list",
+      "kind": "markdown",
+      "data": {
+        "text": "- [ ] Activate the card and inspect component settings\n- [ ] Compare override explanations\n- [ ] Explore chart and native component options"
+      }
+    },
+    {
+      "id": "latency",
+      "title": "Latency",
+      "kind": "metric",
+      "data": {
+        "value": 185,
+        "unit": "ms",
+        "history": [
+          110,
+          90,
+          130,
+          185
+        ]
+      },
+      "configuration": {
+        "manualFields": [
+          "configuration.presentation",
+          "configuration.rules",
+          "data.unit"
+        ],
+        "presentation": {
+          "fontSize": 16
+        },
+        "rules": [
+          {
+            "when": {
+              "all": [
+                {
+                  "field": "data.value",
+                  "op": "gt",
+                  "value": 150
+                }
+              ]
+            },
+            "effect": {
+              "label": "Latency above target",
+              "tooltip": "Synthetic threshold",
+              "presentation": {
+                "color": "#ffcc88",
+                "emphasis": "bold"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "settings",
+      "title": "Layered settings",
+      "kind": "data-grid",
+      "data": {
+        "columns": [
+          {
+            "key": "Instance",
+            "label": "Instance",
+            "editable": true
+          },
+          {
+            "key": "Instrument",
+            "label": "Instrument",
+            "editable": true
+          },
+          {
+            "key": "ActiveSet",
+            "label": "ActiveSet",
+            "editable": true
+          },
+          {
+            "key": "Stream",
+            "label": "Stream",
+            "editable": true
+          },
+          {
+            "key": "Key",
+            "label": "Key",
+            "editable": true
+          },
+          {
+            "key": "Value",
+            "label": "Value",
+            "editable": true
+          }
+        ],
+        "rows": [
+          {
+            "Instance": "example",
+            "Instrument": "",
+            "ActiveSet": "",
+            "Stream": "",
+            "Key": "Global.EnablePricing",
+            "Value": "false"
+          },
+          {
+            "Instance": "example",
+            "Instrument": "",
+            "ActiveSet": "primary",
+            "Stream": "prices",
+            "Key": "Global.EnablePricing",
+            "Value": "false"
+          },
+          {
+            "Instance": "example",
+            "Instrument": "ABC",
+            "ActiveSet": "",
+            "Stream": "",
+            "Key": "Global.EnablePricing",
+            "Value": "true"
+          }
+        ],
+        "keyColumns": [
+          "Instance",
+          "Instrument",
+          "ActiveSet",
+          "Stream",
+          "Key"
+        ],
+        "editAction": "save",
+        "rules": [
+          {
+            "id": "boolean-setting",
+            "column": "Value",
+            "when": {
+              "all": [
+                {
+                  "field": "Key",
+                  "op": "eq",
+                  "value": "Global.EnablePricing"
+                }
+              ]
+            },
+            "constraints": {
+              "type": "boolean",
+              "storage": "string",
+              "required": true
+            },
+            "presentation": {
+              "color": "#88ddaa"
+            },
+            "tooltip": "Only true or false is valid"
+          }
+        ],
+        "precedence": {
+          "groupBy": [
+            "Instance",
+            "Key"
+          ],
+          "mandatory": [
+            "Instance"
+          ],
+          "dimensions": [
+            "Instrument",
+            "Stream",
+            "ActiveSet"
+          ],
+          "emptyValues": [
+            null,
+            "",
+            "*"
+          ],
+          "context": {
+            "Instance": "example",
+            "Instrument": "ABC",
+            "Stream": "prices",
+            "ActiveSet": "primary"
+          }
+        },
+        "features": {
+          "hideColumns": true,
+          "explain": true
+        }
+      },
+      "configuration": {
+        "manualFields": [
+          "configuration.presentation",
+          "data.columns",
+          "data.rules",
+          "data.precedence",
+          "data.features"
+        ]
+      }
+    },
+    {
+      "id": "trend",
+      "title": "Configured chart",
+      "kind": "chart",
+      "data": {
+        "type": "line",
+        "series": [
+          {
+            "id": "observed",
+            "name": "Observed",
+            "color": "#88bbff",
+            "marker": "circle",
+            "points": [
+              {
+                "x": 0,
+                "y": 8
+              },
+              {
+                "x": 1,
+                "y": 14
+              },
+              {
+                "x": 2,
+                "y": 11
+              }
+            ]
+          },
+          {
+            "id": "capacity",
+            "name": "Capacity",
+            "type": "bar",
+            "color": "#88ddaa",
+            "points": [
+              {
+                "x": 0,
+                "y": 15
+              },
+              {
+                "x": 1,
+                "y": 16
+              },
+              {
+                "x": 2,
+                "y": 17
+              }
+            ]
+          }
+        ],
+        "options": {
+          "xAxis": {
+            "label": "Sample"
+          },
+          "yAxis": {
+            "label": "Value",
+            "min": 0,
+            "max": 20
+          },
+          "labels": true,
+          "labelWhen": {
+            "operator": "gte",
+            "value": 14
+          },
+          "tooltips": true,
+          "annotations": [
+            {
+              "id": "target",
+              "axis": "y",
+              "value": 12,
+              "label": "Target",
+              "color": "#ffcc88",
+              "dash": "dashed"
+            },
+            {
+              "id": "window",
+              "axis": "x",
+              "value": 0.5,
+              "end": 1.5,
+              "label": "Review window",
+              "color": "#aabbcc"
+            }
+          ],
+          "features": {
+            "seriesToggle": true,
+            "dataTable": true
+          }
+        }
+      },
+      "configuration": {
+        "manualFields": [
+          "configuration.presentation",
+          "data.options",
+          "data.series",
+          "data.type"
+        ]
+      }
+    },
+    {
+      "id": "process",
+      "title": "Process steps",
+      "kind": "stepper",
+      "data": {
+        "items": [
+          {
+            "id": "read",
+            "label": "Read configuration",
+            "state": "completed"
+          },
+          {
+            "id": "review",
+            "label": "Review overrides",
+            "state": "active",
+            "detail": "Compare the instrument override with stream and active-set defaults."
+          },
+          {
+            "id": "apply",
+            "label": "Apply through adapter",
+            "state": "pending"
+          }
+        ],
+        "features": {
+          "select": true
+        }
+      },
+      "configuration": {
+        "manualFields": [
+          "configuration.presentation",
+          "data.items",
+          "data.orientation",
+          "data.features"
+        ]
+      }
+    },
+    {
+      "id": "budget",
+      "title": "Reported capacity",
+      "kind": "bullet",
+      "data": {
+        "value": 68,
+        "target": 75,
+        "label": "Capacity",
+        "unit": "%",
+        "ranges": [
+          {
+            "id": "normal",
+            "end": 60,
+            "label": "Normal",
+            "tone": "success"
+          },
+          {
+            "id": "watch",
+            "end": 85,
+            "label": "Watch",
+            "tone": "warning"
+          },
+          {
+            "id": "high",
+            "end": 100,
+            "label": "High",
+            "tone": "error"
+          }
+        ]
+      },
+      "configuration": {
+        "manualFields": [
+          "configuration.presentation",
+          "data.target",
+          "data.ranges",
+          "data.format"
+        ]
+      }
+    },
+    {
+      "id": "guide",
+      "title": "Inspector guide",
+      "kind": "accordion",
+      "data": {
+        "multiple": false,
+        "sections": [
+          {
+            "id": "shared",
+            "title": "Shared configuration",
+            "text": "Labels, conditional presentation, collection filters and exact manual field permissions apply across native kinds.",
+            "open": true
+          },
+          {
+            "id": "adapter",
+            "title": "Adapter boundary",
+            "text": "This synthetic template queues edits to its owner. A configured adapter must validate, persist and acknowledge them."
+          }
+        ],
+        "features": {
+          "expand": true
+        }
+      },
+      "configuration": {
+        "manualFields": [
+          "configuration.presentation",
+          "data.sections",
+          "data.multiple",
+          "data.features"
+        ]
+      }
+    },
+    {
+      "id": "stats",
+      "title": "Filtered statistics",
+      "kind": "stat-grid",
+      "data": {
+        "items": [
+          {
+            "label": "Workers",
+            "value": 12,
+            "tone": "info"
+          },
+          {
+            "label": "Queue",
+            "value": 3
+          },
+          {
+            "label": "Retries",
+            "value": 0,
+            "tone": "warning"
+          }
+        ]
+      },
+      "configuration": {
+        "manualFields": [
+          "configuration.presentation",
+          "configuration.rules",
+          "configuration.collection"
+        ],
+        "presentation": {
+          "density": "comfortable",
+          "fontSize": 14
+        },
+        "collection": {
+          "field": "items",
+          "filter": {
+            "all": [
+              {
+                "field": "value",
+                "op": "gt",
+                "value": 0
+              }
+            ]
+          },
+          "sortBy": "value",
+          "descending": true,
+          "limit": 12
+        }
+      }
+    }
+  ],
+  "layout": {
+    "width": 800,
+    "height": 1200,
+    "sizing": "content"
+  }
+}

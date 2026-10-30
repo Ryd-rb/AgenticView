@@ -1,4 +1,6 @@
 import { memo, useContext, useEffect, useRef, useState } from 'react';
+import { ChartView } from './ChartView.js';
+import { AdditionalView } from './AdditionalViews.js';
 import { diffLines } from 'diff';
 import { Activity, BarChart3, Braces, CheckSquare, Code2, Database, FileText, Gauge, GitCompareArrows, LayoutGrid, Link2, ListTree, Pause, ShieldCheck, Table2, Terminal, Timer, Network, Globe, Layers, ListChecks, CalendarRange, ChartPie, type LucideIcon } from 'lucide-react';
 import type { Component, TaskTiming } from '../shared/protocol.js';
@@ -9,29 +11,16 @@ import { isTaskList } from '../shared/component-order.js';
 import { DataTable } from './DataTable.js';
 import { NativeView } from './NativeViews.js';
 import { ControlView } from './ControlViews.js';
+import { configureCollection, resolveConfiguration } from '../shared/component-config.js';
+import { ComponentSettings, presentationStyle } from './ComponentSettings.js';
 import { SessionView } from './SessionViews.js';
 
-const colors = ['#b4a2ff', '#70d6c3', '#e8be79', '#8bbbf5', '#e891b1'];
 const icons: Record<string, LucideIcon> = { metric: Activity, chart: BarChart3, table: Table2, code: Code2, diff: GitCompareArrows, logs: Terminal, timeline: Timer, tree: ListTree, json: Braces, checklist: CheckSquare, 'stat-grid': LayoutGrid, 'bar-list': BarChart3, histogram: BarChart3, heatmap: LayoutGrid, gauge: Gauge, query: Database, command: Terminal, trace: Activity, links: Link2, comparison: GitCompareArrows, 'service-map': Network, http: Globe, stacktrace: Layers, 'test-results': ListChecks, gantt: CalendarRange, breakdown: ChartPie, embed: Braces };
 const boundedOutput = (text: string) => text.length > 32000 || text.split('\n', 302).length > 300;
 const stringify = (v: unknown) => typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v ?? '—');
 function Sparkline({ values }: { values: number[] }) {
   const min = Math.min(...values), span = Math.max(...values) - min || 1;
   return <svg className="sparkline" viewBox="0 0 200 44" role="img" aria-label={`${values.length} historical values`}><polyline points={values.map((v, i) => `${i / Math.max(values.length - 1, 1) * 200},${40 - (v - min) / span * 36}`).join(' ')} fill="none" stroke="currentColor" strokeWidth="2" vectorEffect="non-scaling-stroke" /></svg>;
-}
-function Chart({ data }: { data: Extract<Component, { kind: 'chart' }>['data'] }) {
-  const all = data.series.flatMap(s => s.points); const ys = all.map(p => p.y);
-  const low = Math.min(0, ...ys), high = Math.max(1, ...ys), span = high - low || 1;
-  const numeric = all.length > 0 && all.every(p => typeof p.x === 'number');
-  const categories = [...new Set(all.map(p => String(p.x)))];
-  const xLow = numeric ? Math.min(...all.map(p => Number(p.x))) : 0, xHigh = numeric ? Math.max(...all.map(p => Number(p.x))) : categories.length - 1;
-  const x = (value: string | number) => 36 + ((numeric ? Number(value) : categories.indexOf(String(value))) - xLow) / (xHigh - xLow || 1) * 340;
-  const y = (v: number) => 155 - (v - low) / span * 135;
-  return <><svg className="chart" viewBox="0 0 400 185" role="img" aria-label={`${data.type} chart, ${data.series.map(s => s.name).join(', ')}`}>
-    {[0, 1, 2, 3].map(i => <g key={i}><line x1="36" x2="384" y1={20 + i * 45} y2={20 + i * 45} stroke="#ffffff0c" /><text x="30" y={24 + i * 45} textAnchor="end">{Number((high - i / 3 * span).toPrecision(3))}</text></g>)}
-    {data.series.map((s, si) => { const points = s.points.map((p, i) => `${x(p.x)},${y(p.y)}`).join(' '); return <g key={s.name} fill={colors[si % colors.length]} stroke={colors[si % colors.length]}>
-      {data.type === 'bar' ? s.points.map((p, i) => <rect key={i} x={x(p.x) - 3} y={Math.min(y(0), y(p.y))} width={Math.max(2, 250 / s.points.length / data.series.length)} height={Math.max(1, Math.abs(y(p.y) - y(0)))} stroke="none" />) : data.type === 'scatter' ? s.points.map((p, i) => <circle key={i} cx={x(p.x)} cy={y(p.y)} r="2.5" />) : <>{data.type === 'area' && s.points.length > 0 && <polygon points={`${x(s.points[0]!.x)},${y(0)} ${points} ${x(s.points[s.points.length - 1]!.x)},${y(0)}`} opacity=".1" stroke="none" />}<polyline points={points} fill="none" strokeWidth="2" vectorEffect="non-scaling-stroke" /></>}
-    </g>; })}<text x="36" y="168">{all[0]?.x}</text><text x="376" y="168" textAnchor="end">{all[all.length - 1]?.x}</text><text x="210" y="180" textAnchor="middle">{data.xLabel}</text></svg><div className="legend">{data.series.map((s, i) => <span key={s.name}><i style={{ background: colors[i % colors.length] }} />{s.name}</span>)}</div></>;
 }
 function Logs({ entries }: { entries: Extract<Component, { kind: 'logs' }>['data']['entries'] }) {
   const [scroll, setScroll] = useState(0); const row = 30, height = 210, start = Math.max(0, Math.floor(scroll / row) - 3), end = Math.min(entries.length, start + 16);
@@ -62,13 +51,20 @@ function Tree({ nodes }: { nodes: Extract<Component, { kind: 'tree' }>['data']['
   const branch = (parent: string | undefined, seen: Set<string>, depth: number): React.ReactNode => depth > 12 ? <small>Further levels omitted</small> : <ul className="data-tree">{nodes.filter(n => n.parentId === parent || parent === undefined && n.parentId && !ids.has(n.parentId)).map(n => <li key={n.id}><span>{n.label}</span>{n.detail && <small>{n.detail}</small>}{!seen.has(n.id) && branch(n.id, new Set([...seen, n.id]), depth + 1)}</li>)}</ul>;
   return branch(undefined, new Set(), 0);
 }
-export const ComponentView = memo(function ComponentView({ component: c, embeds, runId, updatedAt, taskTimes }: { component: Component; embeds: boolean; runId: string; updatedAt?: number; taskTimes?: TaskTiming[] }) {
+export const ComponentView = memo(function ComponentView({ component: original, embeds, runId, updatedAt, taskTimes }: { component: Component; embeds: boolean; runId: string; updatedAt?: number; taskTimes?: TaskTiming[] }) {
+  const active = useContext(CardInteraction);
+  const configuration = resolveConfiguration(original.configuration, original.data);
+  const [collapsed, setCollapsed] = useState<boolean | undefined>(undefined);
+  useEffect(() => setCollapsed(undefined), [original.configuration?.collapsed]);
+  const c = {...original, data: configureCollection(original.data, configuration)} as Component;
+  if (configuration.visible === false) return null;
   let body: React.ReactNode;
   switch (c.kind) {
     case 'action-panel': case 'log-stream': case 'data-grid': body = <ControlView component={c} runId={runId} />; break;
     case 'session-launcher': case 'agent-session': body = <SessionView component={c} runId={runId} embeds={embeds} />; break;
     case 'metric': body = <div className={`metric tone-${c.data.tone ?? 'neutral'}`}><div><strong>{stringify(c.data.value)}</strong><span>{c.data.unit}</span></div>{c.data.change && <small>{c.data.change}</small>}{!!c.data.history?.length && <Sparkline values={c.data.history} />}</div>; break;
-    case 'chart': body = <Chart data={c.data} />; break;
+    case 'chart': body = <ChartView data={c.data} manual={active} />; break;
+    case 'stepper': case 'bullet': case 'accordion': body=<AdditionalView component={c} manual={active}/>; break;
     case 'table': body = c.data.sourceAction ? <ControlView component={{kind:'data-grid',data:{readAction:c.data.sourceAction,columns:c.data.columns,pageSize:c.data.pageSize}}} runId={runId} /> : <DataTable data={c.data} />; break;
     case 'markdown': body = <TaskMarkdown text={c.data.text} tasks={taskTimes} updatedAt={updatedAt} />; break;
     case 'code': body = <><div className="code-language"><Code2 size={12} />{c.data.language || 'text'}</div><pre className={boundedOutput(c.data.code) ? 'bounded-output' : undefined}><code>{c.data.code}</code></pre></>; break;
@@ -84,5 +80,5 @@ export const ComponentView = memo(function ComponentView({ component: c, embeds,
     default: body = <NativeView component={c} taskTimes={taskTimes} updatedAt={updatedAt} />;
   }
   const Icon = icons[c.kind] ?? FileText, custom = c.kind === 'embed';
-  return <section className={`component component-${c.kind} ${custom ? 'is-custom' : isTaskList(c) ? 'is-plan' : ''}`} data-origin={custom ? 'custom' : 'native'}><h3><Icon size={12} /><span className="component-title">{c.title || c.kind}</span><span className={`component-origin ${custom ? 'custom' : 'native'}`} title={custom ? 'Agent-authored HTML and scripts in an isolated document' : 'Built-in typed component rendered by AgenticView'}>{custom ? 'Custom view' : 'Built-in'}</span>{updatedAt !== undefined && <time className="component-time" dateTime={new Date(updatedAt).toISOString()} title={`Updated: ${exactTime(updatedAt)}`}>{compactTime(updatedAt)}</time>}</h3>{body}</section>;
+  return <section className={`component component-${c.kind} ${custom ? 'is-custom' : isTaskList(c) ? 'is-plan' : ''}`} data-origin={custom ? 'custom' : 'native'} title={configuration.tooltip}><h3><Icon size={12} /><span className="component-title">{configuration.label ?? (c.title || c.kind)}</span><span className={`component-origin ${custom ? 'custom' : 'native'}`} title={custom ? 'Agent-authored HTML and scripts in an isolated document' : 'Built-in typed component rendered by AgenticView'}>{custom ? 'Custom view' : 'Built-in'}</span>{updatedAt !== undefined && <time className="component-time" dateTime={new Date(updatedAt).toISOString()} title={`Updated: ${exactTime(updatedAt)}`}>{compactTime(updatedAt)}</time>}</h3>{configuration.description && <p className="component-description">{configuration.description}</p>}{configuration.collapsed !== undefined && <button type="button" disabled={!active} aria-expanded={!(collapsed ?? configuration.collapsed)} onClick={() => setCollapsed(!(collapsed ?? configuration.collapsed))}>{collapsed ?? configuration.collapsed ? 'Expand component' : 'Collapse component'}</button>}{!(collapsed ?? configuration.collapsed) && <div className="component-configured" style={presentationStyle(configuration.presentation)}>{body}</div>}<ComponentSettings component={original} runId={runId} /></section>;
 });

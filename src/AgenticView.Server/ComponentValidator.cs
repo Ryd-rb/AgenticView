@@ -73,7 +73,9 @@ public static class ComponentValidator
     public static void Validate(JsonObject component, bool checkBudget = true)
     {
         if (checkBudget) Budget(component); Id(component, "id"); Text(component, "title", 160);
+        if (component.ContainsKey("configuration")) ComponentConfiguration.Validate(Object(component["configuration"]));
         var kind = Text(component, "kind", 32); var data = Object(component["data"], "data");
+        if(component["configuration"]?["collection"] is JsonObject collection) {var field=Text(collection,"field",100);if(data[field] is not JsonArray items || items.Any(item=>item is not JsonObject))Fail("Collection settings require an existing object collection.");}
         switch (kind)
         {
             case "session-launcher": Id(data,"actionId"); Text(data,"label",160,false); break;
@@ -84,24 +86,14 @@ public static class ComponentValidator
             case "log-stream":
                 Id(data,"actionId"); if(data.ContainsKey("pollMs")) Number(data,"pollMs",500,60000,true,true); if(data.ContainsKey("maxRows")) Number(data,"maxRows",20,2000,true,true);
                 break;
-            case "data-grid":
-                Id(data,"readAction",false); Id(data,"editAction",false); Id(data,"addAction",false); Id(data,"deleteAction",false); Id(data,"bulkAction",false); Id(data,"historyAction",false); Id(data,"keyColumn",false); Id(data,"versionColumn",false); if(data.ContainsKey("pageSize")) Number(data,"pageSize",1,200,true,true);
-                if(data.ContainsKey("rows")) foreach(var item in Array(data,"rows",2000)) foreach(var pair in Object(item)) { if(pair.Key.Length>100) Fail("Row field names are limited to 100 characters."); Scalar(pair.Value); }
-                foreach(var node in Array(data,"columns",64,1)) { var column=Object(node); Id(column,"key"); Text(column,"label",100); Boolean(column,"editable"); if(column.ContainsKey("type")) Choice(column,"type",["text","number","toggle"]); }
-                break;
+            case "data-grid": ComponentConfiguration.Grid(data); break;
             case "metric":
                 if (!data.ContainsKey("value")) Fail("metric.value is required."); Scalar(data["value"]); Text(data, "unit", 80, false); Text(data, "change", 160, false);
                 if (data.ContainsKey("tone")) Choice(data, "tone", ["neutral", "info", "success", "warning", "error"]);
                 if (data.ContainsKey("history")) foreach (var item in Array(data, "history", 512)) { var wrapper = new JsonObject { ["n"] = item?.DeepClone() }; Number(wrapper, "n"); }
                 break;
-            case "chart":
-                Choice(data, "type", ["line", "area", "bar", "scatter"], "line"); Text(data, "xLabel", 100, false); Text(data, "yLabel", 100, false);
-                foreach (var item in Array(data, "series", 12))
-                {
-                    var series = Object(item); Text(series, "name", 100);
-                    foreach (var p in Array(series, "points", 2048)) { var point = Object(p); Number(point, "y"); if (point["x"]?.GetValueKind() == JsonValueKind.String) Text(point, "x", 100); else Number(point, "x"); }
-                }
-                break;
+            case "chart": NativeExtensionsValidator.ValidateChart(data); break;
+            case "stepper": case "bullet": case "accordion": NativeExtensionsValidator.ValidateAdditional(kind,data); break;
             case "table":
                 foreach (var c in Array(data, "columns", 64, 1)) { var column = Object(c); Id(column, "key"); Text(column, "label", 100); }
                 foreach (var r in Array(data, "rows", 2000)) foreach (var cell in Object(r)) { if (cell.Key.Length > 100) Fail("Column key too long."); Scalar(cell.Value); }

@@ -222,6 +222,27 @@ public sealed class Hub : IDisposable
             SaveView(run, view); Queue(view); revision++; return Metadata(view);
         }
     }
+    public JsonObject ConfigureComponent(string id, string componentId, JsonObject input)
+    {
+        lock(gate) {
+            if(!runs.TryGetValue(id,out var run)) throw new HubError(404,"Live card unavailable.");
+            if(String(run.View,"status") is "completed" or "error") throw new HubError(409,"Completed cards are read-only.");
+            var current=run.View["components"]?[componentId] as JsonObject ?? throw new HubError(404,"Component unavailable.");
+            var candidate=ComponentConfiguration.Apply(current,input);
+            // Operator edits have their own compare-and-swap and must not consume the producer sequence.
+            var view=Clone(run.View);var now=DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            view["components"]![componentId]=candidate; view["updatedAt"]=now;
+            var times=view["componentTimes"] as JsonObject ?? new JsonObject();if(view["componentTimes"] is null)view["componentTimes"]=times;times[componentId]=now;
+            var tasks=view["taskTimes"] as JsonObject ?? new JsonObject();if(view["taskTimes"] is null)view["taskTimes"]=tasks;
+            if(String(candidate,"kind")=="markdown") tasks[componentId]=ObserveTasks(String((JsonObject)candidate["data"]!,"text"),tasks[componentId] as JsonArray,now);
+            if(String(candidate,"kind")=="checklist") tasks[componentId]=ObserveChecklist((JsonArray)candidate["data"]!["items"]!,tasks[componentId] as JsonArray,current["data"]?["items"] as JsonArray,now);
+            var bytes=Size(view);if(bytes>MaxRunBytes||totalBytes-run.Bytes+bytes>MaxLiveBytes)throw new HubError(413,"Live data budget exceeded.");
+            Transaction(()=>{Execute("UPDATE runs SET payload=$p0 WHERE id=$p1",Serialize(Metadata(view)),id);UpsertComponents(id,(JsonObject)view["components"]!,new[]{componentId});});
+            totalBytes+=bytes-run.Bytes;run.Bytes=bytes;run.View=view;
+            QueueBatch(view,new JsonArray(new JsonObject{["op"]="upsert",["component"]=candidate.DeepClone()}));revision++;
+            return new JsonObject{["component"]=candidate.DeepClone(),["sequence"]=Integer(view,"sequence")};
+        }
+    }
     public JsonObject SetCardStyle(string id,string token,JsonObject style)
     {
         CardStyles.Validate(style); lock(gate) { if(!runs.ContainsKey(id)){AuthorizeArchive(id,token);Restore(id);} var run=Authorize(id,token); var view=Clone(run.View); view["icon"]=style["icon"]!.DeepClone(); SaveView(run,view); Queue(view); revision++; return new JsonObject{["icon"]=String(view,"icon")}; }

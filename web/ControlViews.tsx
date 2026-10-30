@@ -1,4 +1,6 @@
 import { useCallback, useContext, useEffect, useRef, useState, type FormEvent, type RefObject } from 'react';
+import { cellRules, coerceGridChanges, evaluatePrecedence, type GridData as ConfiguredGridData, type PrecedenceResult } from '../shared/grid-config.js';
+import { presentationStyle } from './ComponentSettings.js';
 import { CardInteraction } from './CardInteraction.js';
 
 type Scalar = string | number | boolean | null;
@@ -6,11 +8,10 @@ type Field = { key: string; label: string; type: 'text' | 'multiline' | 'number'
 type Action = { id: string; label: string; kind: string; description?: string; confirmation?: string; fields?: Field[] };
 type Configuration = { version: string; application?: { name: string }; actions: Action[] };
 type Invocation = { id: string; actionId: string; state: 'queued' | 'running' | 'succeeded' | 'failed' | 'unknown' | 'cancelled'; createdAt: string | number; startedAt?: string | number; finishedAt?: string | number; result?: Record<string, unknown>; error?: string };
-type Column = { key: string; label: string; editable?: boolean; type?: 'text' | 'number' | 'toggle' };
-export type ControlComponent =
+export type ControlComponent = {id?: string} & (
   | { kind: 'action-panel'; data: { actionIds: string[] } }
   | { kind: 'log-stream'; data: { actionId: string; pollMs?: number; maxRows?: number } }
-  | { kind: 'data-grid'; data: { readAction?: string; rows?: Row[]; editAction?: string; addAction?: string; deleteAction?: string; bulkAction?: string; historyAction?: string; keyColumn?: string; versionColumn?: string; pageSize?: number; columns: Column[] } };
+  | { kind: 'data-grid'; data: ConfiguredGridData });
 const MAX_TEXT = 16_000;
 const bounded = (value: unknown, limit = MAX_TEXT) => {
   const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2) ?? '';
@@ -207,19 +208,25 @@ type Row = Record<string, Scalar>;
 type GridData = Extract<ControlComponent, { kind: 'data-grid' }>['data'];
 type Sort = { key: string; direction: 'asc' | 'desc' };
 type GridOperation = 'add' | 'update' | 'delete' | 'bulk';
+function GridField({column,row,data,label,value,change,disabled}:{column:GridData['columns'][number];row:Row;data:GridData;label:string;value:unknown;change:(value:unknown)=>void;disabled:boolean}) {
+ const {constraints:c}=cellRules(data,row,column.key);
+ if(c.values) {if(c.storage==='string'&&typeof value==='string'){if(c.type==='boolean'&&(value==='true'||value==='false'))value=value==='true';else if(c.type==='number'||c.type==='integer')value=Number(value);}return <select aria-label={label} disabled={disabled} value={JSON.stringify(value)??''} onChange={event=>change(JSON.parse(event.target.value))}><option value="" disabled>Select…</option>{c.values.map((item,index)=><option key={index} value={JSON.stringify(item)}>{String(item??'null')}</option>)}</select>;}
+ if(c.type==='boolean') return <select aria-label={label} disabled={disabled} value={String(value??'')} onChange={event=>change(event.target.value)}><option value="">Select…</option><option value="true">true</option><option value="false">false</option></select>;
+ return <FieldInput field={{key:column.key,label,type:c.type==='number'||c.type==='integer'?'number':column.type??'text',required:c.required,min:c.min,max:c.max}} value={value} change={change} disabled={disabled}/>;
+}
 const isRow = (value: unknown): value is Row => !!value && typeof value === 'object' && !Array.isArray(value) && Object.values(value).every(cell => cell === null || typeof cell === 'string' || typeof cell === 'boolean' || typeof cell === 'number' && Number.isFinite(cell));
 const rowWindow = (value: unknown, limit: number) => Array.isArray(value) ? value.slice(0, limit).filter(isRow) : [];
 function rowIdentity(row: Row, data: GridData) {
-  return { ...(data.keyColumn && Object.hasOwn(row, data.keyColumn) ? { rowId: row[data.keyColumn] } : {}), ...(data.versionColumn && Object.hasOwn(row, data.versionColumn) ? { expectedVersion: row[data.versionColumn] } : {}) };
+  return { ...(data.keyColumn && Object.hasOwn(row, data.keyColumn) ? { rowId: row[data.keyColumn] } : {}), ...(data.keyColumns?.length ? { rowKey: Object.fromEntries(data.keyColumns.map(key=>[key,row[key]])) } : {}), ...(data.versionColumn && Object.hasOwn(row, data.versionColumn) ? { expectedVersion: row[data.versionColumn] } : {}) };
 }
-function GridRow({ row, index, data, controls, enabled, selected, select, acknowledged }: { row: Row; index: number; data: GridData; controls: Controls; enabled: boolean; selected: boolean; select: (selected: boolean) => void; acknowledged: (result: Invocation, operation: GridOperation, index?: number) => void }) {
+function GridRow({ row, index, data, controls, enabled, selected, select, acknowledged, visibleColumns, precedence }: { visibleColumns: GridData['columns']; precedence?: PrecedenceResult; row: Row; index: number; data: GridData; controls: Controls; enabled: boolean; selected: boolean; select: (selected: boolean) => void; acknowledged: (result: Invocation, operation: GridOperation, index?: number) => void }) {
   const [editing, setEditing] = useState(false), [changes, setChanges] = useState<Record<string, unknown>>({}), [history, setHistory] = useState<unknown>(), [error, setError] = useState('');
   const rowLabel = data.keyColumn ? String(row[data.keyColumn] ?? index + 1) : `row ${index + 1}`;
   const save = async () => {
     if (!enabled || controls.busy || !data.editAction) return;
     try {
-      const fields: Field[] = data.columns.filter(column => column.editable && Object.hasOwn(changes, column.key)).map(column => ({ key: column.key, label: column.label, type: column.type ?? 'text', required: column.type === 'number' }));
-      const input = formInput(fields, changes, true), updated = { ...row, ...input };
+      const permitted = Object.fromEntries(Object.entries(changes).filter(([key])=>data.columns.some(column=>column.key===key&&column.editable)));
+      const updated = coerceGridChanges(data,row,permitted), input=Object.fromEntries(Object.keys(permitted).map(key=>[key,updated[key]]));
       const result = await controls.invoke(data.editAction, { operation: 'update', row: updated, rows: [updated], previousRow: row, ...rowIdentity(row, data), changes: input }, 'edit');
       setEditing(false); setChanges({}); setError(''); acknowledged(result, 'update', index);
     } catch (failure) { if (!(failure instanceof DOMException && failure.name === 'AbortError')) setError(message(failure)); }
@@ -229,15 +236,17 @@ function GridRow({ row, index, data, controls, enabled, selected, select, acknow
     try { const result = await controls.invoke(data.deleteAction, { operation: 'delete', row, rows: [row], ...rowIdentity(row, data) }, 'edit'); acknowledged(result, 'delete', index); }
     catch (failure) { if (!(failure instanceof DOMException && failure.name === 'AbortError')) setError(message(failure)); }
   };
-  const hasActions = !!(data.editAction || data.deleteAction || data.historyAction), cells = data.columns.length + (data.bulkAction ? 1 : 0) + (hasActions ? 1 : 0);
+  const hasActions = !!(data.editAction || data.deleteAction || data.historyAction), cells = visibleColumns.length + (precedence ? 1 : 0) + (data.bulkAction ? 1 : 0) + (hasActions ? 1 : 0);
   return <>
-    <tr>
+    <tr data-precedence={precedence?.state}>
+      {precedence && <td className="grid-precedence" data-state={precedence.state} title={precedence.reason}><strong>{precedence.state}</strong><div>{precedence.reason}</div></td>}
       {data.bulkAction && <td className="control-select-cell"><input type="checkbox" aria-label={`Select ${rowLabel}`} checked={selected} disabled={!enabled || controls.busy} onChange={event => select(event.target.checked)} /></td>}
-      {data.columns.map(column => <td key={column.key}>{editing && column.editable ? <FieldInput field={{ key: column.key, label: `${column.label} for ${rowLabel}`, type: column.type ?? 'text' }} value={Object.hasOwn(changes, column.key) ? changes[column.key] : row[column.key]} change={value => setChanges(previous => ({ ...previous, [column.key]: value }))} disabled={!enabled || controls.busy} /> : bounded(row[column.key], 2000)}</td>)}
+      {visibleColumns.map(column => { const resolved=cellRules(data,{...row,...changes} as Row,column.key); return <td key={column.key} style={{...presentationStyle(resolved.presentation),width:column.width}} title={resolved.tooltip}>{editing && column.editable ? <GridField column={column} row={{...row,...changes} as Row} data={data} label={`${column.label} for ${rowLabel}`} value={Object.hasOwn(changes,column.key)?changes[column.key]:row[column.key]} change={value=>setChanges(previous=>({...previous,[column.key]:value}))} disabled={!enabled||controls.busy}/> : bounded(row[column.key],2000)}</td>; })}
+
       {hasActions && <td className="control-row-actions">
         {data.editAction && (editing ? <><button type="button" disabled={!enabled || controls.busy || Object.keys(changes).length === 0} onClick={() => void save()}>Save</button><button type="button" disabled={!enabled || controls.busy} onClick={() => { setEditing(false); setChanges({}); setError(''); }}>Cancel edit</button></> : <button type="button" disabled={!enabled || controls.busy} onClick={() => setEditing(true)}>Edit</button>)}
         {data.deleteAction && <button type="button" disabled={!enabled || controls.busy} onClick={() => void remove()}>Delete</button>}
-        {data.historyAction && <button type="button" disabled={!enabled || controls.busy} onClick={() => void controls.invoke(data.historyAction!, { ...(data.keyColumn && Object.hasOwn(row, data.keyColumn) ? { rowId: row[data.keyColumn] } : {}), row }, 'history').then(result => setHistory(result.result)).catch(() => {})}>History</button>}
+        {data.historyAction && <button type="button" disabled={!enabled || controls.busy} onClick={() => void controls.invoke(data.historyAction!, { ...(data.keyColumn && Object.hasOwn(row, data.keyColumn) ? { rowId: row[data.keyColumn] } : {}), ...(data.keyColumns?.length ? { rowKey: Object.fromEntries(data.keyColumns.map(key=>[key,row[key]])) } : {}), row }, 'history').then(result => setHistory(result.result)).catch(() => {})}>History</button>}
       </td>}
     </tr>
     {(error || history !== undefined) && <tr><td colSpan={cells}>{error && <p role="alert">{error}</p>}{history !== undefined && <details open><summary>History for {rowLabel}</summary><pre>{bounded(history, 6000)}</pre></details>}</td></tr>}
@@ -248,12 +257,16 @@ function AddGridRow({ data, controls, enabled, close, acknowledged }: { data: Gr
   const fields: Field[] = data.columns.filter(column => column.editable !== false).map(column => ({ key: column.key, label: `New ${column.label}`, type: column.type ?? 'text' }));
   const submit = async (event: FormEvent) => {
     event.preventDefault(); if (!enabled || controls.busy || !data.addAction) return;
-    try { const row = formInput(fields, values, true); const result = await controls.invoke(data.addAction, { operation: 'add', row, rows: [row] }, 'edit'); acknowledged(result, 'add'); close(); }
+    try { const row = coerceGridChanges(data,{},values); const result = await controls.invoke(data.addAction, { operation: 'add', row, rows: [row] }, 'edit'); acknowledged(result, 'add'); close(); }
     catch (failure) { if (!(failure instanceof DOMException && failure.name === 'AbortError')) setError(message(failure)); }
   };
-  return <form className="control-action control-add-row" aria-label="Add row editor" onSubmit={event => void submit(event)}><strong>New row</strong>{fields.map(field => <label key={field.key} className="control-field"><span>{field.label}</span><FieldInput field={field} value={values[field.key]} change={value => setValues(previous => ({ ...previous, [field.key]: value }))} disabled={!enabled || controls.busy} /></label>)}{error && <p role="alert">{error}</p>}<div className="control-toolbar"><button type="submit" disabled={!enabled || controls.busy}>Save new row</button><button type="button" disabled={!enabled || controls.busy} onClick={close}>Cancel new row</button></div></form>;
+  return <form className="control-action control-add-row" aria-label="Add row editor" onSubmit={event => void submit(event)}><strong>New row</strong>{fields.map(field => <label key={field.key} className="control-field"><span>{field.label}</span><GridField column={data.columns.find(column=>column.key===field.key)!} row={values as Row} data={data} label={field.label} value={values[field.key]} change={value => setValues(previous => ({ ...previous, [field.key]: value }))} disabled={!enabled || controls.busy} /></label>)}{error && <p role="alert">{error}</p>}<div className="control-toolbar"><button type="submit" disabled={!enabled || controls.busy}>Save new row</button><button type="button" disabled={!enabled || controls.busy} onClick={close}>Cancel new row</button></div></form>;
 }
-function DataGrid({ data, controls, enabled, visible }: { data: Extract<ControlComponent, { kind: 'data-grid' }>['data']; controls: Controls; enabled: boolean; visible: boolean }) {
+function DataGrid({ data: supplied, controls, enabled, visible }: { data: Extract<ControlComponent, { kind: 'data-grid' }>['data']; controls: Controls; enabled: boolean; visible: boolean }) {
+  const data = {...supplied,...Object.fromEntries(['add','edit','delete','bulk','history','evaluate'].filter(feature=>supplied.features?.[feature as keyof NonNullable<GridData['features']>]===false).map(feature=>[feature+'Action',undefined]))};
+  const [hidden,setHidden]=useState<Set<string>>(()=>new Set(data.columns.filter(column=>column.hidden).map(column=>column.key)));
+  useEffect(()=>setHidden(new Set(data.columns.filter(column=>column.hidden).map(column=>column.key))),[supplied.columns]);
+  const visibleColumns=data.columns.filter(column=>!hidden.has(column.key));
   const [rows, setRows] = useState<Row[]>(() => rowWindow(data.rows, 2000)), [filter, setFilter] = useState(''), [query, setQuery] = useState(''), [cursors, setCursors] = useState<(string | undefined)[]>([undefined]), [next, setNext] = useState<string>(), [total, setTotal] = useState<number>(), [refresh, setRefresh] = useState(0);
   const [saveResult, setSaveResult] = useState<Invocation>(), [adding, setAdding] = useState(false), [selected, setSelected] = useState<Set<number>>(() => new Set());
   const [localPage, setLocalPage] = useState(0), [sort, setSort] = useState<Sort[]>([]), [rowRevision, setRowRevision] = useState(0);
@@ -287,6 +300,7 @@ function DataGrid({ data, controls, enabled, visible }: { data: Extract<ControlC
     }
     setRowRevision(value => value + 1);
   };
+  const priorities = data.features?.explain === false ? [] : evaluatePrecedence(data,rows);
   const indexed = rows.map((row, index) => ({ row, index }));
   const filtered = data.readAction ? indexed : indexed.filter(({ row }) => !query || Object.values(row).some(value => String(value ?? '').toLowerCase().includes(query.toLowerCase())));
   if (!data.readAction && sort.length) filtered.sort((a, b) => {
@@ -313,19 +327,23 @@ function DataGrid({ data, controls, enabled, visible }: { data: Extract<ControlC
     try { const result = await controls.invoke(data.bulkAction, { operation: 'bulk', rows: displayed.filter(({ index }) => selected.has(index)).map(({ row }) => row) }, 'edit'); acknowledged(result, 'bulk'); } catch { /* Common runner displays failures and preserves rows. */ }
   };
   return <>
+    {data.features?.hideColumns !== false && <details className="grid-column-settings"><summary>Visible columns</summary><div>{data.columns.map(column=><label key={column.key}><input type="checkbox" checked={!hidden.has(column.key)} disabled={!enabled||controls.busy||!hidden.has(column.key)&&visibleColumns.length<=1} onChange={event=>setHidden(previous=>{const next=new Set(previous);if(event.target.checked)next.delete(column.key);else next.add(column.key);return next;})}/>{column.label}</label>)}</div></details>}
+    {data.precedence && <p className="grid-rule-caption">{data.precedence.label ?? 'Priority'}: {data.precedence.dimensions.join(' > ')}. {data.readAction ? 'Evaluation covers this page; use a provider action for a dataset-wide result.' : 'Evaluation covers supplied rows.'}</p>}
     <form className="control-toolbar" onSubmit={event => { event.preventDefault(); if (!enabled || controls.busy) return; setQuery(filter); resetPages(); setRefresh(value => value + 1); }}>
-      <input aria-label="Filter rows" placeholder="Filter rows" disabled={!enabled || controls.busy} maxLength={500} value={filter} onChange={event => setFilter(event.target.value)} />
-      <button disabled={!enabled || controls.busy} type="submit">Apply filter</button>
+      {data.features?.filter !== false && <><input aria-label="Filter rows" placeholder="Filter rows" disabled={!enabled || controls.busy} maxLength={500} value={filter} onChange={event => setFilter(event.target.value)} />
+      <button disabled={!enabled || controls.busy} type="submit">Apply filter</button></>}
       {data.readAction && <button type="button" disabled={!enabled || controls.busy} onClick={() => setRefresh(value => value + 1)}>Refresh</button>}
+      {data.evaluateAction && <button type="button" disabled={!enabled||controls.busy} onClick={()=>void controls.invoke(data.evaluateAction!,{rows:displayed.map(item=>item.row),precedence:data.precedence},'custom').then(result=>{if(sourceRows.current!==data.rows)return;if(Array.isArray(result.result?.rows)){setRows(rowWindow(result.result.rows,data.readAction?pageSize:2000));setSelected(new Set());setRowRevision(value=>value+1);}}).catch(()=>{})}>Evaluate rules</button>}
       {data.addAction && <button type="button" disabled={!enabled || controls.busy || adding} onClick={() => setAdding(true)}>Add row</button>}
       {data.bulkAction && <><button type="button" disabled={!enabled || controls.busy || selected.size === 0} onClick={() => void bulk()}>Apply to selected</button><span>{selected.size} selected</span></>}
     </form>
     {adding && <AddGridRow data={data} controls={controls} enabled={enabled} close={() => setAdding(false)} acknowledged={acknowledged} />}
     <div className="control-grid"><table><thead><tr>
+      {priorities.length>0 && <th scope="col">Priority evaluation</th>}
       {data.bulkAction && <th scope="col" className="control-select-cell"><input type="checkbox" aria-label="Select page" disabled={!enabled || controls.busy || displayed.length === 0} checked={displayed.length > 0 && displayed.every(({ index }) => selected.has(index))} onChange={event => setSelected(event.target.checked ? new Set(displayed.map(({ index }) => index)) : new Set())} /></th>}
-      {data.columns.map(column => { const direction = sort.find(item => item.key === column.key)?.direction; return <th key={column.key} scope="col" aria-sort={direction === 'asc' ? 'ascending' : direction === 'desc' ? 'descending' : 'none'}><button type="button" className="control-sort" aria-label={`Sort ${column.label}`} disabled={!enabled || controls.busy} title="Sort; Shift-click to add another column" onClick={event => sortColumn(column.key, event.shiftKey)}>{column.label}{direction === 'asc' ? ' ↑' : direction === 'desc' ? ' ↓' : ' ↕'}</button></th>; })}
+      {visibleColumns.map(column => { const direction = sort.find(item => item.key === column.key)?.direction; return <th key={column.key} scope="col" aria-sort={direction === 'asc' ? 'ascending' : direction === 'desc' ? 'descending' : 'none'}><button type="button" className="control-sort" aria-label={`Sort ${column.label}`} disabled={!enabled || controls.busy || data.features?.sort === false} title="Sort; Shift-click to add another column" onClick={event => sortColumn(column.key, event.shiftKey)}>{column.label}{direction === 'asc' ? ' ↑' : direction === 'desc' ? ' ↓' : ' ↕'}</button></th>; })}
       {hasActions && <th scope="col">Actions</th>}
-    </tr></thead><tbody>{displayed.map(({ row, index }) => <GridRow key={`${index}:${rowRevision}`} row={row} index={index} data={data} controls={controls} enabled={enabled} selected={selected.has(index)} select={value => setSelected(previous => { const next = new Set(previous); if (value) next.add(index); else next.delete(index); return next; })} acknowledged={acknowledged} />)}</tbody></table></div>
+    </tr></thead><tbody>{displayed.map(({ row, index }) => <GridRow key={`${index}:${rowRevision}`} row={row} index={index} data={data} visibleColumns={visibleColumns} precedence={priorities[index]} controls={controls} enabled={enabled} selected={selected.has(index)} select={value => setSelected(previous => { const next = new Set(previous); if (value) next.add(index); else next.delete(index); return next; })} acknowledged={acknowledged} />)}</tbody></table></div>
     {displayed.length === 0 && <p className="control-caption">{controls.busy ? 'Loading rows…' : 'No rows in this page.'}</p>}
     <div className="control-toolbar"><button type="button" disabled={!enabled || controls.busy || (data.readAction ? cursors.length <= 1 : page <= 0)} onClick={() => { if (data.readAction) setCursors(previous => previous.slice(0, -1)); else setLocalPage(page - 1); setSelected(new Set()); }}>Previous page</button><span>Page {page + 1} · {displayed.length} rows{rowCount === undefined ? '' : ` of ${rowCount.toLocaleString()}`}</span><button type="button" disabled={!enabled || controls.busy || (data.readAction ? !next : (page + 1) * pageSize >= filtered.length)} onClick={() => { if (data.readAction) { if (cursors.length >= 256) { setCursors(previous => [...previous.slice(-255), next]); setCursorOffset(value => value + 1); } else setCursors(previous => [...previous, next]); } else setLocalPage(page + 1); setSelected(new Set()); }}>Next page</button></div>
     <InvocationResult invocation={controls.last?.actionId === data.readAction ? saveResult : controls.last ?? saveResult} />
@@ -333,7 +351,10 @@ function DataGrid({ data, controls, enabled, visible }: { data: Extract<ControlC
 }
 export function ControlView({ component, runId }: { component: ControlComponent; runId: string }) {
   const active = useContext(CardInteraction), ref = useRef<HTMLDivElement>(null), visible = useVisibility(ref), enabled = active && visible;
-  const controls = useControls(runId, enabled, visible);
+  const originalControls = useControls(runId, enabled, visible);
+  const componentId=component.kind==='data-grid'?component.id:undefined;
+  const scopedInvoke=useCallback((actionId:string,input:Record<string,unknown>,expectedKind?:string,monitor=false)=>originalControls.invoke(actionId,{...input,...(componentId?{componentId}:{})},expectedKind,monitor),[originalControls.invoke,componentId]);
+  const controls={...originalControls,invoke:scopedInvoke};
   const interactive = enabled && !!controls.config;
   return <div className="control-view" ref={ref}><div className="control-toolbar"><span className="control-caption">{controls.config?.application?.name ?? 'Application controls'}{!active && ' · Select this card to interact'}</span><button type="button" disabled={!enabled || controls.busy} onClick={controls.refreshActions}>Refresh actions</button></div>{controls.error && <p className="control-error" role="alert">{controls.error}</p>}<ReviewAction controls={controls} enabled={interactive} />{!controls.config && <p role="status">Loading configured actions…</p>}{component.kind === 'action-panel' ? <ActionPanel data={component.data} controls={controls} enabled={interactive} runId={runId} /> : component.kind === 'log-stream' ? <LogStream data={component.data} controls={controls} enabled={interactive} visible={visible} /> : <DataGrid data={component.data} controls={controls} enabled={interactive} visible={visible} />}</div>;
 }
