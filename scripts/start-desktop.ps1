@@ -73,7 +73,7 @@ try {
         if ($existing) {
             Assert-PlainPath ([string]$state.Entry)
             if ($existing.ExecutablePath -ne [string]$state.Entry -or !$existing.CommandLine -or !$existing.CommandLine.Contains('"' + $data + '"') -or $existing.CreationDate.ToUniversalTime() -ne ([DateTime]$state.CreatedUtc).ToUniversalTime()) { throw 'The previous desktop process identity cannot be established.' }
-            if ($state.BuildHash -eq $buildHash -and $state.Url -eq $parsed.AbsoluteUri -and $state.PageHash -eq $pageHash -and [bool]$state.InputTrace -eq $inputTrace) { $state | ConvertTo-Json -Compress; return }
+            if (!$Replace -and $state.BuildHash -eq $buildHash -and $state.Url -eq $parsed.AbsoluteUri -and $state.PageHash -eq $pageHash -and [bool]$state.InputTrace -eq $inputTrace) { $state | ConvertTo-Json -Compress; return }
             if (!$Replace) { throw 'Another owned desktop build is running. Use -Replace to relaunch with the same private profile.' }
             # Only the PID with matching command line, creation time and bounded profile is owned.
             Stop-Process -Id ([int]$state.ProcessId)

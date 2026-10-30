@@ -29,10 +29,12 @@ powershell -File scripts/start-desktop.ps1
 
 The launcher stages a hashed copy under ignored task storage, checks runtime and
 server prerequisites, and retains a relaunch script, process identity, logs, and
-diagnostics. Repeated launches reuse a matching live host. `-Replace` stops only
-the previously recorded process after matching its PID, creation time, command
-line and private profile. The host also locks its profile to prevent concurrent
-windows from sharing it. It never closes unrelated windows or processes.
+diagnostics. Repeated launches reuse a matching live host unless `-Replace` is
+supplied. `-Replace` forces a fresh visible window even for the same build, stopping
+only the previously recorded process after matching its PID, creation time, command
+line and private profile. Use it after each delivered update. The host also locks
+its profile to prevent concurrent windows from sharing it. It never closes
+unrelated windows or processes.
 
 For a bounded passive input diagnosis, set `AV_INPUT_TRACE=1` before launching.
 For ten minutes the trusted main document may send up to 4,096 numeric gesture
