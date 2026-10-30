@@ -1,3 +1,5 @@
+import { controlMapSchema, type ControlMap } from './control-presentation.js';
+import { componentLayoutSchema, type ComponentLayout } from './card-display.js';
 import { cardShortcutsSchema } from './card-shortcuts.js';
 import { z } from 'zod';
 import { chartDataSchema, bulletComponentSchema, stepperComponentSchema, accordionComponentSchema } from './native-extensions.js';
@@ -85,6 +87,7 @@ export type Layout = { x: number; y: number; width: number; height: number; lock
 export type AgentStatus = 'active' | 'stale' | 'completed' | 'error';
 export type TaskTiming = { key: string; line: number; firstSeenAt: number; startedAt?: number; completedAt?: number; updatedAt: number };
 export type AgentView = {
+  chrome?:ControlMap;componentLayout?:ComponentLayout;
   id: string; agentId: string; name: string; role: string; context: string;
   parentId: string | null; createdAt: number; lastSeen: number; status: AgentStatus; icon?: CardIconName;
   updatedAt?: number; completedAt?: number; componentTimes?: Record<string, number>;
@@ -108,6 +111,7 @@ export type AgentChange = { id: string; meta?: Omit<AgentView, 'components'>; co
 export type Patch = { revision: number; changes: AgentChange[]; removed: string[]; settings?: Settings; stats: Stats };
 export type ArchiveSummary = { id: string; name: string; agentId: string; role: string; parentId: string | null; status: AgentStatus; archivedAt: number; createdAt?: number; updatedAt?: number; completedAt?: number; bytes: number; rawBytes: number };
 export const registerSchema = z.object({
+  chrome:controlMapSchema.optional(),componentLayout:componentLayoutSchema.optional(),
   requestId: idSchema,
   registrationKey: z.string().min(32).max(256).describe('Private random recovery secret. Generate locally and never include in display content.'),
   agentId: idSchema,

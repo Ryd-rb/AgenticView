@@ -8,7 +8,7 @@ namespace AgenticView.Server;
 /// <summary>Bounded declarative configuration. No expression evaluation or executable styling.</summary>
 public static class ComponentConfiguration
 {
-    private static readonly string[] Editable = ["configuration.presentation","configuration.rules","configuration.collection","configuration.label","configuration.description","configuration.tooltip","configuration.collapsed"];
+    private static readonly string[] Editable = ["configuration.presentation","configuration.controls","configuration.rules","configuration.collection","configuration.label","configuration.description","configuration.tooltip","configuration.collapsed"];
     public static void Keys(JsonObject value, params string[] allowed) { if (value.Any(pair => !allowed.Contains(pair.Key, StringComparer.Ordinal))) Fail("Unknown configuration property."); }
     public static string Path(JsonObject value, string key)
     {
@@ -51,7 +51,8 @@ public static class ComponentConfiguration
     }
     public static void Validate(JsonObject configuration)
     {
-        Keys(configuration,"label","description","tooltip","visible","collapsed","presentation","context","rules","collection","manualFields");
+        Keys(configuration,"controls","label","description","tooltip","visible","collapsed","presentation","context","rules","collection","manualFields");
+        if(configuration.ContainsKey("controls")) ControlPresentation.Validate(Object(configuration["controls"]));
         Text(configuration,"label",160,false);Text(configuration,"description",2000,false);Text(configuration,"tooltip",2000,false);Boolean(configuration,"visible");Boolean(configuration,"collapsed");
         if(configuration.ContainsKey("presentation")) Presentation(Object(configuration["presentation"]));
         if(configuration.ContainsKey("context")) Record(Object(configuration["context"]));

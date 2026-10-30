@@ -2,6 +2,9 @@ import { useContext, useEffect, useRef, useState, type CSSProperties } from 'rea
 import { CardInteraction } from './CardInteraction.js';
 import { fieldValue, type Presentation } from '../shared/component-config.js';
 import { componentSchema, type Component } from '../shared/protocol.js';
+import { Check, Settings2 } from 'lucide-react';
+import { control } from '../shared/control-presentation.js';
+import { ComponentControls, ControlContent, controlStyle } from './ControlPresentation.js';
 
 export function presentationStyle(value?: Presentation): CSSProperties {
   return value ? { color:value.color, backgroundColor:value.background, borderColor:value.borderColor, borderStyle:value.borderColor ? 'solid' : undefined, borderWidth:value.borderColor ? 1 : undefined, fontWeight:value.emphasis === 'bold' ? 700 : undefined, opacity:value.emphasis === 'muted' ? .72 : undefined, textAlign:value.align, fontSize:value.fontSize, '--component-spacing':value.density === 'compact' ? '4px' : value.density === 'spacious' ? '16px' : value.density === 'comfortable' ? '8px' : undefined } as CSSProperties : {};
@@ -18,11 +21,16 @@ function SettingInput({field,value,disabled,change}:{field:string;value:unknown;
   return null;
 }
 export function ComponentSettings({ component, runId }: {component:Component;runId:string}) {
-  const active=useContext(CardInteraction), fields=component.configuration?.manualFields ?? [];
+  const active=useContext(CardInteraction), inherited=useContext(ComponentControls), fields=component.configuration?.manualFields ?? [];
+  const controls=component.configuration?.controls ?? inherited;
+  const spec=control(controls,'configure',{label:'Configure component',appearance:'text',variant:'quiet',mode:'disclosure',placement:'footer'});
+  const saveSpec=control(controls,'save',{label:'Save component settings',appearance:'text',variant:'quiet'});
+  const [open,setOpen]=useState(spec.initiallyOpen??false);
   const [values,setValues]=useState<Record<string,string>>({}), [error,setError]=useState(''), [busy,setBusy]=useState(false), [saved,setSaved]=useState(false);
   const controller=useRef<AbortController|undefined>(undefined);
   useEffect(()=>()=>controller.current?.abort(),[]);
-  if (!fields.length) return null;
+  useEffect(()=>setOpen(spec.initiallyOpen??false),[spec.initiallyOpen]);
+  if (!fields.length || spec.visible===false) return null;
   const save=async()=>{
     if (!active || busy) return;
     try {
@@ -39,10 +47,12 @@ export function ComponentSettings({ component, runId }: {component:Component;run
       setValues({});setSaved(true);
     }catch(failure){if(!(failure instanceof DOMException && failure.name==='AbortError'))setError(failure instanceof Error?failure.message:'Invalid settings');}finally{setBusy(false);}
   };
-  return <details className="component-settings"><summary>Configure component</summary><p>Changes are saved to this card. Only fields enabled by its publisher are editable. Conditions use data and context field paths.</p>{fields.map(field=>{
+  const label=spec.label||'Configure component', heading=<ControlContent spec={spec} label="Configure component" icon={<Settings2 size={14}/>}/>;
+  const editor=<><p>Changes are saved to this card. Only fields enabled by its publisher are editable. Conditions use data and context field paths.</p>{fields.map(field=>{
     let value=fieldValue(component,field);try{if(Object.hasOwn(values,field))value=JSON.parse(values[field]!);}catch{/* Keep invalid JSON visible until corrected. */}
     const change=(json:string)=>{setValues(previous=>({...previous,[field]:json}));setSaved(false);};
     const structured=field==='configuration.presentation'||['string','number','boolean'].includes(typeof value);
     return <div className="component-setting" key={field}><strong>{field}</strong>{structured&&<SettingInput field={field} value={value} disabled={!active||busy} change={change}/>}<details open={!structured}><summary>Advanced JSON</summary><textarea aria-label={`JSON ${field}`} disabled={!active||busy} maxLength={131072} rows={4} value={values[field]??JSON.stringify(value??null,null,2)} onChange={event=>change(event.target.value)} spellCheck={false}/></details></div>;
-  })}{error&&<p role="alert">{error}</p>}{saved&&<p role="status">Settings saved</p>}<button type="button" disabled={!active||busy||!Object.keys(values).length} onClick={()=>void save()}>Save component settings</button></details>;
+  })}{error&&<p role="alert">{error}</p>}{saved&&<p role="status">Settings saved</p>}{saveSpec.visible!==false&&<button type="button" data-control="save" data-control-variant={saveSpec.variant} aria-label={saveSpec.label||'Save component settings'} title={saveSpec.tooltip} style={controlStyle(saveSpec)} disabled={!active||busy||!Object.keys(values).length} onClick={()=>void save()}><ControlContent spec={saveSpec} label="Save component settings" icon={<Check size={14}/>}/></button>}</>;
+  return spec.mode==='panel' ? <section className="component-settings component-settings-panel" data-control="configure" data-control-placement={spec.placement} aria-label={label} title={spec.tooltip}><h4 data-control-variant={spec.variant} style={controlStyle(spec)}>{heading}</h4>{editor}</section> : <details className="component-settings" data-control="configure" data-control-placement={spec.placement} open={open} onToggle={event=>setOpen(event.currentTarget.open)}><summary aria-label={label} title={spec.tooltip} data-control-variant={spec.variant} style={controlStyle(spec)}>{heading}</summary>{editor}</details>;
 }

@@ -1,3 +1,4 @@
+import { controlMapSchema } from './control-presentation.js';
 import { z } from 'zod';
 
 const reserved = new Set(['__proto__', 'prototype', 'constructor']);
@@ -10,11 +11,12 @@ export const colorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 export const presentationSchema = z.strictObject({ color: colorSchema.optional(), background: colorSchema.optional(), borderColor: colorSchema.optional(), emphasis: z.enum(['normal','bold','muted']).optional(), align: z.enum(['left','center','right']).optional(), density: z.enum(['compact','comfortable','spacious']).optional(), fontSize: z.number().int().min(12).max(24).optional() });
 export const effectSchema = z.strictObject({ label: z.string().max(160).optional(), tooltip: z.string().max(2000).optional(), visible: z.boolean().optional(), presentation: presentationSchema.optional() });
 export const configurationSchema = z.strictObject({
+  controls:controlMapSchema.optional(),
   label: z.string().max(160).optional(), description: z.string().max(2000).optional(), tooltip: z.string().max(2000).optional(), visible: z.boolean().optional(), collapsed: z.boolean().optional(),
   presentation: presentationSchema.optional(), context: z.record(z.string().max(100), configScalar).optional(),
   rules: z.array(z.strictObject({ when: conditionSchema, effect: effectSchema })).max(64).optional(),
   collection: z.strictObject({ field: z.enum(['items','events','buckets','frames','entries','rows']), filter: conditionSchema.optional(), sortBy: fieldPath.optional(), descending: z.boolean().optional(), limit: z.number().int().min(1).max(2000).optional() }).optional(),
-  manualFields: z.array(fieldPath.refine(path => path.startsWith('data.') || ['configuration.presentation','configuration.rules','configuration.collection','configuration.label','configuration.description','configuration.tooltip','configuration.collapsed'].includes(path), 'Manual fields must name a data field or an editable presentation setting')).max(64).optional(),
+  manualFields: z.array(fieldPath.refine(path => path.startsWith('data.') || ['configuration.presentation','configuration.controls','configuration.rules','configuration.collection','configuration.label','configuration.description','configuration.tooltip','configuration.collapsed'].includes(path), 'Manual fields must name a data field or an editable presentation setting')).max(64).optional(),
 });
 export type Configuration = z.infer<typeof configurationSchema>;
 export type Presentation = z.infer<typeof presentationSchema>;

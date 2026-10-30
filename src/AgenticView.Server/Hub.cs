@@ -243,6 +243,15 @@ public sealed class Hub : IDisposable
             return new JsonObject{["component"]=candidate.DeepClone(),["sequence"]=Integer(view,"sequence")};
         }
     }
+    public JsonObject SetCardDisplay(string id,string token,JsonObject display)
+    {
+        CardDisplay.Validate(display);
+        lock(gate) {
+            if(!runs.ContainsKey(id)){AuthorizeArchive(id,token);Restore(id);}var run=Authorize(id,token);
+            var view=Clone(run.View);foreach(var pair in display)view[pair.Key]=pair.Value?.DeepClone();SaveView(run,view);Queue(view);revision++;
+            var result=new JsonObject();foreach(var key in new[]{"chrome","componentLayout"})if(view.ContainsKey(key))result[key]=view[key]?.DeepClone();return result;
+        }
+    }
     public JsonObject SetCardStyle(string id,string token,JsonObject style)
     {
         CardStyles.Validate(style); lock(gate) { if(!runs.ContainsKey(id)){AuthorizeArchive(id,token);Restore(id);} var run=Authorize(id,token); var view=Clone(run.View); view["icon"]=style["icon"]!.DeepClone(); SaveView(run,view); Queue(view); revision++; return new JsonObject{["icon"]=String(view,"icon")}; }
@@ -278,6 +287,7 @@ public sealed class Hub : IDisposable
             if (identity.Length > 0) { registration["sessionId"] = sessionId; registration["sessionProvider"] = sessionProvider; }
             if(raw.ContainsKey("icon")) { CardStyles.Validate(raw); registration["icon"]=raw["icon"]!.DeepClone(); }
             if (raw.ContainsKey("parentId")) registration["parentId"] = parent; if (raw.ContainsKey("parentToken")) registration["parentToken"] = proof;
+            var display=new JsonObject();foreach(var key in new[]{"chrome","componentLayout"})if(raw.ContainsKey(key))display[key]=raw[key]?.DeepClone();CardDisplay.Validate(display);foreach(var pair in display)registration[pair.Key]=pair.Value?.DeepClone();
             var hash = Digest(registration);
             using (var reader = Command("SELECT run_id,request_hash FROM requests WHERE request_id=$p0", request).ExecuteReader())
                 if (reader.Read()) { var existingId = reader.GetString(0); if (!Equal(reader.GetString(1), hash)) throw new HubError(409, "Registration ID was already used with different content or proof."); return Registration(existingId, runs.TryGetValue(existingId, out var existing) ? existing.View : ReadArchive(existingId)); }
@@ -305,6 +315,7 @@ public sealed class Hub : IDisposable
             registrationLayoutTicks += Stopwatch.GetTimestamp() - layoutStart;
             var view = new JsonObject { ["id"] = id, ["agentId"] = agentId, ["name"] = name, ["role"] = role, ["context"] = context, ["parentId"] = parent.Length > 0 ? parent : null, ["createdAt"] = now, ["lastSeen"] = now, ["status"] = "active", ["sequence"] = 0L, ["components"] = new JsonObject(), ["layout"] = layout };
             if(registration.ContainsKey("icon")) view["icon"]=registration["icon"]!.DeepClone();
+            foreach(var key in new[]{"chrome","componentLayout"})if(registration.ContainsKey(key))view[key]=registration[key]?.DeepClone();
             if (identity.Length > 0) { view["sessionId"] = sessionId; view["sessionProvider"] = sessionProvider; }
             var bytes = Size(view); if (totalBytes + bytes > MaxLiveBytes) throw new HubError(429, "Live capacity reached.");
             var run = new Run(view, Hash(Token(id)), bytes);

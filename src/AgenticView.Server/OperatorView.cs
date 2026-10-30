@@ -39,6 +39,7 @@ public sealed class OperatorView(Hub hub, ControlStore controls, RuntimeConfig c
         return operation switch
         {
             "layout" => hub.SetLayout(id, ComponentValidator.Object(input["layout"])),
+            "display" => hub.SetCardDisplay(id,runToken,ComponentValidator.Object(input["display"])),
             "style" => hub.SetCardStyle(id, runToken, ComponentValidator.Object(input["style"])),
             "name" => hub.Rename(id, ComponentValidator.Text(input, "name", 160, true, 1)),
             "publish" => hub.Publish(id, runToken, ComponentValidator.Object(input["batch"])),

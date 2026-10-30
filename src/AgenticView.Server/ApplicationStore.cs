@@ -11,8 +11,9 @@ public sealed partial class ControlStore
     public static JsonObject ValidateApplication(JsonObject raw)
     {
         Budget(raw,262144); var manifest=Clone(raw);
-        Keys(manifest,"schemaVersion","id","version","name","description","permanent","bindings","actions","components","layout","icon");
+        Keys(manifest,"schemaVersion","id","version","name","description","permanent","bindings","actions","components","layout","icon","chrome","componentLayout");
         if(manifest.ContainsKey("icon")) CardStyles.Validate(manifest);
+        if(manifest.ContainsKey("chrome")) ControlPresentation.Validate(ComponentValidator.Object(manifest["chrome"]));if(manifest.ContainsKey("componentLayout")) CardDisplay.Layout(ComponentValidator.Object(manifest["componentLayout"]));
         if(ComponentValidator.Number(manifest,"schemaVersion",1,1,true,true)!=1 || !ComponentValidator.Boolean(manifest,"permanent")) throw new HubError(400,"A version 1 application definition must be permanent.");
         ComponentValidator.Id(manifest,"id"); ComponentValidator.Text(manifest,"version",80,true,1); ComponentValidator.Text(manifest,"name",160,true,1); ComponentValidator.Text(manifest,"description",2000,false);
         var bindings=new HashSet<string>();
@@ -55,6 +56,7 @@ public sealed partial class ControlStore
         hub.VerifyRun(id,token); var manifest=ValidateApplication(raw);
         hub.MakeApplication(id,token,ApplicationMetadata(manifest));
         if(manifest.ContainsKey("icon")) hub.SetCardStyle(id,token,new JsonObject{["icon"]=manifest["icon"]!.DeepClone()});
+        var display=new JsonObject();foreach(var key in new[]{"chrome","componentLayout"})if(manifest.ContainsKey(key))display[key]=manifest[key]?.DeepClone();if(display.Count>0)hub.SetCardDisplay(id,token,display);
         lock(gate) { Execute("INSERT INTO application_definitions VALUES($p0,$p1) ON CONFLICT(run_id) DO UPDATE SET payload=excluded.payload",id,Json.Text(manifest)); }
         return Clone(manifest);
     }

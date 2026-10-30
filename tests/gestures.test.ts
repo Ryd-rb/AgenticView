@@ -391,7 +391,23 @@ test('captured table panning continues on the canvas after the physical contact 
   hit=document.body;
   await act(()=>pointer(table,'pointermove',100,100));assert.deepEqual(world,{x:0,y:0});assert.equal(table.scrollTop,700);assert.equal(table.scrollLeft,400);assert.equal(view.viewport.scrollTop,700);assert.equal(captured.has(1),true);
   await act(()=>pointer(table,'pointermove',110,110));assert.deepEqual(world,{x:10,y:10});assert.equal(table.scrollTop,700);
-  hit=table;await act(()=>pointer(table,'pointermove',120,120));assert.equal(table.scrollTop,690,'reentering a visible table restores the current physical route');
+  hit=table;await act(()=>pointer(table,'pointermove',120,120));assert.equal(table.scrollTop,700,'an ongoing canvas pan keeps ownership while reentering a grid');assert.deepEqual(world,{x:20,y:20});
   await act(()=>pointer(table,'pointerup',120,120));assert.equal(captured.has(1),false);
+ }finally{document.elementFromPoint=previous;await view.close();}
+});
+
+
+test('an ongoing canvas drag keeps moving when a selected card grid passes under the contact',async()=>{
+ const world={x:0,y:0},view=await mount(createElement('div',null,createElement('p',{className:'plain'},'Text'),grid()),true,(x,y)=>{world.x-=x;world.y-=y;window.dispatchEvent(new CustomEvent('agenticview:canvas-navigation',{detail:{card:'test'}}));});
+ const previous=document.elementFromPoint;const text=view.host.querySelector('.plain')!,table=view.host.querySelector<HTMLElement>('.grid')!;let hit:Element=text;document.elementFromPoint=()=>hit;
+ try{
+  view.viewport.scrollLeft=400;view.viewport.scrollTop=700;await act(()=>view.viewport.dispatchEvent(new Event('scroll',{bubbles:true})));
+  await act(()=>{pointer(text,'pointerdown',150,150);pointer(text,'pointermove',140,140);});assert.deepEqual(world,{x:-10,y:-10});
+  hit=table;await act(()=>pointer(table,'pointermove',120,120));assert.deepEqual(world,{x:-30,y:-30});assert.equal(table.scrollLeft,0);assert.equal(table.scrollTop,0);assert.equal(captured.has(1),true);
+  await act(()=>pointer(table,'pointermove',130,130));assert.deepEqual(world,{x:-20,y:-20},'reverse movement recovers handed-out canvas displacement before entering the grid');assert.equal(table.scrollTop,0);
+  await act(()=>pointer(table,'pointermove',155,140));assert.deepEqual(world,{x:0,y:-10},'axes independently recover only their outstanding world handoff');assert.equal(view.viewport.scrollLeft,395,'remaining reversal enters the child route after world recovery');assert.equal(table.scrollLeft,0);
+  await act(()=>pointer(table,'pointerup',155,140));
+  await act(()=>{pointer(table,'pointerdown',130,130);pointer(table,'pointermove',120,120);});assert.equal(table.scrollTop,10,'a fresh grid gesture retains native scrolling');assert.equal(table.scrollLeft,10);assert.deepEqual(world,{x:0,y:-10});
+  await act(()=>pointer(table,'pointerup',120,120));
  }finally{document.elementFromPoint=previous;await view.close();}
 });

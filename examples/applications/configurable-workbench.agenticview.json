@@ -5,6 +5,11 @@
   "name": "Configurable workbench",
   "description": "Synthetic examples of shared settings and component-specific options. Actions queue to the owning agent; no persistence adapter is bundled.",
   "permanent": true,
+  "chrome": {
+    "navigation": { "placement": "bottom-right" },
+    "archive": { "label": "Archive workbench", "appearance": "both", "placement": "footer" }
+  },
+  "componentLayout": { "mode": "auto", "minWidth": 200, "gap": 12 },
   "bindings": [],
   "actions": [
     {

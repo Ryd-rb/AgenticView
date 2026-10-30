@@ -1,3 +1,5 @@
+import { controlMapSchema } from './control-presentation.js';
+import { componentLayoutSchema } from './card-display.js';
 import { z } from 'zod';
 import { componentSchema, idSchema } from './protocol.js';
 import {cardStyleSchema} from './card-style.js';
@@ -7,7 +9,7 @@ const action = z.strictObject({ id:idSchema, label:z.string().min(1).max(160), k
 /** An authored application definition. Runtime bindings and telemetry are deliberately outside this format. */
 export const applicationManifestSchema = z.strictObject({
   schemaVersion:z.literal(1), id:idSchema, version:z.string().min(1).max(80), name:z.string().min(1).max(160), description:z.string().max(2000).optional(), permanent:z.literal(true),
-  icon:cardStyleSchema.shape.icon.optional(),
+  icon:cardStyleSchema.shape.icon.optional(), chrome:controlMapSchema.optional(), componentLayout:componentLayoutSchema.optional(),
   bindings:z.array(z.strictObject({id:idSchema,label:z.string().min(1).max(160),description:z.string().max(2000).optional()})).max(64),
   actions:z.array(action).max(64), components:z.array(componentSchema).max(64),
   layout:z.strictObject({width:z.number().min(320).max(1600),height:z.number().min(240).max(1600),sizing:z.enum(['content','fixed'])}).optional(),

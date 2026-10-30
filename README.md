@@ -202,3 +202,5 @@ snapshots of a run's current evidence rather than an unlimited event history.
 Published source and examples contain synthetic data only.
 
 [Architecture and design](docs/design.md) · [Measured workloads and limits](docs/performance.md) · [MIT license](LICENSE)
+
+See [component configuration](docs/configurable-components.md) and [card controls and layout](docs/control-presentation.md) for MCP and manual presentation settings.

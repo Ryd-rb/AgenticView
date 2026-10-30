@@ -1,5 +1,7 @@
 import { useId, useState } from 'react';
 import { domainFraction, formatNativeNumber, matchesChartCondition, type ChartData } from '../shared/native-extensions.js';
+import { Table2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useControl, ControlContent, controlStyle, ControlContainer } from './ControlPresentation.js';
 
 const palette = ['#b4a2ff', '#70d6c3', '#e8be79', '#8bbbf5', '#e891b1', '#d3df8a'];
 const dash = { solid: undefined, dashed: '7 4', dotted: '2 4' };
@@ -30,7 +32,8 @@ function sampled<T>(points: T[]): T[] {
 
 /** Local interactions change inspection only; supplied telemetry is never mutated. */
 export function ChartView({ data, manual = true }: { data: ChartData; manual?: boolean }) {
-  const [hidden, setHidden] = useState<Set<string>>(new Set()), [table, setTable] = useState(false), [page, setPage] = useState(0);
+  const legendSpec=useControl('legend'),dataSpec=useControl('dataTable'),paginationSpec=useControl('pagination');
+  const [hidden, setHidden] = useState<Set<string>>(new Set()), [table, setTable] = useState(dataSpec.initiallyOpen??false), [page, setPage] = useState(0);
   const clipId = `plot-${useId().replace(/:/g, '')}`, options = data.options, xAxis = options?.xAxis, yAxis = options?.yAxis;
   const key = (series: ChartData['series'][number], index: number) => series.id ?? `${index}:${series.name}`;
   const visible = data.series.map((series, index) => ({ series, index, key: key(series, index) })).filter(item => !item.series.hidden && (!options?.features?.seriesToggle || !hidden.has(item.key)));
@@ -45,7 +48,17 @@ export function ChartView({ data, manual = true }: { data: ChartData; manual?: b
   const rows = visible.flatMap(({ series }) => series.points.map(point => ({ name: series.name, point }))), pages = Math.max(1, Math.ceil(rows.length / 25)), current = Math.min(page, pages - 1);
   const formatY = (value: number) => formatNativeNumber(value, yAxis?.format), toggle = options?.features?.seriesToggle === true;
   const sampling = visible.some(({ series }) => series.points.length > LIMIT);
+  const legend=options?.legend!==false&&legendSpec.visible!==false?<ControlContainer spec={legendSpec}><div className="chart-legend" data-control="legend" aria-label={legendSpec.label||'Chart legend'} title={legendSpec.tooltip}>{data.series.map((series,index)=>{
+    const seriesKey=key(series,index),shown=!series.hidden&&(!toggle||!hidden.has(seriesKey)),label=<><i style={{backgroundColor:series.color??palette[index%palette.length]}}/>{legendSpec.appearance!=='icon'&&<>{series.name}{series.hidden&&' (agent hidden)'}</>}</>;
+    return toggle?<button key={seriesKey} type="button" disabled={!manual||series.hidden} aria-pressed={shown} aria-label={series.name} title={legendSpec.tooltip??series.name} style={controlStyle(legendSpec)} onClick={()=>setHidden(previous=>{const currentKeys=new Set(data.series.map(key)),next=new Set([...previous].filter(value=>currentKeys.has(value)));if(next.has(seriesKey))next.delete(seriesKey);else next.add(seriesKey);return next;})}>{label}</button>:<span key={seriesKey} aria-label={series.name}>{label}</span>;
+  })}</div></ControlContainer>:null;
+  const inspector=options?.features?.dataTable&&dataSpec.visible!==false?<ControlContainer spec={dataSpec}><div data-control="dataTable">
+    {dataSpec.mode!=='panel'&&<button className="chart-data-toggle" disabled={!manual} type="button" aria-label={dataSpec.label||`${table?'Hide':'Show'} chart data`} title={dataSpec.tooltip} data-control-variant={dataSpec.variant} style={controlStyle(dataSpec)} aria-expanded={table} onClick={()=>setTable(!table)}><ControlContent spec={dataSpec} label={`${table?'Hide':'Show'} chart data`} icon={<Table2 size={13}/>}/></button>}
+    {(table||dataSpec.mode==='panel')&&<><div className="table-scroll"><table className="chart-data"><thead><tr><th>Series</th><th>{xAxis?.label??data.xLabel??'X'}</th><th>{yAxis?.label??data.yLabel??'Y'}</th></tr></thead><tbody>{rows.slice(current*25,current*25+25).map((row,i)=><tr key={i}><th scope="row">{row.name}</th><td>{String(row.point.x)}</td><td>{formatY(row.point.y)}</td></tr>)}</tbody></table></div>{paginationSpec.visible!==false&&<div className="pagination" data-control="pagination" title={paginationSpec.tooltip}><span>{rows.length} points</span><button aria-label={paginationSpec.label?`${paginationSpec.label}: Previous`:'Previous'} style={controlStyle(paginationSpec)} disabled={!manual||current===0} onClick={()=>setPage(current-1)}><ControlContent spec={{...paginationSpec,label:paginationSpec.label?`${paginationSpec.label}: Previous`:undefined}} label="Previous" icon={<ChevronLeft size={13}/>}/></button><span>{current+1} / {pages}</span><button aria-label={paginationSpec.label?`${paginationSpec.label}: Next`:'Next'} style={controlStyle(paginationSpec)} disabled={!manual||current+1===pages} onClick={()=>setPage(current+1)}><ControlContent spec={{...paginationSpec,label:paginationSpec.label?`${paginationSpec.label}: Next`:undefined}} label="Next" icon={<ChevronRight size={13}/>}/></button></div>}</>}
+  </div></ControlContainer>:null;
+  const above=(placement?:string)=>placement==='header'||placement?.startsWith('top-');
   return <div className="native-chart">
+    {above(legendSpec.placement)&&legend}{above(dataSpec.placement)&&inspector}
     {data.series.length === 0 || all.length === 0 ? <p className="native-note">No chart points reported</p> : <>
       <svg className="chart chart-configurable" viewBox="0 0 640 280" role="img" aria-label={`${data.type} chart, ${visible.map(item => item.series.name).join(', ') || 'no visible series'}`}>
         <defs><clipPath id={clipId}><rect x="64" y="28" width="552" height="200" /></clipPath></defs>
@@ -79,12 +92,6 @@ export function ChartView({ data, manual = true }: { data: ChartData; manual?: b
       </svg>
       {sampling && <small className="native-note">Plot sampled to {LIMIT} points per series. All reported points remain available when data inspection is enabled.</small>}
     </>}
-    {options?.legend !== false && <div className="chart-legend" aria-label="Chart legend">{data.series.map((series, index) => {
-      const seriesKey = key(series, index), shown = !series.hidden && (!toggle || !hidden.has(seriesKey));
-      const label = <><i style={{ backgroundColor: series.color ?? palette[index % palette.length] }} />{series.name}{series.hidden && ' (agent hidden)'}</>;
-      return toggle ? <button key={seriesKey} type="button" disabled={!manual || series.hidden} aria-pressed={shown} onClick={() => setHidden(previous => { const currentKeys = new Set(data.series.map(key)); const next = new Set([...previous].filter(value => currentKeys.has(value))); if (next.has(seriesKey)) next.delete(seriesKey); else next.add(seriesKey); return next; })}>{label}</button> : <span key={seriesKey}>{label}</span>;
-    })}</div>}
-    {options?.features?.dataTable && <button className="chart-data-toggle" disabled={!manual} type="button" aria-expanded={table} onClick={() => setTable(!table)}>{table ? 'Hide' : 'Show'} chart data</button>}
-    {options?.features?.dataTable && table && <><div className="table-scroll"><table className="chart-data"><thead><tr><th>Series</th><th>{xAxis?.label ?? data.xLabel ?? 'X'}</th><th>{yAxis?.label ?? data.yLabel ?? 'Y'}</th></tr></thead><tbody>{rows.slice(current * 25, current * 25 + 25).map((row, i) => <tr key={i}><th scope="row">{row.name}</th><td>{String(row.point.x)}</td><td>{formatY(row.point.y)}</td></tr>)}</tbody></table></div><div className="pagination"><span>{rows.length} points</span><button disabled={!manual || current === 0} onClick={() => setPage(current - 1)}>Previous</button><span>{current + 1} / {pages}</span><button disabled={!manual || current + 1 === pages} onClick={() => setPage(current + 1)}>Next</button></div></>}
+    {!above(legendSpec.placement)&&legend}{!above(dataSpec.placement)&&inspector}
   </div>;
 }

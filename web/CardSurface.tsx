@@ -1,3 +1,5 @@
+import { control, type ControlMap } from '../shared/control-presentation.js';
+import { ControlContent, controlStyle } from './ControlPresentation.js';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Check, Minus, Plus, RotateCcw } from 'lucide-react';
 import { ContentNavigation, clampContentCamera, contentPoint, minimumContentZoom, projectContentBounds } from '../shared/interaction.js';
@@ -9,8 +11,8 @@ import { inputRegion, traceInput } from './InputTrace.js';
 
 const initial: Camera = { x: 0, y: 0, zoom: 1 };
 let nextTraceSurface = 0;
-export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCanvas, panPastEdge, zoomBeforeCard, zoomPastCard, canvasCamera, getCanvasCamera, getCanvasBounds, onInteractionChange, store, children }: {
-  id: string; active: boolean; deactivate: () => void; canvasOwnsPointer: (id: number) => boolean; forceCanvas: () => boolean;
+export function CardSurface({ chrome, id, active, deactivate, canvasOwnsPointer, forceCanvas, panPastEdge, zoomBeforeCard, zoomPastCard, canvasCamera, getCanvasCamera, getCanvasBounds, onInteractionChange, store, children }: {
+  chrome?: ControlMap; id: string; active: boolean; deactivate: () => void; canvasOwnsPointer: (id: number) => boolean; forceCanvas: () => boolean;
   panPastEdge?: (x: number, y: number) => void; zoomBeforeCard?: (factor: number, anchor: { x: number; y: number }) => number; zoomPastCard?: (factor: number, anchor: { x: number; y: number }) => void;
   canvasCamera?: Camera; getCanvasCamera?: () => Camera;
   getCanvasBounds?: () => { left: number; top: number; width: number; height: number };
@@ -22,7 +24,7 @@ export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCa
   const element = useRef<HTMLDivElement>(null), scroller = useRef<HTMLDivElement>(null), plane = useRef<HTMLDivElement>(null), current = useRef(camera), enabled = useRef(active);
   const navigation = useRef(new ContentNavigation(camera));
   const traceSurface = useRef(0); if (!traceSurface.current) traceSurface.current = ++nextTraceSurface;
-  type Drag = { pointer: number; x: number; y: number; position: { x: number; y: number }; origin: { x: number; y: number }; regions: HTMLElement[]; journey: ScrollJourney; moved: boolean; editable: boolean };
+  type Drag = { pointer: number; x: number; y: number; position: { x: number; y: number }; origin: { x: number; y: number }; regions: HTMLElement[]; journey: ScrollJourney; moved: boolean; editable: boolean; worldDebt: {x:number;y:number}; canvasAxes: {x:boolean;y:boolean} };
   const touch = useRef(new TouchViewport(1e-9, 1e9)), drag = useRef<Drag | null>(null), contacts = useRef(new Map<number, Drag>());
   const captured = useRef(new Set<number>()), suppressClickUntil = useRef(0);
   const callbacks = useRef({ panPastEdge, zoomBeforeCard, zoomPastCard, getCanvasCamera, getCanvasBounds, onInteractionChange }); callbacks.current = { panPastEdge, zoomBeforeCard, zoomPastCard, getCanvasCamera, getCanvasBounds, onInteractionChange };
@@ -53,6 +55,11 @@ export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCa
       top: outer.top + outerScale * (current.current.y + ((rect.top - body.top) / renderedScale + viewport.scrollTop) * localScale) + node.clientTop * nodeScale,
       width: node.clientWidth * nodeScale, height: node.clientHeight * nodeScale };
   }
+  function panWorld(x:number,y:number) {
+    const owner=drag.current;
+    if(owner&&touch.current.count<2){owner.worldDebt.x+=x;owner.worldDebt.y+=y;}
+    callbacks.current.panPastEdge?.(x,y);
+  }
   function makeJourney(regions: HTMLElement[]) {
     const stages: ScrollStage[] = [...regions.map(region => (x: number, y: number) => {
       if (!region.isConnected) return { x, y };
@@ -64,7 +71,7 @@ export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCa
     }, (x, y) => {
       if (!callbacks.current.panPastEdge) return { x, y };
       const scale = frame().width / scroller.current!.offsetWidth;
-      callbacks.current.panPastEdge(x * scale, y * scale); return { x: 0, y: 0 };
+      panWorld(x * scale, y * scale); return { x: 0, y: 0 };
     }];
     const reveal: (ScrollStage | undefined)[] = stages.map((_, i) => i === 0 ? undefined : (x, y) => {
       const viewport = scroller.current!, child = regions[i - 1] ?? viewport, parent = regions[i] ?? viewport;
@@ -102,7 +109,7 @@ export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCa
   }
   function zoom(factor: number, client?: { x: number; y: number }): boolean {
     if (!scroller.current || !plane.current) return false;
-    scrollJourney.current = null; if (drag.current) drag.current.journey = makeJourney(drag.current.regions);
+    scrollJourney.current = null; if (drag.current) {drag.current.journey = makeJourney(drag.current.regions);drag.current.worldDebt={x:0,y:0};drag.current.canvasAxes={x:false,y:false};}
     const bounds = geometry(), rect = frame();
     const screen = client ?? { x: rect.left + rect.width / 2, y: rect.top + bounds.view.height * rect.width / scroller.current.offsetWidth / 2 };
     // An outer zoom at this same screen point leaves its local coordinate invariant.
@@ -153,7 +160,7 @@ export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCa
     const target = event.target as Element, editable = localControl || !!target.closest('textarea,select,[contenteditable]:not([contenteditable="false"]),input:not(:disabled):not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=reset])');
     const client = { x: event.clientX, y: event.clientY };
     const regions = scrollAncestors(event.target, viewport);
-    const intent: Drag = { pointer: event.pointerId, ...client, position: client, origin: client, regions, journey: journeyFor(regions), moved: false, editable };
+    const intent: Drag = { pointer: event.pointerId, ...client, position: client, origin: client, regions, journey: journeyFor(regions), moved: false, editable, worldDebt:{x:0,y:0}, canvasAxes:{x:false,y:false} };
     if (event.pointerType === 'touch') {
       if (!touch.current.count) touch.current = new TouchViewport(1e-9, 1e9);
       else for (const [pointer, contact] of contacts.current) touch.current.start(pointer, contact.position, current.current);
@@ -190,12 +197,20 @@ export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCa
     const physical = viewport.getBoundingClientRect();
     const inside = hit ? scroller.current!.contains(hit) : event.clientX >= physical.left && event.clientX < physical.right && event.clientY >= physical.top && event.clientY < physical.bottom;
     const regions = inside ? hit ? scrollAncestors(hit, scroller.current!) : start.regions : [];
-    if (regions.length !== start.regions.length || regions.some((region, i) => region !== start.regions[i])) { traceInput('route', [event.pointerId, start.regions.length, regions.length, inputRegion(hit)]); start.regions = regions; start.journey = journeyFor(regions); }
+    if (regions.length !== start.regions.length || regions.some((region, i) => region !== start.regions[i])) { if(regions.length){start.canvasAxes.x ||= Math.abs(start.worldDebt.x)>1e-7;start.canvasAxes.y ||= Math.abs(start.worldDebt.y)>1e-7;} traceInput('route', [event.pointerId, start.regions.length, regions.length, inputRegion(hit)]); start.regions = regions; start.journey = journeyFor(regions); }
     // Capture keeps delivery on this surface; an outside physical contact belongs to the canvas.
-    if (!inside && callbacks.current.panPastEdge) { callbacks.current.panPastEdge(-dx * scale, -dy * scale); return; }
+    if (!inside && callbacks.current.panPastEdge) { panWorld(-dx * scale, -dy * scale); return; }
     capture(event.pointerId); suppressClickUntil.current = performance.now() + 500;
     const beforeX = current.current.x, beforeY = current.current.y;
-    const remaining = panThrough(start.regions, -dx, -dy, start.journey);
+    const input={x:-dx*scale,y:-dy*scale}, handed={x:0,y:0};
+    for(const axis of ['x','y'] as const) if(start.canvasAxes[axis]) {
+      const debt=start.worldDebt[axis];
+      if(Math.abs(debt)<1e-7){start.canvasAxes[axis]=false;continue;}
+      handed[axis]=input[axis]*debt<0?Math.sign(input[axis])*Math.min(Math.abs(input[axis]),Math.abs(debt)):input[axis];
+      input[axis]-=handed[axis];
+    }
+    if(handed.x||handed.y)panWorld(handed.x,handed.y);
+    const remaining = panThrough(start.regions, input.x/scale, input.y/scale, start.journey);
     traceInput('move', [event.pointerId, dx, dy, remaining.x, remaining.y, beforeX, beforeY, current.current.x, current.current.y, start.regions.length, ...start.regions.flatMap(region => [inputRegion(region), region.scrollLeft, region.scrollTop])]);
   }
   function up(event: React.PointerEvent<HTMLDivElement>) {
@@ -211,8 +226,16 @@ export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCa
     if (!active || forceCanvas() || canvasOwnsPointer(event.pointerId) || !captured.current.has(event.pointerId) || !contacts.current.has(event.pointerId) && drag.current?.pointer !== event.pointerId) return;
     try { capture(event.pointerId); } catch { up(event); }
   }
-  return <CardInteraction value={active}><div ref={element} className={['card-body card-surface', active ? 'card-active' : ''].join(' ')} data-card-surface={id} onPointerDownCapture={down} onPointerMoveCapture={move} onPointerUpCapture={up} onPointerCancelCapture={up} onLostPointerCapture={lostCapture} onClickCapture={event => { if (performance.now() < suppressClickUntil.current) { event.preventDefault(); event.stopPropagation(); } }}>
-    <div className="card-local-controls" role="toolbar" aria-label="Active card navigation"><span>Card</span><button disabled={!active} title="Zoom card out" aria-label="Zoom card out" onClick={() => zoom(1 / 1.2)}><Minus size={12} /></button><span>{Math.round(camera.zoom * 100)}%</span><button disabled={!active} title="Zoom card in" aria-label="Zoom card in" onClick={() => zoom(1.2)}><Plus size={12} /></button><button disabled={!active} title="Reset card view" aria-label="Reset card view" onClick={() => apply(initial)}><RotateCcw size={12} /></button><button disabled={!active} title="Return to canvas navigation (Escape)" aria-label="Deactivate card" onClick={deactivate}><Check size={13} /></button></div>
+  const nav=control(chrome,'navigation'), placement=nav.placement??'top-right', bottom=placement==='footer'||placement.startsWith('bottom'), left=placement.endsWith('left');
+  const navigationButtons=[
+    {id:'zoomOut' as const,label:'Zoom card out',icon:<Minus size={12}/>,run:()=>zoom(1/1.2)},
+    {id:'zoomIn' as const,label:'Zoom card in',icon:<Plus size={12}/>,run:()=>zoom(1.2)},
+    {id:'resetView' as const,label:'Reset card view',icon:<RotateCcw size={12}/>,run:()=>apply(initial)},
+    {id:'deactivate' as const,label:'Deactivate card',icon:<Check size={13}/>,run:deactivate}
+  ];
+  return <CardInteraction value={active}><div ref={element} className={['card-body card-surface',active?'card-active':''].join(' ')} data-card-surface={id} style={{paddingTop:nav.visible===false||bottom?16:46,paddingBottom:nav.visible!==false&&bottom?46:16}} onPointerDownCapture={down} onPointerMoveCapture={move} onPointerUpCapture={up} onPointerCancelCapture={up} onLostPointerCapture={lostCapture} onClickCapture={event=>{if(performance.now()<suppressClickUntil.current){event.preventDefault();event.stopPropagation();}}}>
+    {nav.visible!==false&&<div className="card-local-controls" data-control="navigation" data-control-placement={placement} role="toolbar" aria-label={nav.label||'Active card navigation'} title={nav.tooltip} style={{top:bottom?'auto':7,bottom:bottom?7:'auto',left:left?8:'auto',right:left?'auto':8,...controlStyle(nav)}}>{control(chrome,'caption').visible!==false&&<span>{chrome?.caption?.label||'Card'}</span>}{control(chrome,'scale').visible!==false&&<span title={chrome?.scale?.tooltip}>{chrome?.scale?.label||`${Math.round(camera.zoom*100)}%`}</span>}{navigationButtons.map(button=>{const spec=control(chrome,button.id,{appearance:'icon'});return spec.visible===false?null:<button key={button.id} data-control={button.id} disabled={!active} title={spec.tooltip??button.label} aria-label={spec.label||button.label} style={controlStyle(spec)} onClick={button.run}><ControlContent spec={spec} label={button.label} icon={button.icon}/></button>;})}</div>}
+
     <div ref={scroller} className="card-content-scroll" inert={!active} tabIndex={active ? 0 : -1} onScroll={() => { if (!enabled.current || !scroller.current) return; if (navigation.current.scrolled(scroller.current.scrollLeft, scroller.current.scrollTop)) { current.current = navigation.current.camera; store?.set(id, current.current); } }}>
       <div className="card-scroll-extent" style={{ width: extent.width * camera.zoom || undefined, height: extent.height * camera.zoom || undefined }}>
         <div ref={plane} className="card-content-plane" inert={!active} style={{ transform: 'scale(' + camera.zoom + ')', transformOrigin: '0 0' }}>{children}</div>

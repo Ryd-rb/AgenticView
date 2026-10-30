@@ -33,6 +33,7 @@ export class AgenticViewClient {
     catch (error) { if ((error as { permanent?: boolean }).permanent) this.pending = undefined; throw error; }
   }
   display(...components: Component[]) { return this.publish(components.map(component => ({ op: 'upsert', component }))); }
+  configureDisplay(display: import('../shared/card-display.js').CardDisplay) { return request(this.url,`/api/agents/${this.runId}/display`,this.runToken,display,'PUT'); }
   clear() { return this.publish([{ op: 'clear' }]); }
   /** Configure interactive actions; application cards survive agent disconnection. Keep profiles and secrets local. */
   configure(actions: ActionDefinition[], application?: { name: string; description?: string }) { return request(this.url, `/api/agents/${this.runId}/controls`, this.runToken, { actions, ...(application ? { application } : {}) }, 'PUT'); }

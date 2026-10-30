@@ -110,6 +110,8 @@ table{font-size:12px;line-height:1.25}th{font-size:11px;line-height:1.25;color:#
 .agent-content-measure .bounded-output,.agent-content-measure .command-output{max-height:600px;overflow:auto}
 .agent-card[data-sizing=content]>.card-surface{padding-top:46px}
 .agent-card[data-sizing=content]>.card-surface>.card-content-scroll{overflow:auto;scrollbar-gutter:stable}
+.component-layout>.component-layout-item{min-width:0;max-width:100%}.component-layout>.component-layout-item[data-layout-wide]{grid-column:1/-1}.component-layout .component{margin-top:0}.component-layout>.child-card{margin-top:0}.component-layout:empty{display:none!important}.child-card>.child-body{max-height:none;overflow:visible}.card-actions>[data-control],.card-local-controls>[data-control]{width:auto;min-width:24px;height:auto;min-height:23px}.card-actions{flex-wrap:wrap}.card-footer>.card-actions{margin-left:auto}.child-card .agent-title{min-width:0;flex:1}.child-times{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 12px}.child-times>.card-actions{margin-left:auto}
+.agent-card>.card-header{height:auto;padding-block:8px}.agent-card>.card-footer{height:auto;flex-wrap:wrap}.card-header>.card-actions,.child-card>header>.card-actions{max-width:60%;flex-shrink:1}.card-actions>[data-control]{max-width:100%}.card-actions .control-presentation-label,.card-local-controls .control-presentation-label{max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.card-local-controls{max-width:calc(100% - 16px)}
 .archive-browser{min-width:0}
 .archive-browser-heading{display:flex;gap:12px;align-items:flex-start;margin-bottom:12px}
 .archive-browser-heading>div{flex:1;min-width:0}

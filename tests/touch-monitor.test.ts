@@ -105,6 +105,21 @@ async function mount(layout = agent.layout, initial?: Snapshot) {
 function deselect(host: HTMLElement) { host.querySelector('.canvas')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); }
 function selectByKeyboard(host: HTMLElement) { host.querySelector('.card-header')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); }
 
+test('hidden card headers retain labelled keyboard activation and shortcuts focus the card fallback',async()=>{
+ const initial=snapshot();initial.agents=[{...agent,chrome:{header:{visible:false}},components:agent.components}];
+ initial.settings={...initial.settings,cardShortcuts:[{id:'hidden',label:'Hidden header card',cardId:agent.id,chord:'Alt+1',mode:'maximize'}]};
+ const view=await mount(agent.layout,initial);try{
+  const card=view.host.querySelector<HTMLElement>('[data-card-id="agent"]')!;
+  assert.equal(card.querySelector(':scope>.card-header'),null);assert.equal(card.tabIndex,0);assert.match(card.getAttribute('aria-label')!,/press Enter to activate/);
+  await act(()=>deselect(view.host));assert.equal(card.classList.contains('is-active'),false);
+  await act(()=>{card.focus();card.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));});
+  assert.equal(card.classList.contains('is-active'),true);
+  await act(()=>{const event=new KeyboardEvent('keydown',{key:'1',altKey:true,bubbles:true,cancelable:true});Object.defineProperty(event,'getModifierState',{value:()=>false});window.dispatchEvent(event);});
+  await act(()=>flushFrames());
+  assert.equal(card.classList.contains('is-maximized'),true);assert.equal(document.activeElement,card);
+ }finally{await view.close();}
+});
+
 test('live layout telemetry cannot cancel local touch after one-shot Fit all', async () => {
   const view = await mount();
   try {

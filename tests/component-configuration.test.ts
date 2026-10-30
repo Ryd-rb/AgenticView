@@ -14,6 +14,10 @@ test('server and client agree on shared configuration and grid rule validation b
  const base={id:'configuration',kind:'metric',title:'Metric',data:{value:1}};
  const grid={id:'grid',kind:'data-grid',title:'Grid',data:{columns:[{key:'Key',label:'Key'},{key:'Value',label:'Value'}]}};
  const cases=[
+  {...base,configuration:{controls:{configure:{visible:false},save:{label:'Apply',appearance:'both',variant:'primary',placement:'header',mode:'panel',initiallyOpen:true}},manualFields:['configuration.controls']}},
+  {...base,configuration:{controls:{unknown:{visible:false}}}},
+  {...base,configuration:{controls:{configure:{visible:null}}}},
+  {...base,configuration:{controls:{configure:{style:'color:red'}}}},
   {...base,configuration:{manualFields:['configuration.presentation','data.unit'],presentation:{fontSize:12},rules:[{when:{none:[{field:'data.value',op:'in',values:[0]}]},effect:{tooltip:'A literal tooltip'}}]}},
   {...base,configuration:{manualFields:['configuration.manualFields']}},
   {...base,configuration:{presentation:{background:'url(https://example.com)'}}},
