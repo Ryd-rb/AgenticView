@@ -33,7 +33,7 @@ export function ChartView({ data, manual = true }: { data: ChartData; manual?: b
   const [hidden, setHidden] = useState<Set<string>>(new Set()), [table, setTable] = useState(false), [page, setPage] = useState(0);
   const clipId = `plot-${useId().replace(/:/g, '')}`, options = data.options, xAxis = options?.xAxis, yAxis = options?.yAxis;
   const key = (series: ChartData['series'][number], index: number) => series.id ?? `${index}:${series.name}`;
-  const visible = data.series.map((series, index) => ({ series, index, key: key(series, index) })).filter(item => !item.series.hidden && (!manual || !options?.features?.seriesToggle || !hidden.has(item.key)));
+  const visible = data.series.map((series, index) => ({ series, index, key: key(series, index) })).filter(item => !item.series.hidden && (!options?.features?.seriesToggle || !hidden.has(item.key)));
   const all = data.series.flatMap(series => series.points), numeric = all.every(p => typeof p.x === 'number');
   const categories = [...new Set(all.map(p => String(p.x)))];
   const [xmin, xmax] = domain(numeric ? all.map(p => Number(p.x)) : [0, Math.max(1, categories.length - 1)], { ...xAxis, includeZero: xAxis?.includeZero ?? false });
@@ -43,7 +43,7 @@ export function ChartView({ data, manual = true }: { data: ChartData; manual?: b
   const base = 228 - domainFraction(0, ymin, ymax) * 200;
   const ticks = (count: number) => Array.from({ length: count }, (_, i) => i / (count - 1));
   const rows = visible.flatMap(({ series }) => series.points.map(point => ({ name: series.name, point }))), pages = Math.max(1, Math.ceil(rows.length / 25)), current = Math.min(page, pages - 1);
-  const formatY = (value: number) => formatNativeNumber(value, yAxis?.format), toggle = manual && options?.features?.seriesToggle === true;
+  const formatY = (value: number) => formatNativeNumber(value, yAxis?.format), toggle = options?.features?.seriesToggle === true;
   const sampling = visible.some(({ series }) => series.points.length > LIMIT);
   return <div className="native-chart">
     {data.series.length === 0 || all.length === 0 ? <p className="native-note">No chart points reported</p> : <>
@@ -82,9 +82,9 @@ export function ChartView({ data, manual = true }: { data: ChartData; manual?: b
     {options?.legend !== false && <div className="chart-legend" aria-label="Chart legend">{data.series.map((series, index) => {
       const seriesKey = key(series, index), shown = !series.hidden && (!toggle || !hidden.has(seriesKey));
       const label = <><i style={{ backgroundColor: series.color ?? palette[index % palette.length] }} />{series.name}{series.hidden && ' (agent hidden)'}</>;
-      return toggle ? <button key={seriesKey} type="button" disabled={series.hidden} aria-pressed={shown} onClick={() => setHidden(previous => { const currentKeys = new Set(data.series.map(key)); const next = new Set([...previous].filter(value => currentKeys.has(value))); if (next.has(seriesKey)) next.delete(seriesKey); else next.add(seriesKey); return next; })}>{label}</button> : <span key={seriesKey}>{label}</span>;
+      return toggle ? <button key={seriesKey} type="button" disabled={!manual || series.hidden} aria-pressed={shown} onClick={() => setHidden(previous => { const currentKeys = new Set(data.series.map(key)); const next = new Set([...previous].filter(value => currentKeys.has(value))); if (next.has(seriesKey)) next.delete(seriesKey); else next.add(seriesKey); return next; })}>{label}</button> : <span key={seriesKey}>{label}</span>;
     })}</div>}
-    {manual && options?.features?.dataTable && <button className="chart-data-toggle" type="button" aria-expanded={table} onClick={() => setTable(!table)}>{table ? 'Hide' : 'Show'} chart data</button>}
-    {manual && options?.features?.dataTable && table && <><div className="table-scroll"><table className="chart-data"><thead><tr><th>Series</th><th>{xAxis?.label ?? data.xLabel ?? 'X'}</th><th>{yAxis?.label ?? data.yLabel ?? 'Y'}</th></tr></thead><tbody>{rows.slice(current * 25, current * 25 + 25).map((row, i) => <tr key={i}><th scope="row">{row.name}</th><td>{String(row.point.x)}</td><td>{formatY(row.point.y)}</td></tr>)}</tbody></table></div><div className="pagination"><span>{rows.length} points</span><button disabled={current === 0} onClick={() => setPage(current - 1)}>Previous</button><span>{current + 1} / {pages}</span><button disabled={current + 1 === pages} onClick={() => setPage(current + 1)}>Next</button></div></>}
+    {options?.features?.dataTable && <button className="chart-data-toggle" disabled={!manual} type="button" aria-expanded={table} onClick={() => setTable(!table)}>{table ? 'Hide' : 'Show'} chart data</button>}
+    {options?.features?.dataTable && table && <><div className="table-scroll"><table className="chart-data"><thead><tr><th>Series</th><th>{xAxis?.label ?? data.xLabel ?? 'X'}</th><th>{yAxis?.label ?? data.yLabel ?? 'Y'}</th></tr></thead><tbody>{rows.slice(current * 25, current * 25 + 25).map((row, i) => <tr key={i}><th scope="row">{row.name}</th><td>{String(row.point.x)}</td><td>{formatY(row.point.y)}</td></tr>)}</tbody></table></div><div className="pagination"><span>{rows.length} points</span><button disabled={!manual || current === 0} onClick={() => setPage(current - 1)}>Previous</button><span>{current + 1} / {pages}</span><button disabled={!manual || current + 1 === pages} onClick={() => setPage(current + 1)}>Next</button></div></>}
   </div>;
 }

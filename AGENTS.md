@@ -62,8 +62,15 @@
 - Chain nested scrolling at bounds. On reversal, reveal obscured children through
   their parent viewports only to recover movement handed outward by the gesture;
   apply independently on both axes. Fresh child input must keep making progress.
-- Route captured touch movement using the current physical hit region. Keep local
-  contacts alive through telemetry. Hold selected-card geometry until deselection.
+- Route captured movement using the current physical hit region, continuing on
+  the canvas when a contact leaves a table or card. Keep local contacts alive
+  through telemetry. Hold geometry during gestures and passive selected-card
+  updates; explicit editor actions may grow a card in either dimension.
+- Selection changes input authority and the outer selection indicator, preserving
+  component layout, styling, visible controls, and local inspection state.
+- Content-sized cards fit table widths within supported bounds. Support manually
+  and MCP-configured shortcuts that focus or temporarily maximize a card without
+  discarding its state, with a return path to the canvas.
 - Show new cards immediately without changing camera zoom or the selected card.
   Start their temporary arrival color on first visibility, including nested cards.
 - Timestamp arrival, content updates, completion and task rows. Keep task clocks

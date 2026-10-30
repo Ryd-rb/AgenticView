@@ -70,6 +70,7 @@ function monitoringSnapshot(): MonitoringSnapshot {
 Object.assign(globalThis, { EventSource: Stream, fetch: async (input: string, init?: RequestInit) => {
   requestPaths.push(input);
   const body = init?.body ? JSON.parse(String(init.body)) : {};
+  if (input.startsWith('/api/controls/')) return new Response(JSON.stringify({version:'synthetic',actions:[{id:'edit',label:'Edit',kind:'edit'}]}),{status:200,headers:{'Content-Type':'application/json'}});
   if (input === '/api/monitoring') return new Response(JSON.stringify(monitoringSnapshot()), { status: 200, headers: { 'Content-Type': 'application/json' } });
   if (input.endsWith('/layout/interaction')) {
     leaseRequests.push(body); requestOrder.push(`lease:${body.active}:request`);
@@ -137,7 +138,7 @@ test('explicit fit content defers selected fixed-card geometry until deselection
   const view=await mount();
   try {
     const card=view.target.closest<HTMLElement>('[data-card-id]')!, measured=view.host.querySelector<HTMLElement>('.agent-content-measure')!;
-    const position={left:card.style.left,top:card.style.top},height=card.style.height;Object.defineProperty(measured,'offsetHeight',{configurable:true,get:()=>620});
+    const position={left:card.style.left,top:card.style.top},height=card.style.height;Object.defineProperty(measured,'offsetHeight',{configurable:true,get:()=>620});Object.defineProperty(measured,'scrollHeight',{configurable:true,get:()=>620});
     await act(()=>{view.host.querySelector<HTMLButtonElement>('[aria-label="Fit card to content"]')!.click();flushFrames();});
     assert.equal(card.style.height,height,'selection holds geometry even when switching to content sizing');assert.deepEqual({left:card.style.left,top:card.style.top},position);assert.match(card.textContent!,/CONTENT/);
     await act(()=>{deselect(view.host);});await act(()=>{flushFrames();});
@@ -439,4 +440,34 @@ test('archived cards auto-open as a draggable world card without stealing select
     await act(() => { archives.querySelector<HTMLButtonElement>('[aria-label="Close archived cards"]')!.click(); });
     assert.equal(view.host.querySelector('[data-card-id="archives"]'), null);
   } finally { await view.close(); }
+});
+
+
+test('table editors grow selected cards in both dimensions and defer geometry during a captured gesture',async()=>{
+ const state=snapshot();state.agents[0].components.grid={id:'grid',title:'Table',kind:'data-grid',data:{editAction:'edit',columns:[{key:'name',label:'Name',editable:true}],rows:[{name:'example'}]}};
+ const view=await mount(agent.layout,state);
+ try{
+  const card=view.target.closest<HTMLElement>('[data-card-id]')!,measured=card.querySelector<HTMLElement>('.agent-content-measure')!,table=card.querySelector<HTMLElement>('table')!,wrapper=card.querySelector<HTMLElement>('.control-grid')!;
+  Object.defineProperty(measured,'offsetWidth',{configurable:true,get:()=>Number.parseFloat(card.style.width)-40});Object.defineProperty(measured,'scrollWidth',{configurable:true,get:()=>Number.parseFloat(card.style.width)-40});
+  Object.defineProperty(measured,'offsetHeight',{configurable:true,get:()=>900});Object.defineProperty(measured,'scrollHeight',{configurable:true,get:()=>900});Object.defineProperty(wrapper,'clientWidth',{configurable:true,get:()=>Number.parseFloat(card.style.width)-68});Object.defineProperty(table,'scrollWidth',{configurable:true,get:()=>900});Object.defineProperty(table,'offsetWidth',{configurable:true,get:()=>900});
+  await act(async()=>{await new Promise<void>(resolve=>setImmediate(resolve));});
+  const before={width:card.style.width,height:card.style.height};
+  await act(()=>{[...card.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='Edit')!.click();});
+  await act(()=>{pointer(view.target,'pointerdown',200);pointer(view.target,'pointermove',180);});
+  await act(()=>flushFrames());
+  assert.deepEqual({width:card.style.width,height:card.style.height},before,'the editor request must wait until the gesture ends');
+  await act(()=>pointer(view.target,'pointerup',180));await act(()=>flushFrames());
+  assert.equal(card.style.width,'968px');assert.equal(card.style.height,'1055px');assert.ok(card.classList.contains('is-active'));assert.ok(card.querySelector('input[aria-label="Name for row 1"]'));assert.match(card.textContent!,/CONTENT/);
+ }finally{await view.close();}
+});
+
+test('card shortcuts maximize the existing card, preserve local nodes and return to the original canvas geometry',async()=>{
+ const state=snapshot();state.settings.cardShortcuts=[{id:'app',label:'Example app',cardId:'agent',chord:'Alt+1',mode:'maximize'}];const view=await mount(agent.layout,state);
+ try{
+  const card=view.target.closest<HTMLElement>('[data-card-id]')!,surface=card.querySelector('[data-card-surface]'),geometry={left:card.style.left,top:card.style.top,width:card.style.width,height:card.style.height};
+  await act(()=>{const event=new KeyboardEvent('keydown',{key:'1',altKey:true,bubbles:true,cancelable:true});Object.defineProperty(event,'getModifierState',{value:()=>false});window.dispatchEvent(event);});
+  assert.ok(card.classList.contains('is-maximized'));assert.equal(card.style.width,'1168px');assert.equal(card.style.height,'680px');assert.equal(card.querySelector('[data-card-surface]'),surface);assert.ok(card.classList.contains('is-active'));
+  await act(()=>window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true})));
+  assert.ok(!card.classList.contains('is-maximized'));assert.deepEqual({left:card.style.left,top:card.style.top,width:card.style.width,height:card.style.height},geometry);assert.equal(card.querySelector('[data-card-surface]'),surface);
+ }finally{await view.close();}
 });

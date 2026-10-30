@@ -1,3 +1,4 @@
+import './card-shortcuts.css';
 import './native-extensions.css';
 import './component-config.css';
 import React from 'react';

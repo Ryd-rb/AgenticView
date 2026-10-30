@@ -65,7 +65,7 @@ table{font-size:12px;line-height:1.25}th{font-size:11px;line-height:1.25;color:#
 .card-footer>code{font-size:10px}.connection-status{font-size:12px;color:#b6b9c9}.canvas-help{font-size:11px;color:#8c91a2}
 .desktop-host .viewport-hud .topbar{pointer-events:auto}
 
-.card-surface{padding:16px}.card-surface.card-active{padding-top:46px}.card-active .card-content-plane{padding-top:0}.card-content-scroll{width:100%;height:100%;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;touch-action:none}.card-scroll-extent{position:relative;min-width:100%}.card-scroll-extent>.card-content-plane{position:absolute;left:0;top:0;width:100%;will-change:transform}
+.card-surface{padding:46px 16px 16px}.card-surface.card-active{padding-top:46px}.card-active .card-content-plane{padding-top:0}.card-content-scroll{width:100%;height:100%;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;touch-action:none}.card-scroll-extent{position:relative;min-width:100%}.card-scroll-extent>.card-content-plane{position:absolute;left:0;top:0;width:100%;will-change:transform}
 
 .card-content-scroll::-webkit-scrollbar-thumb{background:#b5a2fa40}.card-content-scroll::-webkit-scrollbar-thumb:hover{background:#b5a2fa70}@media(pointer:coarse){.card-local-controls>button{min-width:30px;height:30px}.window-controls>button{width:38px;height:36px}}
 
@@ -109,7 +109,7 @@ table{font-size:12px;line-height:1.25}th{font-size:11px;line-height:1.25;color:#
 .agent-content-measure .diff span{white-space:pre-wrap;overflow-wrap:anywhere}
 .agent-content-measure .bounded-output,.agent-content-measure .command-output{max-height:600px;overflow:auto}
 .agent-card[data-sizing=content]>.card-surface{padding-top:46px}
-.agent-card[data-sizing=content]>.card-surface>.card-content-scroll{overflow:auto;scrollbar-gutter:auto}
+.agent-card[data-sizing=content]>.card-surface>.card-content-scroll{overflow:auto;scrollbar-gutter:stable}
 .archive-browser{min-width:0}
 .archive-browser-heading{display:flex;gap:12px;align-items:flex-start;margin-bottom:12px}
 .archive-browser-heading>div{flex:1;min-width:0}
@@ -129,3 +129,9 @@ table{font-size:12px;line-height:1.25}th{font-size:11px;line-height:1.25;color:#
 .login-card .login-remember{display:flex;align-items:center;gap:9px;margin-top:14px;color:#c7c0d4;font-size:12px;line-height:1.5;cursor:pointer}
 .login-card .login-remember input{width:16px;height:16px;flex:none;padding:0;margin:0;accent-color:#b4a0e6}
 .login-card>small{font-size:12px;line-height:1.5;color:#aaa0b6}
+
+/* Selection gates input without changing the content footprint or dimming it. */
+.card-surface:not(.card-active) :disabled{opacity:1}.card-surface:not(.card-active) input:disabled,.card-surface:not(.card-active) select:disabled,.card-surface:not(.card-active) textarea:disabled{-webkit-text-fill-color:currentColor}
+.control-grid table,.table-scroll>table{min-width:max-content}
+
+.world.has-maximized>.world-card:not(.is-maximized){visibility:hidden;pointer-events:none}.world-card.is-maximized{box-shadow:0 0 0 100vmax #10141ce8}.world-card.is-maximized>.resize-handle{display:none}

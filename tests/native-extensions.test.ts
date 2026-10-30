@@ -37,13 +37,13 @@ test('chart ceilings suppress viewer features and never unhide agent-hidden seri
   const data = chart({ series: [{ name: 'Visible', points: [{ x: 0, y: 1 }] }, { name: 'Private display', hidden: true, points: [{ x: 0, y: 5 }] }], options: { features: { seriesToggle: true, dataTable: true } } });
   const html = renderChart(data);
   assert.match(html, /aria-pressed="true"/); assert.match(html, /disabled="" aria-pressed="false"/); assert.match(html, /Show chart data/);
-  const staticHtml = renderChart(data, false); assert.doesNotMatch(staticHtml, /<button/); assert.doesNotMatch(staticHtml, /data-series="1:Private display"/);
+  const staticHtml = renderChart(data, false); assert.equal((staticHtml.match(/<button/g)??[]).length,3); assert.equal((staticHtml.match(/disabled=""/g)??[]).length,3); assert.doesNotMatch(staticHtml, /data-series="1:Private display"/);
 });
 
-test('integrated native components expose inspection only after their card is activated', () => {
+test('integrated native components retain their controls and only gate interaction on activation', () => {
   const component = componentSchema.parse({ id: 'chart', title: 'Chart', kind: 'chart', data: chart({ options: { features: { dataTable: true, seriesToggle: true } } }) });
   const render = (active: boolean) => renderToStaticMarkup(createElement(CardInteraction.Provider, { value: active }, createElement(ComponentView, { component, runId: 'synthetic', embeds: false })));
-  const inactive = render(false); assert.doesNotMatch(inactive, /Show chart data|aria-pressed/); assert.match(inactive, /Built-in/);
+  const inactive = render(false); assert.match(inactive,/Show chart data/); assert.match(inactive,/aria-pressed/); assert.match(inactive,/Built-in/); assert.equal((inactive.match(/<button/g)??[]).length,(render(true).match(/<button/g)??[]).length); assert.match(inactive,/disabled=""/);
   const active = render(true); assert.match(active, /Show chart data/); assert.match(active, /aria-pressed/);
 });
 
@@ -91,14 +91,16 @@ test('viewer interactions preserve source, bound inspection rows and recover sel
     await act(() => button('Next').click()); assert.match(host.querySelector('.pagination')!.textContent!, /2 \/ 4/);
     await act(() => root.render(createElement(ChartView, { data: chart({ options: data.options }) }))); assert.equal(host.querySelectorAll('tbody tr').length, 3); assert.match(host.querySelector('.pagination')!.textContent!, /1 \/ 1/);
     await act(() => host.querySelector<HTMLButtonElement>('.chart-legend button')!.click()); assert.equal(host.querySelectorAll('[data-series]').length, 0);
-    await act(() => root.render(createElement(ChartView, { data: chart({ options: data.options }), manual: false }))); assert.equal(host.querySelectorAll('[data-series]').length, 1); assert.equal(host.querySelector('button'), null);
+    await act(() => root.render(createElement(ChartView, { data: chart({ options: data.options }), manual: false }))); assert.equal(host.querySelectorAll('[data-series]').length, 0); assert.ok([...host.querySelectorAll('button')].every(button=>button.disabled));
     assert.equal(JSON.stringify(data), original);
     const stepper = (items = ['one', 'two']) => stepperComponentSchema.parse({ id: 's', title: '', kind: 'stepper', data: { features: { select: true }, items: items.map(id => ({ id, label: id, state: 'pending', detail: id + ' detail' })) } });
     await act(() => root.render(createElement(AdditionalView, { component: stepper() })));
     await act(() => host.querySelectorAll<HTMLButtonElement>('li button')[1].click()); assert.match(host.querySelector('[role=region]')!.textContent!, /two detail/);
+    await act(()=>root.render(createElement(AdditionalView,{component:stepper(),manual:false})));assert.match(host.querySelector('[role=region]')!.textContent!,/two detail/);assert.ok([...host.querySelectorAll('li button')].every(button=>(button as HTMLButtonElement).disabled));
     await act(() => root.render(createElement(AdditionalView, { component: stepper(['one']) }))); assert.match(host.querySelector('[role=region]')!.textContent!, /one detail/);
     const accordion = accordionComponentSchema.parse({ id: 'a', title: '', kind: 'accordion', data: { multiple: false, sections: [{ id: 'one', title: 'First', text: 'first content', open: true }, { id: 'two', title: 'Second', text: 'second content' }] } });
     await act(() => root.render(createElement(AdditionalView, { component: accordion })));
     await act(() => host.querySelectorAll<HTMLButtonElement>('h4 button')[1].click()); assert.equal(host.querySelectorAll('[aria-expanded=true]').length, 1); assert.equal(host.querySelectorAll('[role=region]').length, 1); assert.match(host.textContent!, /second content/); assert.doesNotMatch(host.textContent!, /first content/);
+    await act(()=>root.render(createElement(AdditionalView,{component:accordion,manual:false})));assert.match(host.textContent!,/second content/);assert.doesNotMatch(host.textContent!,/first content/);assert.equal(host.querySelectorAll('h4 button').length,2);
   } finally { await act(() => root.unmount()); await dom.happyDOM.close(); }
 });

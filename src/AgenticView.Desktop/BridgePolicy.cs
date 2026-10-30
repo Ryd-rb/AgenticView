@@ -42,7 +42,7 @@ public sealed class BridgePolicy(Uri document)
             if (root.ValueKind != JsonValueKind.Object || root.EnumerateObject().Count() != 3 ||
                 !root.TryGetProperty("type", out var type) || type.GetString() != "agenticview:input-trace" ||
                 !root.TryGetProperty("phase", out var phase) || phase.ValueKind != JsonValueKind.String ||
-                phase.GetString() is not ("pointer" or "down" or "move" or "route" or "clear" or "navigation" or "blur" or "inactive" or "unmount") ||
+                phase.GetString() is not ("pointer" or "down" or "move" or "route" or "clear" or "navigation" or "blur" or "inactive" or "unmount" or "geometry") ||
                 !root.TryGetProperty("values", out var values) || values.ValueKind != JsonValueKind.Array || values.GetArrayLength() > 32) return false;
             foreach (var value in values.EnumerateArray()) if (value.ValueKind != JsonValueKind.Number || !value.TryGetDouble(out var number) || !double.IsFinite(number) || Math.Abs(number) > 1e12) return false;
             trace = root.GetRawText(); return true;

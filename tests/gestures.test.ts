@@ -185,8 +185,10 @@ test('reversing a nested drag restores parent visibility before scrolling its ch
   const view = await mount(createElement('div', { className: 'outer-scroll', style: { overflowX: 'auto', overflowY: 'auto' } }, grid()), true,
     (x, y) => { world.x -= x; world.y -= y; window.dispatchEvent(new CustomEvent('agenticview:canvas-navigation', { detail: { card: 'test' } })); },
     { getCanvasBounds: () => ({ left: 0, top: 0, width: 400, height: 300 }) });
+  const originalHit=document.elementFromPoint;
   try {
     const outer = view.host.querySelector<HTMLElement>('.outer-scroll')!, child = view.host.querySelector<HTMLElement>('.grid')!;
+    document.elementFromPoint=()=>child; // This contract deliberately holds one physical route; outside routing has a separate case.
     for (const [node, dimensions] of [[outer, { clientWidth: 240, offsetWidth: 240, clientHeight: 200, scrollWidth: 640, scrollHeight: 800 }], [child, { clientWidth: 160, offsetWidth: 160, clientHeight: 120, scrollWidth: 560, scrollHeight: 620 }]] as const) {
       for (const [key, value] of Object.entries(dimensions)) Object.defineProperty(node, key, { configurable: true, get: () => value });
     }
@@ -205,7 +207,7 @@ test('reversing a nested drag restores parent visibility before scrolling its ch
     const parent = outer.getBoundingClientRect(), bounds = child.getBoundingClientRect();
     assert.ok(bounds.left >= parent.left && bounds.right <= parent.right && bounds.top >= parent.top && bounds.bottom <= parent.bottom);
     await act(() => { pointer(child, 'pointerup', 80, 80); });
-  } finally { await view.close(); }
+  } finally { document.elementFromPoint=originalHit; await view.close(); }
 });
 
 test('wheel capture beats component interception and chains partial overflow into the card', async () => {
@@ -376,4 +378,20 @@ test('multiple scroll ancestors consume independently on each axis before return
   assert.deepEqual(scrollThrough([inner], 30, 0), { x: 30, y: 0 }); assert.equal(inner.scrollLeft, 50);
   assert.deepEqual(scrollAncestors(target, document.createElement('div')), []);
   boundary.remove();
+});
+
+
+test('captured table panning continues on the canvas after the physical contact leaves the card',async()=>{
+ const world={x:0,y:0},view=await mount(grid(),true,(x,y)=>{world.x-=x;world.y-=y;window.dispatchEvent(new CustomEvent('agenticview:canvas-navigation',{detail:{card:'test'}}));});
+ const previous=document.elementFromPoint;const table=view.host.querySelector<HTMLElement>('.grid')!;let hit:Element=table;document.elementFromPoint=()=>hit;
+ try{
+  table.scrollLeft=400;table.scrollTop=700;view.viewport.scrollLeft=400;view.viewport.scrollTop=700;
+  await act(()=>view.viewport.dispatchEvent(new Event('scroll',{bubbles:true})));
+  await act(()=>{pointer(table,'pointerdown',100,100);pointer(table,'pointermove',90,90);});assert.deepEqual(world,{x:-10,y:-10});
+  hit=document.body;
+  await act(()=>pointer(table,'pointermove',100,100));assert.deepEqual(world,{x:0,y:0});assert.equal(table.scrollTop,700);assert.equal(table.scrollLeft,400);assert.equal(view.viewport.scrollTop,700);assert.equal(captured.has(1),true);
+  await act(()=>pointer(table,'pointermove',110,110));assert.deepEqual(world,{x:10,y:10});assert.equal(table.scrollTop,700);
+  hit=table;await act(()=>pointer(table,'pointermove',120,120));assert.equal(table.scrollTop,690,'reentering a visible table restores the current physical route');
+  await act(()=>pointer(table,'pointerup',120,120));assert.equal(captured.has(1),false);
+ }finally{document.elementFromPoint=previous;await view.close();}
 });

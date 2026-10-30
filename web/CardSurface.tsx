@@ -8,6 +8,7 @@ import { ScrollJourney, revealScrollDelta, type ScrollStage } from '../shared/sc
 import { inputRegion, traceInput } from './InputTrace.js';
 
 const initial: Camera = { x: 0, y: 0, zoom: 1 };
+let nextTraceSurface = 0;
 export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCanvas, panPastEdge, zoomBeforeCard, zoomPastCard, canvasCamera, getCanvasCamera, getCanvasBounds, onInteractionChange, store, children }: {
   id: string; active: boolean; deactivate: () => void; canvasOwnsPointer: (id: number) => boolean; forceCanvas: () => boolean;
   panPastEdge?: (x: number, y: number) => void; zoomBeforeCard?: (factor: number, anchor: { x: number; y: number }) => number; zoomPastCard?: (factor: number, anchor: { x: number; y: number }) => void;
@@ -20,6 +21,7 @@ export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCa
   const [commitRevision, setCommitRevision] = useState(0);
   const element = useRef<HTMLDivElement>(null), scroller = useRef<HTMLDivElement>(null), plane = useRef<HTMLDivElement>(null), current = useRef(camera), enabled = useRef(active);
   const navigation = useRef(new ContentNavigation(camera));
+  const traceSurface = useRef(0); if (!traceSurface.current) traceSurface.current = ++nextTraceSurface;
   type Drag = { pointer: number; x: number; y: number; position: { x: number; y: number }; origin: { x: number; y: number }; regions: HTMLElement[]; journey: ScrollJourney; moved: boolean; editable: boolean };
   const touch = useRef(new TouchViewport(1e-9, 1e9)), drag = useRef<Drag | null>(null), contacts = useRef(new Map<number, Drag>());
   const captured = useRef(new Set<number>()), suppressClickUntil = useRef(0);
@@ -120,7 +122,7 @@ export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCa
   }
   useLayoutEffect(() => {
     const viewport = scroller.current!, content = plane.current!;
-    const measure = () => { const width = viewport.clientWidth + 'px'; if (content.style.width !== width) content.style.width = width; const bounds = geometry(); setExtent(old => old.width === bounds.content.width && old.height === bounds.content.height ? old : bounds.content); apply(current.current); };
+    const measure = () => { const width = viewport.clientWidth + 'px'; if (content.style.width !== width) content.style.width = width; const bounds = geometry(); traceInput('geometry', [traceSurface.current, Number(enabled.current), bounds.view.width, bounds.view.height, bounds.content.width, bounds.content.height, current.current.zoom, viewport.scrollLeft, viewport.scrollTop]); setExtent(old => old.width === bounds.content.width && old.height === bounds.content.height ? old : bounds.content); apply(current.current); };
     const observer = new ResizeObserver(measure); observer.observe(viewport); observer.observe(content); measure();
     return () => observer.disconnect();
   }, []);
@@ -185,10 +187,12 @@ export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCa
     event.preventDefault(); event.stopPropagation();
     // Pointer capture pins event.target to this surface. Hit-test the physical contact instead.
     const hit = document.elementFromPoint(event.clientX, event.clientY);
-    if (hit && scroller.current!.contains(hit)) {
-      const regions = scrollAncestors(hit, scroller.current!);
-      if (regions.length !== start.regions.length || regions.some((region, i) => region !== start.regions[i])) { traceInput('route', [event.pointerId, start.regions.length, regions.length, inputRegion(hit)]); start.regions = regions; start.journey = journeyFor(regions); }
-    }
+    const physical = viewport.getBoundingClientRect();
+    const inside = hit ? scroller.current!.contains(hit) : event.clientX >= physical.left && event.clientX < physical.right && event.clientY >= physical.top && event.clientY < physical.bottom;
+    const regions = inside ? hit ? scrollAncestors(hit, scroller.current!) : start.regions : [];
+    if (regions.length !== start.regions.length || regions.some((region, i) => region !== start.regions[i])) { traceInput('route', [event.pointerId, start.regions.length, regions.length, inputRegion(hit)]); start.regions = regions; start.journey = journeyFor(regions); }
+    // Capture keeps delivery on this surface; an outside physical contact belongs to the canvas.
+    if (!inside && callbacks.current.panPastEdge) { callbacks.current.panPastEdge(-dx * scale, -dy * scale); return; }
     capture(event.pointerId); suppressClickUntil.current = performance.now() + 500;
     const beforeX = current.current.x, beforeY = current.current.y;
     const remaining = panThrough(start.regions, -dx, -dy, start.journey);
@@ -208,7 +212,7 @@ export function CardSurface({ id, active, deactivate, canvasOwnsPointer, forceCa
     try { capture(event.pointerId); } catch { up(event); }
   }
   return <CardInteraction value={active}><div ref={element} className={['card-body card-surface', active ? 'card-active' : ''].join(' ')} data-card-surface={id} onPointerDownCapture={down} onPointerMoveCapture={move} onPointerUpCapture={up} onPointerCancelCapture={up} onLostPointerCapture={lostCapture} onClickCapture={event => { if (performance.now() < suppressClickUntil.current) { event.preventDefault(); event.stopPropagation(); } }}>
-    {active ? <div className="card-local-controls" role="toolbar" aria-label="Active card navigation"><span>Card</span><button title="Zoom card out" aria-label="Zoom card out" onClick={() => zoom(1 / 1.2)}><Minus size={12} /></button><span>{Math.round(camera.zoom * 100)}%</span><button title="Zoom card in" aria-label="Zoom card in" onClick={() => zoom(1.2)}><Plus size={12} /></button><button title="Reset card view" aria-label="Reset card view" onClick={() => apply(initial)}><RotateCcw size={12} /></button><button title="Return to canvas navigation (Escape)" aria-label="Deactivate card" onClick={deactivate}><Check size={13} /></button></div> : <span className="card-activation-hint">Click or tap to interact</span>}
+    <div className="card-local-controls" role="toolbar" aria-label="Active card navigation"><span>Card</span><button disabled={!active} title="Zoom card out" aria-label="Zoom card out" onClick={() => zoom(1 / 1.2)}><Minus size={12} /></button><span>{Math.round(camera.zoom * 100)}%</span><button disabled={!active} title="Zoom card in" aria-label="Zoom card in" onClick={() => zoom(1.2)}><Plus size={12} /></button><button disabled={!active} title="Reset card view" aria-label="Reset card view" onClick={() => apply(initial)}><RotateCcw size={12} /></button><button disabled={!active} title="Return to canvas navigation (Escape)" aria-label="Deactivate card" onClick={deactivate}><Check size={13} /></button></div>
     <div ref={scroller} className="card-content-scroll" inert={!active} tabIndex={active ? 0 : -1} onScroll={() => { if (!enabled.current || !scroller.current) return; if (navigation.current.scrolled(scroller.current.scrollLeft, scroller.current.scrollTop)) { current.current = navigation.current.camera; store?.set(id, current.current); } }}>
       <div className="card-scroll-extent" style={{ width: extent.width * camera.zoom || undefined, height: extent.height * camera.zoom || undefined }}>
         <div ref={plane} className="card-content-plane" inert={!active} style={{ transform: 'scale(' + camera.zoom + ')', transformOrigin: '0 0' }}>{children}</div>

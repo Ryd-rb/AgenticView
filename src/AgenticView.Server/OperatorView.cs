@@ -29,6 +29,7 @@ public sealed class OperatorView(Hub hub, ControlStore controls, RuntimeConfig c
     {
         Authorize(token); ComponentValidator.Budget(input);
         if (operation == "settings") return hub.SetSettings(input);
+        if(operation=="shortcuts") {var settings=hub.Settings;settings["cardShortcuts"]=input["shortcuts"]?.DeepClone()??throw new HubError(400,"shortcuts is required.");return hub.SetSettings(settings);}
         if (operation == "arrange") return hub.PackLayout(input);
         if (operation == "orphan") return hub.Orphan(input);
         var id = ComponentValidator.Id(input, "cardId");

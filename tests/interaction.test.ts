@@ -47,10 +47,10 @@ test('card coordinates account for outer canvas scale and pinch keeps independen
   local.start(1, { x: 0, y: 0 }, camera); local.start(2, { x: 100, y: 0 }, camera);
   assert.equal(local.move(2, { x: 1, y: 0 })!.zoom, .25);
 });
-test('card activation exposes local controls without replacing main navigation', () => {
+test('card activation preserves navigation controls and content while enabling input', () => {
   const props = { id: 'agent', deactivate: () => {}, canvasOwnsPointer: () => false, forceCanvas: () => false, children: createElement('p', null, 'Evidence') };
   const inactive = renderToStaticMarkup(createElement(CardSurface, { ...props, active: false }));
-  assert.match(inactive, /Click or tap to interact/); assert.doesNotMatch(inactive, /Active card navigation/); assert.match(inactive, /Evidence/); assert.match(inactive, /inert=""/);
+  assert.match(inactive, /Active card navigation/); assert.equal((inactive.match(/<button/g)??[]).length,4); assert.equal((inactive.match(/disabled=""/g)??[]).length,4); assert.match(inactive, /Evidence/); assert.match(inactive, /inert=""/);
   const active = renderToStaticMarkup(createElement(CardSurface, { ...props, active: true }));
   assert.match(active, /Active card navigation/); assert.match(active, /Zoom card in/); assert.match(active, /Deactivate card/); assert.doesNotMatch(active, /inert=""/);
 });

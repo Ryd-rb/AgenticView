@@ -1,3 +1,4 @@
+import { cardShortcutsSchema } from './card-shortcuts.js';
 import { z } from 'zod';
 import { chartDataSchema, bulletComponentSchema, stepperComponentSchema, accordionComponentSchema } from './native-extensions.js';
 import { configurationSchema } from './component-config.js';
@@ -93,6 +94,7 @@ export type AgentView = {
   sequence: number; components: Record<string, Component>; layout: Layout;
 };
 export const settingsSchema = z.object({
+  cardShortcuts: cardShortcutsSchema.optional(),
   staleSeconds: z.number().int().min(15).max(86_400).default(45),
   autoArchiveMinutes: z.number().int().min(1).max(525_600).nullable().default(5),
   archiveAfterCompletion: z.boolean().default(true),

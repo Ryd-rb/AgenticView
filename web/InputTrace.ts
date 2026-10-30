@@ -1,4 +1,4 @@
-type TracePhase = 'pointer' | 'down' | 'move' | 'route' | 'clear' | 'navigation' | 'blur' | 'inactive' | 'unmount';
+type TracePhase = 'pointer' | 'down' | 'move' | 'route' | 'clear' | 'navigation' | 'blur' | 'inactive' | 'unmount' | 'geometry';
 type TraceWindow = Window & { agenticViewInputTraceUntil?: number; chrome?: { webview?: { postMessage: (value: unknown) => void } } };
 let sent = 0;
 

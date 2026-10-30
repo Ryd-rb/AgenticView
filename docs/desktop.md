@@ -37,7 +37,7 @@ windows from sharing it. It never closes unrelated windows or processes.
 For a bounded passive input diagnosis, set `AV_INPUT_TRACE=1` before launching.
 For ten minutes the trusted main document may send up to 4,096 numeric gesture
 records to the staged host's private stdout log. Records contain fixed event
-labels and numeric coordinates, scroll offsets and routing values, never panel
+labels and numeric coordinates, scroll offsets, routing and geometry measurements, never panel
 text or credentials. The host validates the document, shape and numeric bounds;
 diagnostic messages grant no window actions. Relaunch with `AV_INPUT_TRACE=0`
 to disable tracing. The launcher treats trace mode as part of host identity.
