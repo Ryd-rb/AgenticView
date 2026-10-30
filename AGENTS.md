@@ -101,6 +101,8 @@
 - Support a dedicated Windows fullscreen window with no system title bar and
   custom minimize, maximize/restore and close controls; reuse the title's signal
   icon and keep desktop dependencies offline-ready.
+- Owner preference, 30 October 2026: launch AgenticView in its dedicated desktop
+  window for previews and review. Open a browser only when explicitly requested.
 - Do not create or run automated image, screenshot, pixel, golden, or framebuffer
   tests. Verify meaningful rendering behavior through non-image contracts; visual
   review is manual.
