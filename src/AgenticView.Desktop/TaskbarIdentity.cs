@@ -40,7 +40,8 @@ internal static class TaskbarIdentity
         {
             // Setting ID notifies the taskbar: relaunch metadata must already be present.
             Set(store, 2, relaunchCommand);
-            Set(store, 4, displayName);
+            // Leading '@' has resource-loading semantics in this Windows property. Agent titles remain literal text.
+            Set(store, 4, CardWindowSpec.TaskbarName(displayName));
             Set(store, 3, iconPath);
             Set(store, 5, appId);
         }

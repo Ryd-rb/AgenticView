@@ -18,6 +18,7 @@ public static class CardWindowSpec
     }
     public static string Key(Uri url,string cardId) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(url.AbsoluteUri+"\n"+ValidateId(cardId))))[..24].ToLowerInvariant();
     public static string AppId(Uri url,string cardId) => "AgenticView.Card."+Key(url,cardId);
+    public static string TaskbarName(string value) => "AgenticView · "+ValidateName(value);
     public static string Quote(string value)
     {
         var output=new StringBuilder("\"");var slashes=0;

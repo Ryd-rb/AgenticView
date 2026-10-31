@@ -61,4 +61,5 @@ Check(DesktopOptions.Parse(["--card-id","card","--card-name","-- Strategy"]).Car
 var privateCard=card with{ViewerKeyFile=Path.Combine(Path.GetTempPath(),"ephemeral-viewer.key")};
 Check(!CardWindowSpec.RelaunchArguments(privateCard).Contains("--viewer-key-file"),"Durable relaunch retains an ephemeral key-file dependency");
 Check(!CardWindowSpec.Command("AgenticView.Desktop.exe",privateCard).Contains("ephemeral-viewer",StringComparison.Ordinal),"Taskbar command leaked bootstrap file dependency");
+Check(!CardWindowSpec.TaskbarName("@\\\\example.invalid\\resource.dll,-1").StartsWith('@'),"Agent card titles can become Windows indirect resources");
 Console.WriteLine($"Passed {count} desktop URL and bridge security contracts.");
