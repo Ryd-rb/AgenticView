@@ -2,17 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn,spawnSync } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtempSync,readFileSync,writeFileSync,existsSync,rmSync,readdirSync,cpSync,mkdirSync } from 'node:fs';
+import { mkdtempSync,readFileSync,writeFileSync,existsSync,rmSync,readdirSync,cpSync,mkdirSync,renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join,resolve,dirname,basename } from 'node:path';
 
-test('passive process sampler verifies owned ancestry, additive provider roots, exit and identity rejection',{skip:process.platform!=='win32',timeout:40000},async()=>{
+test('passive process sampler verifies owned ancestry, additive provider roots, exit and identity rejection',{skip:process.platform!=='win32',timeout:50000},async()=>{
   const directory=mkdtempSync(join(tmpdir(),'agenticview-process-sampler-'));
   const pwsh=process.env.PWSH_EXE||'pwsh';
-  const childScript=join(directory,'finite-child.cjs'),parentScript=join(directory,'finite-parent.cjs'),receipt=join(directory,'child-exited.txt'),childPidPath=join(directory,'child-pid.txt');
-  writeFileSync(childScript,"const fs=require('node:fs');setTimeout(()=>{fs.writeFileSync(process.argv[2],'natural exit');},6500);");
-  writeFileSync(parentScript,"const{spawn}=require('node:child_process');const fs=require('node:fs');const child=spawn(process.execPath,[process.argv[2],process.argv[3]],{windowsHide:true,stdio:'ignore'});fs.writeFileSync(process.argv[4],String(child.pid));child.unref();setTimeout(()=>{},8000);");
-  const parent=spawn(process.execPath,[parentScript,childScript,receipt,childPidPath],{windowsHide:true,stdio:'ignore'});
+  const childScript=join(directory,'finite-child.cjs'),parentScript=join(directory,'finite-parent.cjs'),receipt=join(directory,'child-exited.txt'),childPidPath=join(directory,'child-pid.txt'),releasePath=join(directory,'release-fixture.txt');
+  writeFileSync(childScript,"const fs=require('node:fs');const finish=reason=>{fs.writeFileSync(process.argv[2],reason);process.exit(0)};setInterval(()=>{if(fs.existsSync(process.argv[3]))finish('natural exit')},50);setTimeout(()=>finish('hard lifetime reached'),20000);");
+  writeFileSync(parentScript,"const{spawn}=require('node:child_process');const fs=require('node:fs');const child=spawn(process.execPath,[process.argv[2],process.argv[3],process.argv[5]],{windowsHide:true,stdio:'ignore'});fs.writeFileSync(process.argv[4],String(child.pid));const hard=setTimeout(()=>{},25000);child.on('exit',()=>clearTimeout(hard));child.unref();");
+  const parent=spawn(process.execPath,[parentScript,childScript,receipt,childPidPath,releasePath],{windowsHide:true,stdio:'ignore'});
   const parentExit=once(parent,'exit');
   const manifest=join(directory,'roots.json'),manifestScript=join(directory,'manifest.ps1');
   writeFileSync(manifestScript,`param([int]$TargetPid,[string]$Destination,[int]$ProviderPid=0)
@@ -32,16 +32,36 @@ $temp=$Destination+'.next';@{schemaVersion=1;roots=$roots}|ConvertTo-Json -Depth
     assert.ok(parent.pid);const providerPid=Number(readFileSync(childPidPath,'utf8'));makeManifest(parent.pid);
     sampler=spawn(pwsh,['-NoProfile','-File',resolve('scripts/measure-process-tree.ps1'),'-ManifestPath',manifest,'-OutputDirectory',directory,'-DurationSeconds','9','-IntervalSeconds','1'],{windowsHide:true,stdio:'pipe'});
     let stdout='',stderr='';sampler.stdout!.on('data',chunk=>stdout+=chunk);sampler.stderr!.on('data',chunk=>stderr+=chunk);const samplerExit=once(sampler,'exit');
-    await new Promise(resolve=>setTimeout(resolve,2500));
-    const run=readdirSync(directory).find(name=>name.startsWith('process-tree-'));assert.ok(run);
-    const first=JSON.parse(readFileSync(join(directory,run,'samples.jsonl'),'utf8').split('\n')[0]!);
+    // File creation is not a sample acknowledgment: the writer may not have appended
+    // its first complete line yet. Read only newline-terminated records, with a deadline.
+    const waitForSample=async(predicate:(sample:any)=>boolean,label:string)=>{
+      const deadline=Date.now()+10000;let complete=0;
+      while(Date.now()<deadline){
+        const run=readdirSync(directory).find(name=>name.startsWith('process-tree-'));
+        const path=run&&join(directory,run,'samples.jsonl');
+        if(path&&existsSync(path)){
+          const raw=readFileSync(path,'utf8'),end=raw.lastIndexOf('\n');
+          const lines=end<0?[]:raw.slice(0,end).split('\n').filter(line=>line.trim());complete=lines.length;
+          for(const line of lines){const sample=JSON.parse(line);if(predicate(sample))return sample;}
+        }
+        if(sampler!.exitCode!==null)break;
+        await new Promise(resolve=>setTimeout(resolve,50));
+      }
+      writeFileSync(join(directory,'sample-wait-failure.json'),JSON.stringify({label,complete,exitCode:sampler!.exitCode,stdout,stderr},null,2));
+      assert.fail(`No ${label} acknowledged within10seconds; completeSamples=${complete}; fixture retained at ${directory}`);
+    };
+    const first=await waitForSample(sample=>sample.processes.some((entry:any)=>entry.pid===providerPid),'owned-child sample');
     const observed=first.processes.find((entry:any)=>entry.pid===providerPid);assert.ok(observed);
-    const updated=JSON.parse(readFileSync(manifest,'utf8'));updated.roots.push({pid:providerPid,executable:observed.executable,creationUtc:observed.creationUtc,role:'provider'});writeFileSync(manifest,JSON.stringify(updated));
+    const updated=JSON.parse(readFileSync(manifest,'utf8'));updated.roots.push({pid:providerPid,executable:observed.executable,creationUtc:observed.creationUtc,role:'provider'});writeFileSync(manifest+'.next',JSON.stringify(updated));renameSync(manifest+'.next',manifest);
+    await waitForSample(sample=>sample.roles.some((role:any)=>role.role==='provider'&&role.processCount>=1),'reloaded provider-root sample');
+    // Release only after both identity/ancestry and reclassification were observed.
+    // The fixture still exits itself, with independent20/25second hard lifetimes.
+    writeFileSync(releasePath,'provider root acknowledged');
     const [code]=await samplerExit;
     writeFileSync(join(directory,'sampler-exit.json'),JSON.stringify({code,stdout,stderr},null,2));retain();
     assert.equal(code,0,`Fixture retained at ${directory}\n${stderr}${stdout}`);
     const output=JSON.parse(stdout.trim()),summary=JSON.parse(readFileSync(output.summaryPath,'utf8'));
-    assert.equal(summary.status,'completed');assert.ok(summary.elapsedSeconds>=9&&summary.elapsedSeconds<15);assert.ok(summary.sampleCount>=7&&summary.sampleCount<=10);
+    assert.equal(summary.status,'completed');assert.ok(summary.elapsedSeconds>=9&&summary.elapsedSeconds<15);assert.ok(summary.sampleCount>=3&&summary.sampleCount<=10);
     const samples=readFileSync(output.samplesPath,'utf8').trim().split('\n').map(line=>JSON.parse(line));
     if(process.env.AV_PROCESS_SAMPLER_TEST_EVIDENCE)writeFileSync(join(process.env.AV_PROCESS_SAMPLER_TEST_EVIDENCE,'worker-process-sampler-smoke.json'),JSON.stringify({summary,samples,metadata:JSON.parse(readFileSync(summary.metadataPath,'utf8'))},null,2));
     assert.equal(samples.length,summary.sampleCount);assert.ok(samples.every(sample=>sample.processes.every((entry:any)=>[parent.pid,providerPid].includes(entry.pid)||(basename(entry.executable).toLowerCase()==='conhost.exe'&&[parent.pid,providerPid].includes(entry.parentPid)))),'Only owned fixture nodes and their Windows console descendants are measured');

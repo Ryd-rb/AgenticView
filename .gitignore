@@ -1,5 +1,6 @@
 # Dependencies and generated builds
 node_modules/
+.packages/
 dist/
 build/
 out/
