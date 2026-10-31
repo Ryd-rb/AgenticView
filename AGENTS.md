@@ -39,6 +39,9 @@
   rules. Prefer and expand native components so agents rarely need custom HTML.
   Distinguish Built-in components from Custom views with persistent origin labels
   and a separate custom frame. Do not add an LLM dependency for display instructions.
+- Keep native hierarchy/chart components domain-neutral. Entity kinds, labels,
+  columns, statuses, curves and associations belong to authored configuration;
+  strategies, orders and trades are forex-template concepts, not native types.
 - Use a freeform canvas with nonoverlapping draggable cards, position locks,
   content sizing and manual fixed sizing. Native displays are agent subcards.
 - Support compact, composable native GUIs across buttons, text fields, dropdowns,

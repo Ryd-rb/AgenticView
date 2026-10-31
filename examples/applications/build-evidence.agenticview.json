@@ -1,0 +1,258 @@
+{
+  "schemaVersion": 1,
+  "id": "build-evidence",
+  "version": "1.0.0",
+  "name": "Build evidence",
+  "description": "A synthetic non-trading application using the generic linked hierarchy and chart.",
+  "permanent": true,
+  "icon": "workflow",
+  "windowIcon": {
+    "icon": "workflow",
+    "color": "#74d4c8",
+    "background": "#101722"
+  },
+  "componentLayout": {
+    "mode": "vertical"
+  },
+  "bindings": [],
+  "actions": [],
+  "components": [
+    {
+      "id": "build-evidence",
+      "title": "Build evidence",
+      "configuration": {
+        "presentation": {
+          "surface": "plain",
+          "density": "compact"
+        },
+        "manualFields": [
+          "data.style"
+        ]
+      },
+      "kind": "linked-workbench",
+      "data": {
+        "title": "BUILD / EVIDENCE",
+        "entityLabel": "Project / job / artifact / note",
+        "searchLabel": "Find build evidence",
+        "chartLabel": "Resource measurements and build events",
+        "associationLabel": "Evidence links",
+        "entities": [
+          {
+            "id": "project",
+            "label": "Project",
+            "plural": "projects",
+            "dash": "solid"
+          },
+          {
+            "id": "job",
+            "label": "Job",
+            "plural": "jobs",
+            "dash": "dash"
+          },
+          {
+            "id": "artifact",
+            "label": "Artifact",
+            "plural": "artifacts",
+            "dash": "dot"
+          },
+          {
+            "id": "note",
+            "label": "Note",
+            "plural": "notes",
+            "dash": "dot",
+            "marker": "circle"
+          }
+        ],
+        "columns": [
+          {
+            "key": "status",
+            "label": "Phase"
+          },
+          {
+            "key": "owner",
+            "label": "Owner"
+          },
+          {
+            "key": "bytes",
+            "label": "Size",
+            "format": "number",
+            "decimals": 1,
+            "scale": 1000,
+            "suffix": " kB"
+          },
+          {
+            "key": "time",
+            "label": "Created UTC",
+            "format": "datetime"
+          },
+          {
+            "key": "elapsed",
+            "label": "Duration",
+            "fields": [
+              "time",
+              "endTime"
+            ],
+            "format": "duration"
+          },
+          {
+            "key": "detail",
+            "label": "Details"
+          }
+        ],
+        "rows": [
+          {
+            "id": "p1",
+            "kind": "project",
+            "label": "Synthetic build",
+            "status": "investigating",
+            "time": 1793318400000,
+            "values": {
+              "owner": "Example team",
+              "detail": "Four independent entity kinds"
+            }
+          },
+          {
+            "id": "j1",
+            "parentId": "p1",
+            "kind": "job",
+            "label": "Compile libraries",
+            "status": "review-ready",
+            "time": 1793318402000,
+            "endTime": 1793318420000,
+            "values": {
+              "owner": "Build worker",
+              "detail": "No command is executed by this template"
+            }
+          },
+          {
+            "id": "a1",
+            "parentId": "j1",
+            "kind": "artifact",
+            "label": "Library bundle",
+            "status": "awaiting-review",
+            "time": 1793318421000,
+            "values": {
+              "bytes": 128000,
+              "owner": "Build worker",
+              "detail": "Synthetic artifact metadata"
+            }
+          },
+          {
+            "id": "n1",
+            "parentId": "a1",
+            "kind": "note",
+            "label": "Review annotation",
+            "status": "accepted",
+            "time": 1793318425000,
+            "values": {
+              "detail": "Expandable fourth hierarchy level"
+            }
+          }
+        ],
+        "series": [
+          {
+            "rowId": "p1",
+            "tracks": [
+              {
+                "id": "load",
+                "label": "Resource load",
+                "color": "#74d4c8",
+                "decimals": 1,
+                "points": [
+                  {
+                    "time": 1793318400000,
+                    "value": 12
+                  },
+                  {
+                    "time": 1793318410000,
+                    "value": 46
+                  },
+                  {
+                    "time": 1793318420000,
+                    "value": 31
+                  },
+                  {
+                    "time": 1793318430000,
+                    "value": 18
+                  }
+                ]
+              },
+              {
+                "id": "delta",
+                "label": "Signed drift",
+                "color": "#f5c17a",
+                "decimals": 1,
+                "points": [
+                  {
+                    "time": 1793318400000,
+                    "value": -5
+                  },
+                  {
+                    "time": 1793318410000,
+                    "value": 3
+                  },
+                  {
+                    "time": 1793318420000,
+                    "value": -2
+                  },
+                  {
+                    "time": 1793318430000,
+                    "value": 0
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "associations": [
+          {
+            "id": "output",
+            "from": "j1",
+            "to": "a1",
+            "label": "Produced artifact"
+          },
+          {
+            "id": "annotation",
+            "from": "a1",
+            "to": "n1",
+            "label": "Review note"
+          }
+        ],
+        "pageSize": 12,
+        "selectedId": "p1",
+        "style": {
+          "theme": "graphite",
+          "statuses": {
+            "investigating": "#9cbcff",
+            "review-ready": "#f5c17a",
+            "awaiting-review": "#bd9df9",
+            "accepted": "#74d4c8"
+          }
+        },
+        "simulations": [
+          {
+            "id": "add-note",
+            "label": "Add local note",
+            "parentKind": "artifact",
+            "kind": "note",
+            "status": "drafted",
+            "parentStatus": "in-review",
+            "values": {
+              "detail": "Local synthetic review note"
+            },
+            "copyFields": {
+              "owner": "owner"
+            },
+            "timeOffsetMs": 1000,
+            "message": "Local note added. No external action was sent."
+          }
+        ]
+      }
+    }
+  ],
+  "layout": {
+    "width": 1100,
+    "height": 900,
+    "sizing": "content"
+  }
+}

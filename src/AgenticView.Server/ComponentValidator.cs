@@ -78,6 +78,7 @@ public static class ComponentValidator
         if(component["configuration"]?["collection"] is JsonObject collection) {var field=Text(collection,"field",100);if(data[field] is not JsonArray items || items.Any(item=>item is not JsonObject))Fail("Collection settings require an existing object collection.");}
         switch (kind)
         {
+            case "linked-workbench": if(component["configuration"]?["collection"] is not null)Fail("Linked hierarchy uses its own scoped filtering.");LinkedWorkbenchValidator.Validate(data);break;
             case "execution-workbench": if(component["configuration"]?["collection"] is not null)Fail("Execution hierarchy uses its own scoped filtering.");ExecutionWorkbenchValidator.Validate(data); break;
             case "session-launcher": Id(data,"actionId"); Text(data,"label",160,false); break;
             case "agent-session": Id(data,"sessionId"); break;

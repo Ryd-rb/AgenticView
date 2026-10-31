@@ -10,5 +10,5 @@ import './monitoring.css';
 import './control-views.css';
 import './application-library.css';
 import './component-config.css';
-import './execution-workbench.css';
+import './linked-workbench.css';
 createRoot(document.getElementById('root')!).render(<React.StrictMode><App /></React.StrictMode>);

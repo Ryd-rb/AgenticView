@@ -10,7 +10,7 @@ import { forexExecutionExample } from '../scripts/forex-example.ts';
 import { fixture as serverFixture, secrets } from './server-fixture.ts';
 
 const manifest=JSON.parse(readFileSync('examples/applications/forex-execution.agenticview.json','utf8'));
-const sample=componentSchema.parse({...manifest.components[0],data:forexExecutionExample()}) as Extract<Component,{kind:'execution-workbench'}>;
+const sample=componentSchema.parse({...manifest.components[0],kind:'execution-workbench',data:forexExecutionExample()}) as Extract<Component,{kind:'execution-workbench'}>;
 async function fixture(c=sample,copies=1){
  const dom=new Window();for(const key of ['window','document','HTMLElement','Element','Node','Event','MouseEvent','KeyboardEvent','HTMLInputElement','HTMLSelectElement'] as const)Object.defineProperty(globalThis,key,{configurable:true,value:key==='window'?dom:dom[key]});
  Object.assign(globalThis,{IS_REACT_ACT_ENVIRONMENT:true,requestAnimationFrame:(fn:()=>void)=>setImmediate(fn)});
@@ -30,12 +30,12 @@ test('treegrid expands strategy/orders into trades and row selection loads the r
   const strategies=sample.data.rows.filter(row=>row.kind==='strategy'),root=strategies[1]!,order=sample.data.rows.find(row=>row.parentId===root.id)!,trade=sample.data.rows.find(row=>row.parentId===order.id)!;
   assert.ok(f.host.querySelectorAll('tbody tr').length<=180);assert.match(f.host.textContent!,/300 strategies/);
   await f.click(`Select strategy ${root.id}`);
-  assert.equal(f.host.querySelector('.execution-prices')!.getAttribute('data-strategy-id'),root.id);
+  assert.equal(f.host.querySelector('.linked-prices')!.getAttribute('data-root-id'),root.id);
   assert.ok(f.host.querySelector(`tr[id$="-${order.id}"]`));
   await f.click(`Select order ${order.id}`);
   assert.ok(f.host.querySelector(`tr[id$="-${trade.id}"]`));
   await f.click(`Select trade ${trade.id}`);
-  assert.equal(f.host.querySelector('.execution-prices')!.getAttribute('data-selected-id'),trade.id);
+  assert.equal(f.host.querySelector('.linked-prices')!.getAttribute('data-selected-id'),trade.id);
   const lanes=[...f.host.querySelectorAll('[data-association-lane]')].map(element=>element.getAttribute('data-association-lane'));
   assert.equal(new Set(lanes).size,lanes.length);assert.ok(f.host.querySelector(`[data-event-id="${trade.id}"]`));
   assert.equal(f.calls.length,0,'inspection never sends broker or other action requests');
@@ -63,7 +63,7 @@ test('duplicate styled cards keep focus independent and local simulation preserv
 
 test('styles use typed controls and save exact allowed style path without modifying source rows',async()=>{
  const f=await fixture();try{
-  await f.change('Execution theme','paper');await f.change('Execution color accent','#123456');
+  await f.change('Workbench theme','paper');await f.change('Workbench color accent','#123456');
   await f.click('Save style to this card');assert.equal(f.calls.length,1);
   assert.deepEqual(f.calls[0]!.body.changes,{'data.style':{theme:'paper',accent:'#123456'}});
   assert.deepEqual(f.calls[0]!.body.expected,sample);

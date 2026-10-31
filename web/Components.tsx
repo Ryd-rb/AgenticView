@@ -15,6 +15,7 @@ import { configureCollection, resolveConfiguration } from '../shared/component-c
 import { ComponentSettings, presentationStyle } from './ComponentSettings.js';
 import { SessionView } from './SessionViews.js';
 import { ExecutionWorkbench } from './ExecutionWorkbench.js';
+import { LinkedWorkbench } from './LinkedWorkbench.js';
 import { control } from '../shared/control-presentation.js';
 import { ComponentControls, ControlContainer, ControlContent, controlStyle } from './ControlPresentation.js';
 
@@ -64,6 +65,7 @@ export const ComponentView = memo(function ComponentView({ component: original, 
   if (configuration.visible === false) return null;
   let body: React.ReactNode;
   switch (c.kind) {
+    case 'linked-workbench': body=<LinkedWorkbench component={original as Extract<Component,{kind:'linked-workbench'}>} runId={runId} manual={active}/>;break;
     case 'execution-workbench': body=<ExecutionWorkbench component={original as Extract<Component,{kind:'execution-workbench'}>} runId={runId} manual={active}/>;break;
     case 'action-panel': case 'log-stream': case 'data-grid': body = <ControlView component={c} runId={runId} />; break;
     case 'session-launcher': case 'agent-session': body = <SessionView component={c} runId={runId} embeds={embeds} />; break;

@@ -42,10 +42,13 @@ C# · .NET 10 · React · MIT
 - **Compose compact GUIs.** Plain native surfaces and inline layouts support small
   icon actions, text fields, dropdowns, toggles and grids without decorated subcards.
   See [compact configuration](docs/configurable-components.md#compact-native-guis).
-- **Inspect execution.** A compact native forex example links strategy/order/trade
-  hierarchy to bid/ask prices and status events, with configurable Graphite, Paper
+- **Link grids and charts.** A generic native hierarchy supports configured entity
+  types, columns, numeric curves and event associations. The compact forex example
+  configures a strategy/order/trade hierarchy with bid/ask prices and status events,
+  using configurable Graphite, Paper
   and Terminal styles. Cards can pop out into independent Windows processes for
-  manual taskbar pinning. See the [forex workbench](docs/forex-workbench.md).
+  manual taskbar pinning. See the [generic contract](docs/linked-workbench.md) and
+  [forex workbench](docs/forex-workbench.md).
 - **Talk back.** Add buttons, prompts, forms, selects and toggles with optional
   inline confirmations. Agents consume an action inbox; .NET connectors execute
   locally configured commands on the machine with access.

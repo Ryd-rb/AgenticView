@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { chartDataSchema, bulletComponentSchema, stepperComponentSchema, accordionComponentSchema } from './native-extensions.js';
 import { configurationSchema } from './component-config.js';
 import { executionDataSchema } from './execution-workbench.js';
+import { linkedDataSchema } from './linked-workbench.js';
 import { controlPresentationSchema } from './control-presentation.js';
 import { gridDataSchema } from './grid-config.js';
 import {cardStyleSchema,windowIconSchema,type CardIconName,type WindowIcon} from './card-style.js';
@@ -37,6 +38,7 @@ const resultItems = z.array(z.object({ id: idSchema, label: z.string().max(500),
 const instant = z.number().finite().min(0).max(8_640_000_000_000_000);
 const ganttItems = z.array(z.object({ id: idSchema, label: z.string().max(200), start: instant, end: instant.optional(), group: z.string().max(160).optional(), tone: tone.optional() }).refine(item => item.end === undefined || item.end >= item.start, 'Timeline end must not precede start')).max(200).refine(items => new Set(items.map(item => item.id)).size === items.length, 'Timeline IDs must be unique');
 export const componentSchema = z.discriminatedUnion('kind', [
+  z.object({...base,kind:z.literal('linked-workbench'),data:linkedDataSchema}),
   z.object({...base,kind:z.literal('execution-workbench'),data:executionDataSchema}),
   bulletComponentSchema.extend({configuration:configurationSchema.optional()}),
   stepperComponentSchema.extend({configuration:configurationSchema.optional()}),
@@ -80,7 +82,7 @@ export const componentSchema = z.discriminatedUnion('kind', [
   z.object({ ...base, kind: z.literal('breakdown'), data: z.object({ items: z.array(z.object({ label: z.string().max(200), value: z.number().finite().nonnegative(), tone: tone.optional() })).max(100), unit: z.string().max(80).optional() }) }),
 ]).superRefine((component,ctx)=>{
   const collection=component.configuration?.collection;
-  if(collection && component.kind==='execution-workbench')ctx.addIssue({code:'custom',message:'Execution hierarchy uses its own scoped filtering'});
+  if(collection && ['execution-workbench','linked-workbench'].includes(component.kind))ctx.addIssue({code:'custom',message:'Linked hierarchy uses its own scoped filtering'});
   if(collection) {
     const source=(component.data as Record<string,unknown>)[collection.field];
     if(!Array.isArray(source)||source.some(item=>item===null||typeof item!=='object'||Array.isArray(item)))ctx.addIssue({code:'custom',message:'Collection settings require an existing object collection'});

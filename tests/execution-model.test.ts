@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { executionDataSchema, executionStyleSchema, executionLanes, formatQuantity, strategyForRow, visibleExecutionRows, type ExecutionData, type ExecutionRow } from '../shared/execution-workbench.ts';
-import { forexExecutionExample, forexExecutionManifest } from '../scripts/forex-example.ts';
+import { forexExecutionExample, forexExecutionManifest, forexLinkedExample } from '../scripts/forex-example.ts';
+import { linkedDataSchema, rootForRow } from '../shared/linked-workbench.ts';
 
 function sample():ExecutionData {
   const strategy:ExecutionRow={id:'s',kind:'strategy',strategyId:'s',ticker:'EUR/USD',side:'buy',orderType:'limit',status:'running',quantity:1e6,bid:1.08,ask:1.0805,start:100,end:200,filledQuantity:5e5};
@@ -76,9 +77,17 @@ test('portable forex seeds retain theme-specific logical window icons and numeri
   for(const theme of ['graphite','paper','terminal'] as const){
     const manifest=forexExecutionManifest(12,theme),name=theme==='graphite'?'forex-execution':`forex-execution-${theme}`;
     const text=readFileSync(new URL(`../examples/applications/${name}.agenticview.json`,import.meta.url),'utf8');
-    assert.deepEqual(JSON.parse(text),manifest);assert.equal(manifest.version,'1.1.0');assert.deepEqual(manifest.windowIcon,icons[theme]);assert.ok(Buffer.byteLength(text)<262_144);assert.doesNotMatch(text,/SOE/);
-    const data=executionDataSchema.parse(manifest.components[0]!.data),ids=new Set(data.rows.map(row=>row.id));
-    assert.equal(data.rows.filter(row=>row.kind==='strategy').length,12);assert.ok(data.rows.every(row=>ids.has(row.strategyId)&&(!row.parentId||ids.has(row.parentId))));assert.ok(data.series.every(series=>ids.has(series.strategyId)));
+    assert.deepEqual(JSON.parse(text),manifest);assert.equal(manifest.version,'1.2.0');assert.equal(manifest.components[0]!.kind,'linked-workbench');assert.deepEqual(manifest.windowIcon,icons[theme]);assert.ok(Buffer.byteLength(text)<262_144);assert.doesNotMatch(text,/SOE/);
+    const data=linkedDataSchema.parse(manifest.components[0]!.data),ids=new Set(data.rows.map(row=>row.id));
+    assert.equal(data.rows.filter(row=>row.kind==='strategy').length,12);assert.ok(data.rows.every(row=>rootForRow(data.rows,row.id)&&(!row.parentId||ids.has(row.parentId))));assert.ok(data.series.every(series=>ids.has(series.rowId)));
     assert.equal(data.style?.theme,theme);assert.equal(manifest.actions.length,0);assert.equal(manifest.bindings.length,0);
   }
+});
+
+test('generic forex observations retain 300 roots within the existing request and exact-style-save envelope',()=>{
+  const data=forexLinkedExample(),component={...forexExecutionManifest().components[0],data};
+  assert.equal(data.rows.filter(row=>!row.parentId).length,300);assert.equal(data.rows.length,1890);
+  assert.ok(Buffer.byteLength(JSON.stringify({sequence:2,operations:[{op:'upsert',component}]}))<1_048_576);
+  assert.ok(Buffer.byteLength(JSON.stringify({expected:component,changes:{'data.style':{theme:'paper'}}}))<1_048_576);
+  assert.doesNotMatch(JSON.stringify(data),/SOE/);assert.deepEqual(data,forexLinkedExample());
 });

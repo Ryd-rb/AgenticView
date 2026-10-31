@@ -2,6 +2,8 @@ import { writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 import { executionDataSchema, type ExecutionData, type ExecutionRow } from '../shared/execution-workbench.ts';
+import { legacyExecutionToLinked } from '../shared/legacy-execution-adapter.ts';
+import { linkedDataSchema, type LinkedData } from '../shared/linked-workbench.ts';
 
 /** Fixed synthetic observations only. No market feed, broker, clock or random source. */
 export function forexExecutionExample(count=300): ExecutionData {
@@ -39,9 +41,23 @@ export function forexExecutionExample(count=300): ExecutionData {
   return executionDataSchema.parse({rows,series,pageSize:12,selectedId:rows[0]!.id,demo:true,style:{theme:'graphite'}});
 }
 
+/** Authored domain configuration for the generic workbench. Compact synthetic
+ * samples keep the 300-root demonstration inside the existing HTTP envelope. */
+export function forexLinkedExample(count=300,theme:'graphite'|'paper'|'terminal'='graphite'):LinkedData {
+  const legacy=forexExecutionExample(count);legacy.style={theme};
+  const data=legacyExecutionToLinked(legacy),aliases:Record<string,string>={orderType:'type',quantity:'qty',spread:'pips',filledQuantity:'filled',filledPrice:'price',precision:'dp',remaining:'left',entryPrice:'entry'};
+  const key=(value:string)=>aliases[value]??value;
+  for(const row of data.rows){if(row.label===row.id)delete row.label;row.values=Object.fromEntries(Object.entries(row.values).filter(([field,value])=>field!=='duration'&&value!==null&&value!=='').map(([field,value])=>[key(field),value]));}
+  for(const column of data.columns){column.fields=column.key==='duration'?['time','endTime']:(column.fields??[column.key]).map(key);if(column.decimalsField)column.decimalsField=key(column.decimalsField);}
+  for(const [index,association]of data.associations.entries())association.id='link-'+index;
+  for(const series of data.series)for(const track of series.tracks){const points=track.points;track.points=Array.from({length:Math.min(12,points.length)},(_,i)=>points[Math.round(i*(points.length-1)/11)]!).filter(Boolean);}
+  for(const operation of data.simulations??[]){for(const field of ['values','parentValues'] as const)if(operation[field])operation[field]=Object.fromEntries(Object.entries(operation[field]!).map(([field,value])=>[key(field),value]));for(const field of ['copyFields','parentCopyFields'] as const)if(operation[field])operation[field]=Object.fromEntries(Object.entries(operation[field]!).map(([target,source])=>[key(target),key(source)]));}
+  return linkedDataSchema.parse(data);
+}
+
 export function forexExecutionManifest(count=12,theme:'graphite'|'paper'|'terminal'='graphite') {
   const windowIcons={graphite:{icon:'chart',color:'#74d4c8',background:'#101722'},paper:{icon:'layers',color:'#2157aa',background:'#f3f6fa'},terminal:{icon:'terminal',color:'#72e3bc',background:'#0b1413'}};
-  return {schemaVersion:1,id:`forex-execution-${theme}`,version:'1.1.0',name:`FX execution - ${theme[0]!.toUpperCase()+theme.slice(1)}`,description:'Local simulation of strategy, order and trade observations. No broker connection or live trading.',permanent:true,icon:'chart',windowIcon:windowIcons[theme],bindings:[],actions:[],componentLayout:{mode:'vertical'},layout:{width:1500,height:1000,sizing:'content'},components:[{id:'forex-execution',title:'Synthetic forex execution',kind:'execution-workbench',configuration:{presentation:{surface:'plain',density:'compact'},controls:{header:{visible:false}},manualFields:['data.style']},data:{...forexExecutionExample(count),style:{theme}}}]};
+  return {schemaVersion:1,id:`forex-execution-${theme}`,version:'1.2.0',name:`FX execution - ${theme[0]!.toUpperCase()+theme.slice(1)}`,description:'Local simulation of strategy, order and trade observations. No broker connection or live trading.',permanent:true,icon:'chart',windowIcon:windowIcons[theme],bindings:[],actions:[],componentLayout:{mode:'vertical'},layout:{width:1500,height:1000,sizing:'content'},components:[{id:'forex-execution',title:'Synthetic forex execution',kind:'linked-workbench',configuration:{presentation:{surface:'plain',density:'compact'},controls:{header:{visible:false}},manualFields:['data.style']},data:forexLinkedExample(count,theme)}]};
 }
 
 if(process.argv[1]&&pathToFileURL(resolve(process.argv[1])).href===import.meta.url) {
@@ -51,5 +67,5 @@ if(process.argv[1]&&pathToFileURL(resolve(process.argv[1])).href===import.meta.u
   if(elements>100_000)throw new Error('Synthetic fixture exceeds its JSON element budget.');
   writeFileSync(new URL('../examples/applications/forex-execution.agenticview.json',import.meta.url),text);
   for(const theme of ['paper','terminal'] as const)writeFileSync(new URL(`../examples/applications/forex-execution-${theme}.agenticview.json`,import.meta.url),JSON.stringify(forexExecutionManifest(12,theme))+'\n');
-  console.log(JSON.stringify({strategies:manifest.components[0]!.data.series.length,rows:manifest.components[0]!.data.rows.length,points:manifest.components[0]!.data.series.reduce((n,s)=>n+s.points.length,0),bytes:Buffer.byteLength(text),elements}));
+  console.log(JSON.stringify({roots:manifest.components[0]!.data.series.length,rows:manifest.components[0]!.data.rows.length,points:manifest.components[0]!.data.series.reduce((n,s)=>n+s.tracks.reduce((n,t)=>n+t.points.length,0),0),bytes:Buffer.byteLength(text),elements}));
 }

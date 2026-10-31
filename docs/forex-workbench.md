@@ -1,7 +1,9 @@
 # Compact forex execution example
 
-`execution-workbench` is a native linked tree grid and price/event chart. It has no
-broker integration. The three authored examples use the same UI in
+The domain-neutral `linked-workbench` supplies the tree grid and chart. The forex
+templates configure strategy/order/trade entities, columns, numeric curves,
+statuses and event links as authored data. They have no broker integration.
+The three authored examples use the same UI in
 [Graphite](../examples/applications/forex-execution.agenticview.json),
 [Paper](../examples/applications/forex-execution-paper.agenticview.json) and
 [Terminal](../examples/applications/forex-execution-terminal.agenticview.json) styles.
@@ -25,34 +27,38 @@ dotted lines trades/fills. Status text accompanies colors. Each order-to-trade
 association occupies its own horizontal lane on the same time axis, with separate
 order/trade inspection buttons. Large association sets page at eight lanes.
 
-`demo: true` enables **Place demo order** and **Simulate fill**. These modify a
-bounded, local inspection overlay only: no request is sent to an order executor.
+The templates' declarative `simulations` configure **Place demo order** and
+**Simulate fill**. These modify a bounded, local inspection overlay only: no
+request is sent to an order executor.
 Material source row updates discard the overlay; style-only updates preserve it.
-Omitting `demo` leaves an observation UI.
+Omitting `simulations` leaves an observation UI.
 
 ## Supplied data and bounds
 
-Data has `rows`, `series`, optional `selectedId`, `pageSize` (1–25), `demo`, and
-`style`. Rows are typed `strategy`, `order` or `trade`; strategies are roots,
-orders reference strategies, and trades reference orders. Child ticker and
-strategy identity must match their parent, and starts cannot precede the parent.
-Each series references one strategy and supplies increasing `{time,bid,ask}`
-points. Native validation rejects invalid links, duplicate IDs, inverted times,
-negative/excess fills and crossed bid/ask quotes.
+Data supplies `entities`, `columns`, `rows`, `series`, `associations`, and optional
+`selectedId`, `pageSize` (1–25), `simulations` and `style`. In these templates,
+strategies are roots, orders reference strategies, and trades reference orders.
+That vocabulary and hierarchy come from the template. Native validation enforces
+valid references, unique identifiers, acyclic bounded nesting, scalar fields and
+increasing numeric-series times. Trading rules and forex observation validation
+belong to the source application, not the generic native component.
 
-The view accepts up to 500 strategy roots, 4,000 rows, 256 points per series and
-12,000 points overall, subject to the existing HTTP, JSON and live-run budgets.
+The view accepts up to 500 roots, 4,000 rows, eight tracks per root, 256 points per
+track and 24,000 points overall, subject to existing HTTP, JSON and live-run budgets.
 This bounded example is not a million-row provider adapter. Existing remote
 `data-grid` views retain provider-side paging for larger datasets.
 
 Portable templates deliberately contain 12 sample strategies and remain below
 the 256 KiB application-definition limit. `scripts/forex-example.ts` exports
-`forexExecutionExample()` for the 300-strategy, 1,890-row, 7,200-point demonstration.
+`forexLinkedExample()` for the 300-strategy, 1,890-row demonstration. Each of the
+two numeric curves uses 12 synthetic samples per root (7,200 scalar points total).
+Compact supplied field names and sample counts keep full observations and exact
+style saves below the existing 1 MiB request limit.
 Publish that generated data through an ordinary component upsert after importing
 the chosen template; the authored definition remains separate from observations.
 No limit increase or broker credentials are needed.
 
-All three version 1.1 templates are reusable `.agenticview.json` definitions with
+All three version 1.2 templates are reusable `.agenticview.json` definitions with
 numeric strategy IDs, coherent order/trade references and theme-specific Windows
 icons. Import one from Settings → Applications or `application_import`; a fresh
 request identity creates a new independent card. `application_define` updates an
@@ -68,10 +74,15 @@ than overwrite a newer component. Authored application exports retain the author
 style; export/update the definition explicitly when making a reusable template.
 
 `data.style` accepts `theme` (`graphite`, `paper`, `terminal`), `accent`, `background`,
-`panel`, `text`, `muted`, `grid`, `bid`, `ask`, `strategy`, a strict `statuses` color
-map, `rowHeight` (integer 28–40), and `fontSize` (integer 11–16). Colors are six-digit
-hex values. There are no CSS strings, expressions or scripts. Separate cards keep
-their selection, expansion, drafts and styles independent.
+`panel`, `text`, `muted`, `grid`, generic `kinds`, `statuses` and `tracks` color maps,
+`rowHeight` (integer 28–40), and `fontSize` (integer 11–16). These templates use
+track names `bid` and `ask`, but the native component accepts arbitrary names and
+signed numeric values. Colors are six-digit hex values. There are no CSS strings,
+expressions or scripts. Separate cards keep inspection and styles independent.
+See the [generic contract](linked-workbench.md) and the
+[non-trading build template](../examples/applications/build-evidence.agenticview.json).
+Old `execution-workbench` definitions remain readable through a compatibility
+adapter; new authored examples use `linked-workbench`.
 
 ## Independent Windows cards
 
