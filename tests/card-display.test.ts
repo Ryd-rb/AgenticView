@@ -52,3 +52,14 @@ test('display validation rejects executable options and live metadata retains un
  const next=applyLivePatch(old,{revision:1,changes:[{id:agent.id,meta}],removed:[],stats:old.stats});
  assert.equal(next.agents[0],current);assert.equal(next.agents[0]!.chrome,current.chrome);assert.equal(next.agents[0]!.componentLayout,current.componentLayout);
 });
+
+test('inline composition keeps small tables content-sized while task plans remain first',async()=>{
+ const dom=new Window();try{
+  dom.document.body.innerHTML=renderToStaticMarkup(createElement(AgentContent,{agent:{...agent,componentLayout:{mode:'inline',gap:4}},agents:[agent],settings}));
+  const support=dom.document.querySelector('[aria-label="Supporting components"]')!;
+  assert.equal(support.getAttribute('data-layout'),'inline');
+  assert.equal(support.querySelectorAll('[data-layout-wide]').length,0);
+  const sections=[...dom.document.querySelectorAll('.component')];
+  assert.equal(sections[0]!.querySelector('.component-title')!.textContent,'Current task plan');
+ }finally{await dom.happyDOM.close();}
+});

@@ -4,6 +4,7 @@ import { cardShortcutsSchema } from './card-shortcuts.js';
 import { z } from 'zod';
 import { chartDataSchema, bulletComponentSchema, stepperComponentSchema, accordionComponentSchema } from './native-extensions.js';
 import { configurationSchema } from './component-config.js';
+import { controlPresentationSchema } from './control-presentation.js';
 import { gridDataSchema } from './grid-config.js';
 import {cardStyleSchema,type CardIconName} from './card-style.js';
 
@@ -40,7 +41,7 @@ export const componentSchema = z.discriminatedUnion('kind', [
   accordionComponentSchema.extend({configuration:configurationSchema.optional()}),
   z.object({ ...base, kind: z.literal('session-launcher'), data: z.object({ actionId: idSchema, label: z.string().max(160).optional() }) }),
   z.object({ ...base, kind: z.literal('agent-session'), data: z.object({ sessionId: idSchema }) }),
-  z.object({ ...base, kind: z.literal('action-panel'), data: z.object({ actionIds: z.array(idSchema).min(1).max(64) }) }),
+  z.object({ ...base, kind: z.literal('action-panel'), data: z.object({ actionIds: z.array(idSchema).min(1).max(64), layout: z.enum(['forms','inline']).optional(), buttons: z.array(z.strictObject({actionId:idSchema,...controlPresentationSchema.shape})).max(64).refine(buttons=>new Set(buttons.map(button=>button.actionId)).size===buttons.length,'Button action IDs must be unique').optional() }).refine(data => (data.buttons ?? []).every(button => data.actionIds.includes(button.actionId)), 'Button presentations must reference declared actions') }),
   z.object({ ...base, kind: z.literal('log-stream'), data: z.object({ actionId: idSchema, pollMs: z.number().int().min(500).max(60_000).optional(), maxRows: z.number().int().min(20).max(2_000).optional() }) }),
   z.object({ ...base, kind: z.literal('data-grid'), data: gridDataSchema }),
   z.object({ ...base, kind: z.literal('metric'), data: z.object({ value: scalar, unit: z.string().max(80).optional(), change: z.string().max(160).optional(), history: z.array(z.number().finite()).max(512).optional(), tone: tone.optional() }) }),

@@ -40,6 +40,56 @@ condition, stable ordering and a bounded limit. It changes the view without chan
 the source. Linked service-map nodes, trace spans and heatmap row labels are excluded
 because filtering them independently would invalidate their relationships.
 
+## Compact native GUIs
+
+Set `configuration.presentation` to `{"surface":"plain","density":"compact"}`
+on any native component to remove its decorated subcard shell and reduce spacing.
+This is shared across text, metrics, tables, grids, form fields, dropdowns, toggles
+and the rest of the native catalog. Fields keep native input behavior, readable
+labels and focus outlines; grids retain their bounded pages and row separators.
+Omitting these options preserves the usual presentation.
+
+Plain components omit the heading by default and retain a small, accessible
+Built-in origin marker. Set `configuration.controls.header.visible` to `true` for
+the full heading. Custom embeds always retain their distinct frame and Custom view
+label. Conditional presentation rules and enabled manual appearance settings can
+also select the plain surface.
+
+Use card display `componentLayout: {"mode":"inline","gap":6}` to wrap small
+components at their content widths, without the auto layout's 200px column minimum.
+Task components still lead the card. Existing vertical, column and auto layouts
+remain available for larger views.
+
+Action panels can compose native fields and buttons without another form panel:
+
+```json
+{
+  "id": "lock", "title": "Workspace lock", "kind": "action-panel",
+  "data": {
+    "actionIds": ["lock-workspace"], "layout": "inline",
+    "buttons": [{ "actionId": "lock-workspace", "icon": "lock", "appearance": "icon", "variant": "bare" }]
+  },
+  "configuration": {
+    "presentation": { "surface": "plain", "density": "compact" },
+    "controls": { "caption": { "visible": false }, "refresh": { "visible": false }, "history": { "visible": false } }
+  }
+}
+```
+
+Configure the referenced action through the usual controls API. Its fields supply
+text, multiline, number, select, toggle or JSON inputs. `data.buttons` accepts up to
+64 uniquely referenced action presentations; `configuration.controls.submit` sets
+shared button defaults. Use `appearance` (`icon`, `text`, `both`), native catalog
+`icon`, `variant` (`quiet`, `primary`, `bare`), labels and tooltips. Icon-only buttons
+retain an accessible name and default tooltip from the action label. Confirmation,
+typed input validation, activation, busy state and configuration versions still
+apply; presentation never executes an action automatically.
+
+Import the synthetic [compact GUI workbench](../examples/applications/compact-controls.agenticview.json)
+for a label, lock control, text field, dropdown, toggle, number field and local grid.
+These are composable uses of the shared native controls, rather than separate
+component kinds for every visual combination.
+
 ## Manual control and persistence
 
 `manualFields` is an exact allowlist; omission disables the settings editor. The

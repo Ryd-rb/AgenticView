@@ -2,3 +2,21 @@
 .component-settings summary{cursor:pointer;color:#b4cfff}.component-settings p{line-height:1.5;overflow-wrap:anywhere}.component-settings label{display:grid;gap:5px;margin:10px 0}.component-settings textarea{width:100%;resize:vertical;min-height:80px;color:inherit;background:#191b24;border:1px solid #505563;border-radius:4px;padding:8px;font:13px/1.5 ui-monospace,monospace}.component-description{margin:8px 0;line-height:1.5}.component-configured{padding:var(--component-spacing,0);border-radius:5px}.grid-precedence{font-size:12px;white-space:normal;min-width:120px}.grid-precedence[data-state=active]{color:#8de8b3}.grid-precedence[data-state=conflict]{color:#ffc373}.grid-precedence[data-state=ineligible],.grid-precedence[data-state=overridden]{color:#c0c3cf}.grid-column-settings{margin:8px 0}.grid-column-settings>div{display:flex;flex-wrap:wrap;gap:12px}.grid-column-settings label{display:flex;gap:5px;align-items:center}.grid-rule-caption{font-size:12px;color:#bec9dd;line-height:1.5}
 
 .component-setting{margin:12px 0}.component-setting>strong{overflow-wrap:anywhere}.component-setting fieldset{display:flex;flex-wrap:wrap;gap:10px;border:1px solid #505563;padding:10px}.component-setting fieldset label{min-width:100px}.component-setting input,.component-setting select{color:inherit;background:#191b24;border:1px solid #505563;border-radius:4px;padding:5px}.component-setting input[type=color]{height:32px;width:56px}
+
+/* Shared native surfaces: opt in without changing input or action authority. */
+.component[data-surface=plain]{position:relative;border:0;border-radius:0;background:transparent;box-shadow:none;padding:0 10px 0 0;margin-bottom:0}
+.component-origin-mark{position:absolute;right:0;top:0;display:inline-flex;color:#a5a6b9;line-height:1;pointer-events:auto}
+.component[data-density=compact]:not([data-surface=plain]){padding:6px}
+.component[data-density=compact] h3{padding-bottom:4px;margin-bottom:5px}
+.component[data-density=compact]>.component-configured{padding:0}
+.component[data-density=compact] :is(.control-toolbar,.control-field){margin-block:3px;gap:4px}
+.component[data-density=compact] :is(.control-action,.control-review){padding:5px}
+.component[data-density=compact] .control-actions{gap:4px}
+.component[data-density=compact] .control-view :is(input,select,textarea,button){min-height:28px;padding:2px 5px}
+.component[data-density=compact] .control-view input[type=checkbox]{min-height:18px}
+.component[data-density=compact] :is(th,td){padding:3px 5px}
+.component[data-surface=plain] .control-action{border:0;background:transparent;padding:0}
+.component[data-surface=plain] :is(.control-grid,.table-scroll,.control-log){border-color:transparent;background:transparent;box-shadow:none}
+.component[data-surface=plain] .control-view :is(input,select,textarea){background:transparent;border-color:transparent}
+.component-layout[data-layout=inline]>.component-layout-item{flex:0 1 auto}
+.component-layout[data-layout=inline]>.component-layout-item[data-layout-wide]{flex-basis:100%}

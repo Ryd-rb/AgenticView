@@ -4,6 +4,8 @@ import { Window } from 'happy-dom';
 import { act, createElement } from 'react';
 import { ControlView, type ControlComponent } from '../web/ControlViews.tsx';
 import { CardInteraction } from '../web/CardInteraction.ts';
+import { ComponentControls } from '../web/ControlPresentation.tsx';
+import type { ControlMap } from '../shared/control-presentation.ts';
 
 type Request = { url: string; signal: AbortSignal; body?: Record<string, any>; resolve: (response: Response) => void };
 const config = { version: 'synthetic-v1', application: { name: 'Synthetic app' }, actions: [
@@ -13,7 +15,7 @@ const config = { version: 'synthetic-v1', application: { name: 'Synthetic app' }
   { id: 'add', label: 'Add record', kind: 'edit', confirmation: 'Add this record?' }, { id: 'delete', label: 'Delete record', kind: 'edit', confirmation: 'Delete this record?' }, { id: 'bulk', label: 'Bulk records', kind: 'edit', confirmation: 'Apply this callback to the selected records?' },
 ] };
 const complete = (actionId: string, result: object = {}, extra: object = {}) => ({ id: `invocation-${actionId}`, actionId, state: 'succeeded', createdAt: '2026-01-01T12:00:00Z', result, ...extra });
-async function fixture(component: ControlComponent, active = true, configuration: unknown = config) {
+async function fixture(component: ControlComponent, active = true, configuration: unknown = config, presentation: ControlMap = {}) {
   const dom = new Window();
   for (const key of ['window', 'document', 'HTMLElement', 'Element', 'Node', 'Event', 'MouseEvent', 'HTMLInputElement', 'HTMLTextAreaElement', 'HTMLSelectElement'] as const) Object.defineProperty(globalThis, key, { configurable: true, value: key === 'window' ? dom : dom[key] });
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -37,7 +39,7 @@ async function fixture(component: ControlComponent, active = true, configuration
   const { createRoot } = await import('react-dom/client'), host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
   const settle = () => new Promise<void>(resolve => setImmediate(resolve));
   let currentComponent = component;
-  const render = async (selected: boolean, nextComponent = currentComponent) => act(async () => { currentComponent = nextComponent; root.render(createElement(CardInteraction.Provider, { value: selected }, createElement(ControlView, { component: currentComponent, runId: 'synthetic/run' }))); await settle(); });
+  const render = async (selected: boolean, nextComponent = currentComponent) => act(async () => { currentComponent = nextComponent; root.render(createElement(CardInteraction.Provider, { value: selected }, createElement(ComponentControls.Provider, {value:presentation}, createElement(ControlView, { component: currentComponent, runId: 'synthetic/run' })))); await settle(); });
   const respond = async (index: number, body: unknown, status = 200) => act(async () => { requests[index]!.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })); await settle(); });
   const button = (label: string) => [...host.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent === label)!;
   const click = async (label: string) => act(async () => { const target = button(label); assert.ok(target, `button ${label} exists`); target.click(); await settle(); });
@@ -289,5 +291,29 @@ test('grid column visibility, conditional editors, precedence and compound actio
     await view.respond(1,complete('edit',{row:input.row}));
     await view.render(true,{...component,data:{...component.data,features:{edit:false,hideColumns:false,sort:false,filter:false}}});
     assert.equal(view.button('Edit'),undefined);assert.doesNotMatch(view.host.textContent!,/Visible columns/);assert.equal(view.host.querySelector('[aria-label="Filter rows"]'),null);
+  } finally {await view.close();}
+});
+
+
+test('inline icon actions retain accessible names, typed form input and version-bound confirmation', async () => {
+  const view=await fixture({kind:'action-panel',data:{actionIds:['write'],layout:'inline',buttons:[{actionId:'write',appearance:'icon',icon:'lock',variant:'bare',label:''}]}},false,config,{caption:{visible:false},refresh:{visible:false},history:{visible:false}});
+  const submit=()=>view.host.querySelector<HTMLButtonElement>('button[data-control="submit"]')!;
+  const activate=async()=>act(async()=>{submit().click();await new Promise<void>(resolve=>setImmediate(resolve));});
+  try {
+    assert.equal(submit().type,'submit');assert.equal(submit().disabled,true);
+    assert.equal(submit().getAttribute('aria-label'),'Review Update settings');
+    assert.equal(submit().textContent,'');assert.equal(submit().title,'Review Update settings');
+    assert.equal(view.host.querySelector('.control-history'),null);
+    await view.render(true);assert.equal(view.requests.length,1,'hidden history does not fetch');
+    await view.input('Mode','safe');await view.input('Notes','Keep this draft');await view.input('Limit','5');await view.input('Data','{"key":1}');
+    await view.render(false);await view.render(true);
+    assert.equal(view.host.querySelector<HTMLSelectElement>('[aria-label="Mode"]')!.value,'safe');
+    await activate();assert.equal(view.requests.length,1,'review sends no action');
+    await view.click('Cancel');await activate();await view.click('Confirm Update settings');
+    const request=view.requests[1]!;
+    assert.equal(request.body!.definitionVersion,'synthetic-v1');assert.equal(request.body!.confirmed,true);
+    assert.deepEqual(request.body!.input,{enabled:false,mode:'safe',notes:'Keep this draft',limit:5,data:{key:1}});
+    assert.equal(submit().disabled,true);assert.equal(submit().getAttribute('aria-busy'),'true');
+    await view.respond(1,complete('write'));assert.equal(view.requests.length,2,'one invocation, no automatic retry');
   } finally {await view.close();}
 });

@@ -8,7 +8,7 @@ export const conditionAtomSchema = z.strictObject({ field: fieldPath, op: z.enum
 export const conditionSchema = z.strictObject({ all: z.array(conditionAtomSchema).max(32).optional(), any: z.array(conditionAtomSchema).max(32).optional(), none: z.array(conditionAtomSchema).max(32).optional() });
 export type Condition = z.infer<typeof conditionSchema>;
 export const colorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/);
-export const presentationSchema = z.strictObject({ color: colorSchema.optional(), background: colorSchema.optional(), borderColor: colorSchema.optional(), emphasis: z.enum(['normal','bold','muted']).optional(), align: z.enum(['left','center','right']).optional(), density: z.enum(['compact','comfortable','spacious']).optional(), fontSize: z.number().int().min(12).max(24).optional() });
+export const presentationSchema = z.strictObject({ surface: z.enum(['default','plain']).optional(), color: colorSchema.optional(), background: colorSchema.optional(), borderColor: colorSchema.optional(), emphasis: z.enum(['normal','bold','muted']).optional(), align: z.enum(['left','center','right']).optional(), density: z.enum(['compact','comfortable','spacious']).optional(), fontSize: z.number().int().min(12).max(24).optional() });
 export const effectSchema = z.strictObject({ label: z.string().max(160).optional(), tooltip: z.string().max(2000).optional(), visible: z.boolean().optional(), presentation: presentationSchema.optional() });
 export const configurationSchema = z.strictObject({
   controls:controlMapSchema.optional(),

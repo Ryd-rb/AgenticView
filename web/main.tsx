@@ -1,6 +1,5 @@
 import './card-shortcuts.css';
 import './native-extensions.css';
-import './component-config.css';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App.js';
@@ -10,4 +9,5 @@ import './extended-native.css';
 import './monitoring.css';
 import './control-views.css';
 import './application-library.css';
+import './component-config.css';
 createRoot(document.getElementById('root')!).render(<React.StrictMode><App /></React.StrictMode>);

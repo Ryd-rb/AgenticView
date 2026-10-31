@@ -3,12 +3,13 @@ import { cellRules, coerceGridChanges, evaluatePrecedence, type GridData as Conf
 import { presentationStyle } from './ComponentSettings.js';
 import { CardInteraction } from './CardInteraction.js';
 import { Check, X, Filter, RefreshCw, Plus, Pencil, Trash2, History, ListChecks, Columns3, ChevronLeft, ChevronRight } from 'lucide-react';
-import type { ControlId } from '../shared/control-presentation.js';
+import type { ControlId, ControlPresentation } from '../shared/control-presentation.js';
+import type { Component } from '../shared/protocol.js';
 import { useControl, ControlContent, controlStyle, ControlContainer } from './ControlPresentation.js';
 
-function NativeButton({ controlId, label, icon, ...props }: { controlId: ControlId; label: string; icon?: ReactNode } & ButtonHTMLAttributes<HTMLButtonElement>) {
-  const original=useControl(controlId), spec=controlId==='pagination'&&original.label?{...original,label:`${original.label}: ${label}`}:original; if(spec.visible===false)return null;
-  const button=<button type="button" {...props} data-control={controlId} data-control-variant={spec.variant} aria-label={spec.label||props['aria-label']||label} title={spec.tooltip??props.title} style={{...props.style,...controlStyle(spec)}}><ControlContent spec={spec} label={label} icon={icon??<ListChecks size={13}/>}/></button>;
+function NativeButton({ controlId, label, icon, presentation, ...props }: { controlId: ControlId; label: string; icon?: ReactNode; presentation?: ControlPresentation } & ButtonHTMLAttributes<HTMLButtonElement>) {
+  const original={...useControl(controlId),...presentation}, spec=controlId==='pagination'&&original.label?{...original,label:`${original.label}: ${label}`}:original; if(spec.visible===false)return null;
+  const button=<button type="button" {...props} data-control={controlId} data-control-variant={spec.variant} data-control-appearance={spec.appearance} aria-label={spec.label||props['aria-label']||label} title={spec.tooltip??props.title??(spec.appearance==='icon'?(spec.label||label):undefined)} style={{...props.style,...controlStyle(spec)}}><ControlContent spec={spec} label={label} icon={icon??<ListChecks size={13}/>}/></button>;
   return spec.placement?<ControlContainer spec={spec}>{button}</ControlContainer>:button;
 }
 
@@ -18,7 +19,7 @@ type Action = { id: string; label: string; kind: string; description?: string; c
 type Configuration = { version: string; application?: { name: string }; actions: Action[] };
 type Invocation = { id: string; actionId: string; state: 'queued' | 'running' | 'succeeded' | 'failed' | 'unknown' | 'cancelled'; createdAt: string | number; startedAt?: string | number; finishedAt?: string | number; result?: Record<string, unknown>; error?: string };
 export type ControlComponent = {id?: string} & (
-  | { kind: 'action-panel'; data: { actionIds: string[] } }
+  | { kind: 'action-panel'; data: Extract<Component,{kind:'action-panel'}>['data'] }
   | { kind: 'log-stream'; data: { actionId: string; pollMs?: number; maxRows?: number } }
   | { kind: 'data-grid'; data: ConfiguredGridData });
 const MAX_TEXT = 16_000;
@@ -164,24 +165,24 @@ function formInput(fields: Field[], values: Record<string, unknown>, preserveEmp
     return [[field.key, field.type === 'toggle' ? value === true : value]];
   }));
 }
-function ActionForm({ action, controls, enabled }: { action: Action; controls: Controls; enabled: boolean }) {
+function ActionForm({ action, controls, enabled, inline, presentation }: { action: Action; controls: Controls; enabled: boolean; inline?: boolean; presentation?: ControlPresentation }) {
   const [values, setValues] = useState<Record<string, unknown>>({}), [error, setError] = useState('');
   const submit = (event: FormEvent) => {
     event.preventDefault(); if (!enabled || controls.busy) return;
     try { const input = formInput(action.fields ?? [], values); setError(''); void controls.invoke(action.id, input).catch(() => {}); } catch (failure) { setError(message(failure)); }
   };
-  return <form className="control-action" onSubmit={submit}><strong>{action.label}</strong>{action.description && <p>{bounded(action.description, 2000)}</p>}{action.fields?.map(field => <label key={field.key} className={field.type === 'toggle' ? 'control-field control-toggle' : 'control-field'}><span>{field.label}{field.required ? ' *' : ''}</span><FieldInput field={field} value={values[field.key]} change={value => setValues(previous => ({ ...previous, [field.key]: value }))} disabled={!enabled || controls.busy} /></label>)}{error && <p role="alert">{error}</p>}<button type="submit" disabled={!enabled || controls.busy}>{action.confirmation ? `Review ${action.label}` : action.label}</button></form>;
+  return <form className="control-action" aria-label={action.label} onSubmit={submit}>{!inline&&<strong>{action.label}</strong>}{action.description && <p>{bounded(action.description, 2000)}</p>}{action.fields?.map(field => <label key={field.key} className={field.type === 'toggle' ? 'control-field control-toggle' : 'control-field'}><span>{field.label}{field.required ? ' *' : ''}</span><FieldInput field={field} value={values[field.key]} change={value => setValues(previous => ({ ...previous, [field.key]: value }))} disabled={!enabled || controls.busy} /></label>)}{error && <p role="alert">{error}</p>}<NativeButton controlId="submit" type="submit" label={action.confirmation ? `Review ${action.label}` : action.label} presentation={presentation} aria-busy={controls.busy} disabled={!enabled || controls.busy}/></form>;
 }
 function ActionPanel({ data, controls, enabled, runId }: { data: Extract<ControlComponent, { kind: 'action-panel' }>['data']; controls: Controls; enabled: boolean; runId: string }) {
   const historySpec=useControl('history');
   const [history, setHistory] = useState<Invocation[]>([]), [error, setError] = useState(''), [refresh, setRefresh] = useState(0);
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || historySpec.visible===false) return;
     const request = new AbortController();
     void json<Invocation[]>(`${baseUrl(runId)}/history?limit=20`, request.signal).then(rows => { if (!request.signal.aborted) { setHistory(rows.slice(0, 20)); setError(''); } }).catch(failure => { if (!request.signal.aborted) setError(message(failure)); });
     return () => request.abort();
-  }, [runId, enabled, controls.last, refresh]);
-  return <><div className="control-actions">{data.actionIds.map(id => { const action = controls.config?.actions.find(item => item.id === id); return action ? <ActionForm key={id} action={action} controls={controls} enabled={enabled} /> : <p key={id}>Action unavailable: {id}</p>; })}</div><InvocationResult invocation={controls.last} />{historySpec.visible!==false&&<details className="control-history" open={historySpec.initiallyOpen}><summary aria-label={historySpec.label||`Recent history (${history.length})`} title={historySpec.tooltip} style={controlStyle(historySpec)}><ControlContent spec={historySpec} label={`Recent history (${history.length})`} icon={<History size={13}/>}/></summary><NativeButton controlId="refresh" label="Refresh history" icon={<RefreshCw size={13}/>} disabled={!enabled} onClick={() => setRefresh(value => value + 1)}/>{error && <p role="alert">{error}</p>}{history.map(item => <InvocationResult key={item.id} invocation={item} />)}</details>}</>;
+  }, [runId, enabled, controls.last, refresh, historySpec.visible]);
+  return <><div className="control-actions" data-action-layout={data.layout}>{data.actionIds.map(id => { const action = controls.config?.actions.find(item => item.id === id); return action ? <ActionForm key={id} action={action} controls={controls} enabled={enabled} inline={data.layout==='inline'} presentation={data.buttons?.find(button=>button.actionId===id)} /> : <p key={id}>Action unavailable: {id}</p>; })}</div><InvocationResult invocation={controls.last} />{historySpec.visible!==false&&<details className="control-history" open={historySpec.initiallyOpen}><summary aria-label={historySpec.label||`Recent history (${history.length})`} title={historySpec.tooltip} style={controlStyle(historySpec)}><ControlContent spec={historySpec} label={`Recent history (${history.length})`} icon={<History size={13}/>}/></summary><NativeButton controlId="refresh" label="Refresh history" icon={<RefreshCw size={13}/>} disabled={!enabled} onClick={() => setRefresh(value => value + 1)}/>{error && <p role="alert">{error}</p>}{history.map(item => <InvocationResult key={item.id} invocation={item} />)}</details>}</>;
 }
 type LogEntry = { time?: string; level?: string; message: string };
 function LogStream({ data, controls, enabled, visible }: { data: Extract<ControlComponent, { kind: 'log-stream' }>['data']; controls: Controls; enabled: boolean; visible: boolean }) {
@@ -363,12 +364,12 @@ function DataGrid({ data: supplied, controls, enabled, visible }: { data: Extrac
   </>;
 }
 export function ControlView({ component, runId }: { component: ControlComponent; runId: string }) {
-  const captionSpec=useControl('caption');
+  const captionSpec=useControl('caption'),refreshSpec=useControl('refresh');
   const active = useContext(CardInteraction), ref = useRef<HTMLDivElement>(null), visible = useVisibility(ref), enabled = active && visible;
   const originalControls = useControls(runId, enabled, visible);
   const componentId=component.kind==='data-grid'?component.id:undefined;
   const scopedInvoke=useCallback((actionId:string,input:Record<string,unknown>,expectedKind?:string,monitor=false)=>originalControls.invoke(actionId,{...input,...(componentId?{componentId}:{})},expectedKind,monitor),[originalControls.invoke,componentId]);
   const controls={...originalControls,invoke:scopedInvoke};
   const interactive = enabled && !!controls.config;
-  return <div className="control-view" ref={ref}><div className="control-toolbar">{captionSpec.visible!==false&&<span className="control-caption" title={captionSpec.tooltip}>{captionSpec.label??controls.config?.application?.name??'Application controls'}</span>}<NativeButton controlId="refresh" label="Refresh actions" icon={<RefreshCw size={13}/>} disabled={!enabled || controls.busy} onClick={controls.refreshActions}/></div>{controls.error && <p className="control-error" role="alert">{controls.error}</p>}<ReviewAction controls={controls} enabled={interactive} />{!controls.config && <p role="status">Loading configured actions…</p>}{component.kind === 'action-panel' ? <ActionPanel data={component.data} controls={controls} enabled={interactive} runId={runId} /> : component.kind === 'log-stream' ? <LogStream data={component.data} controls={controls} enabled={interactive} visible={visible} /> : <DataGrid data={component.data} controls={controls} enabled={interactive} visible={visible} />}</div>;
+  return <div className="control-view" ref={ref}>{(captionSpec.visible!==false||refreshSpec.visible!==false)&&<div className="control-toolbar">{captionSpec.visible!==false&&<span className="control-caption" title={captionSpec.tooltip}>{captionSpec.label??controls.config?.application?.name??'Application controls'}</span>}<NativeButton controlId="refresh" label="Refresh actions" icon={<RefreshCw size={13}/>} disabled={!enabled || controls.busy} onClick={controls.refreshActions}/></div>}{controls.error && <p className="control-error" role="alert">{controls.error}</p>}<ReviewAction controls={controls} enabled={interactive} />{!controls.config && <p role="status">Loading configured actions…</p>}{component.kind === 'action-panel' ? <ActionPanel data={component.data} controls={controls} enabled={interactive} runId={runId} /> : component.kind === 'log-stream' ? <LogStream data={component.data} controls={controls} enabled={interactive} visible={visible} /> : <DataGrid data={component.data} controls={controls} enabled={interactive} visible={visible} />}</div>;
 }

@@ -39,6 +39,9 @@ C# · .NET 10 · React · MIT
   agent counts, update and payload rates, recent curves, component activity and
   server health. Larger working text stays within the existing card sizes.
 
+- **Compose compact GUIs.** Plain native surfaces and inline layouts support small
+  icon actions, text fields, dropdowns, toggles and grids without decorated subcards.
+  See [compact configuration](docs/configurable-components.md#compact-native-guis).
 - **Talk back.** Add buttons, prompts, forms, selects and toggles with optional
   inline confirmations. Agents consume an action inbox; .NET connectors execute
   locally configured commands on the machine with access.

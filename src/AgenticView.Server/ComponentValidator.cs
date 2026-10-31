@@ -81,7 +81,12 @@ public static class ComponentValidator
             case "session-launcher": Id(data,"actionId"); Text(data,"label",160,false); break;
             case "agent-session": Id(data,"sessionId"); break;
             case "action-panel":
-                foreach (var item in Array(data,"actionIds",64,1)) Id(new JsonObject { ["id"]=item?.DeepClone() },"id");
+                var actionIds = Array(data,"actionIds",64,1).Select(item => Id(new JsonObject { ["id"]=item?.DeepClone() },"id")).ToHashSet(StringComparer.Ordinal);
+                if(data.ContainsKey("layout")) Choice(data,"layout",["forms","inline"]);
+                if(data.ContainsKey("buttons")) {
+                    var seenButtons=new HashSet<string>(StringComparer.Ordinal);
+                    foreach(var item in Array(data,"buttons",64)) { var button=Object(item);var actionId=Id(button,"actionId");if(!seenButtons.Add(actionId)) Fail("Button action IDs must be unique.");if(!actionIds.Contains(actionId)) Fail("Button presentations must reference declared actions."); ControlPresentation.Value(button,true); }
+                }
                 break;
             case "log-stream":
                 Id(data,"actionId"); if(data.ContainsKey("pollMs")) Number(data,"pollMs",500,60000,true,true); if(data.ContainsKey("maxRows")) Number(data,"maxRows",20,2000,true,true);

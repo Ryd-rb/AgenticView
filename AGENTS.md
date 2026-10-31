@@ -41,6 +41,10 @@
   and a separate custom frame. Do not add an LLM dependency for display instructions.
 - Use a freeform canvas with nonoverlapping draggable cards, position locks,
   content sizing and manual fixed sizing. Native displays are agent subcards.
+- Support compact, composable native GUIs across buttons, text fields, dropdowns,
+  grids and other built-in components, with optional plain borderless surfaces.
+  Compact native views may use a small accessible Built-in origin marker; custom
+  views retain their labeled frame. Keep input semantics and action safety intact.
 - Support mouse, keyboard and touchscreen pinch/tap input. Fit all must frame
   every world card without a fixed zoom-out floor.
 - Agents own cleanup. Completed session and monitoring cards archive after a

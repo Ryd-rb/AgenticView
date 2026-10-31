@@ -50,7 +50,7 @@ $sourceFiles = @(
     'src/AgenticView.Desktop/BrandIcon.cs',
     'scripts/build-offline.ps1', 'docs/design.md', 'docs/offline-build.md', 'docs/protocol.md', 'docs/performance.md', 'docs/desktop.md', 'docs/native-components.md', 'docs/controls.md', 'docs/applications.md', 'examples/applications/service-console.agenticview.json', 'examples/connector/profile.example.json', 'examples/connector/row-service.py', 'docs/media/agenticview-demo.gif'
     'docs/sessions.md', 'examples/applications/agent-sessions.agenticview.json', 'examples/connector/sessions.example.json'
-    'docs/view-management.md', 'docs/configurable-components.md', 'docs/card-shortcuts.md', 'docs/control-presentation.md', 'docs/native-extensions.md', 'examples/applications/configurable-workbench.agenticview.json'
+    'docs/view-management.md', 'docs/configurable-components.md', 'docs/card-shortcuts.md', 'docs/control-presentation.md', 'docs/native-extensions.md', 'examples/applications/configurable-workbench.agenticview.json', 'examples/applications/compact-controls.agenticview.json'
     'docs/subscription-setup.md', 'examples/applications/agent-sessions-with-subscription.agenticview.json', 'examples/connector/subscription-profile.example.json', 'examples/connector/subscription-connection.ps1'
     'scripts/start-preview.ps1', 'scripts/start-desktop.ps1', 'scripts/pull-console-update.ps1', 'scripts/inspect-session-inventory.py', 'scripts/attach-application.ps1', 'docs/console-update.md', 'examples/applications/codex-subscription-setup.agenticview.json'
 )

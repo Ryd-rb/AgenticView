@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "compact-controls",
+  "version": "1.0.0",
+  "name": "Compact GUI workbench",
+  "description": "Synthetic buttons, text fields, dropdowns, toggles and a local grid. Actions go to the owning agent inbox; no system lock or external service is invoked.",
+  "permanent": true,
+  "componentLayout": { "mode": "inline", "gap": 6 },
+  "bindings": [],
+  "actions": [
+    { "id": "lock", "label": "Lock sample workspace", "kind": "custom", "target": "agent", "confirmation": "Request the synthetic workspace lock?", "fields": [] },
+    { "id": "settings", "label": "Apply sample settings", "kind": "custom", "target": "agent", "fields": [
+      { "key": "name", "label": "Name", "type": "text", "required": true },
+      { "key": "mode", "label": "Mode", "type": "select", "options": ["Observe", "Review"] },
+      { "key": "enabled", "label": "Enabled", "type": "toggle" },
+      { "key": "limit", "label": "Limit", "type": "number", "min": 1, "max": 100 }
+    ] }
+  ],
+  "components": [
+    { "id": "label", "title": "Sample label", "kind": "markdown", "data": { "text": "**Workspace settings**" }, "configuration": { "presentation": { "surface": "plain", "density": "compact" } } },
+    { "id": "lock", "title": "Workspace lock", "kind": "action-panel",
+      "data": { "actionIds": ["lock"], "layout": "inline", "buttons": [{ "actionId": "lock", "icon": "lock", "appearance": "icon", "variant": "bare" }] },
+      "configuration": { "presentation": { "surface": "plain", "density": "compact" }, "controls": { "caption": { "visible": false }, "refresh": { "visible": false }, "history": { "visible": false } } }
+    },
+    { "id": "settings", "title": "Settings fields", "kind": "action-panel",
+      "data": { "actionIds": ["settings"], "layout": "inline", "buttons": [{ "actionId": "settings", "label": "Apply", "icon": "check", "appearance": "both", "variant": "bare" }] },
+      "configuration": { "presentation": { "surface": "plain", "density": "compact" }, "manualFields": ["configuration.presentation"], "controls": { "caption": { "visible": false }, "refresh": { "visible": false }, "history": { "visible": false } } }
+    },
+    { "id": "grid", "title": "Local sample grid", "kind": "data-grid",
+      "data": { "columns": [{ "key": "name", "label": "Name" }, { "key": "mode", "label": "Mode" }], "rows": [{ "name": "Sample A", "mode": "Observe" }, { "name": "Sample B", "mode": "Review" }], "pageSize": 5, "features": { "filter": false, "hideColumns": false, "history": false } },
+      "configuration": { "presentation": { "surface": "plain", "density": "compact" }, "controls": { "caption": { "visible": false }, "refresh": { "visible": false } } }
+    }
+  ]
+}

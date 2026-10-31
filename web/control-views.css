@@ -47,3 +47,10 @@
 .control-grid .control-select-cell { width: 26px; padding-left: 8px; padding-right: 8px; }
 .control-grid .control-select-cell input { width: 18px; min-width: 18px; }
 .control-add-row { margin: 8px 0; }
+.control-actions[data-action-layout=inline]{display:flex;flex-wrap:wrap;align-items:flex-end;gap:6px}
+.control-actions[data-action-layout=inline]>.control-action{display:flex;align-items:flex-end;flex-wrap:wrap;gap:6px;border:0;padding:0;max-width:100%}
+.control-actions[data-action-layout=inline]>.control-action>p{flex-basis:100%}
+.control-actions[data-action-layout=inline] .control-field{margin:0;min-width:0}
+.control-actions[data-action-layout=inline] :is(input,select,textarea){max-width:100%}
+.control-view button[data-control-appearance=icon]{min-width:28px;justify-content:center}
+.control-view button[data-control-variant=bare]:hover:enabled{background:#ffffff0a;border-color:transparent}

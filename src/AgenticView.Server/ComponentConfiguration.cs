@@ -37,7 +37,8 @@ public static class ComponentConfiguration
     }
     public static void Presentation(JsonObject value)
     {
-        Keys(value,"color","background","borderColor","emphasis","align","density","fontSize");
+        Keys(value,"surface","color","background","borderColor","emphasis","align","density","fontSize");
+        if(value.ContainsKey("surface")) Choice(value,"surface",["default","plain"]);
         foreach(var key in new[]{"color","background","borderColor"}) if(value.ContainsKey(key) && !Regex.IsMatch(Text(value,key,7),"^#[0-9a-fA-F]{6}$",RegexOptions.CultureInvariant|RegexOptions.NonBacktracking)) Fail("Use a six-digit hex color.");
         if(value.ContainsKey("emphasis")) Choice(value,"emphasis",["normal","bold","muted"]);
         if(value.ContainsKey("align")) Choice(value,"align",["left","center","right"]);
