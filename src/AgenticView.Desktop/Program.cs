@@ -8,7 +8,7 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
-        var diagnose = args.Contains("--diagnose", StringComparer.Ordinal);
+        var diagnose = args.Contains("--diagnose", StringComparer.Ordinal) || args.Contains("--open-card", StringComparer.Ordinal);
         try
         {
             var options = DesktopOptions.Parse(args);
