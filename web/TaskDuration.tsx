@@ -1,4 +1,5 @@
-import { useSyncExternalStore } from 'react';
+import {useRenderUpdates} from './RenderActivity.js';
+import { useRef,useSyncExternalStore } from 'react';
 import type { TaskTiming } from '../shared/protocol.js';
 import { compactDuration, exactTime } from '../shared/time-format.js';
 
@@ -21,8 +22,9 @@ function subscribe(listener: () => void) {
 }
 
 export function TaskDuration({ timing }: { timing?: TaskTiming }) {
+  const active=useRenderUpdates(),retained=useRef(Date.now());
   const running = timing?.startedAt !== undefined && timing.completedAt === undefined;
-  const clock = useSyncExternalStore(running ? subscribe : noSubscription, running ? snapshot : idle, idle);
+  const current=useSyncExternalStore(running&&active?subscribe:noSubscription,running?snapshot:idle,idle),clock=active?current:retained.current;retained.current=clock;
   if (timing?.startedAt === undefined) return <span className="task-duration is-unknown" title="Duration unavailable: no start was observed" aria-label="Task duration unavailable">—</span>;
   const elapsed = Math.max(0, (timing.completedAt ?? clock) - timing.startedAt), label = compactDuration(elapsed);
   const title = `${running ? 'Elapsed since first reported unchecked' : 'Observed task duration'}: ${elapsed} ms · Started ${exactTime(timing.startedAt)}${timing.completedAt === undefined ? '' : ` · Completed ${exactTime(timing.completedAt)}`}`;
