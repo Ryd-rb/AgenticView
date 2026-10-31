@@ -27,6 +27,7 @@ public sealed partial class ControlStore : IDisposable
             CREATE TABLE IF NOT EXISTS invocations(id TEXT PRIMARY KEY,run_id TEXT NOT NULL,request_id TEXT NOT NULL,digest TEXT NOT NULL,target TEXT NOT NULL,state TEXT NOT NULL,created INTEGER NOT NULL,payload TEXT NOT NULL,UNIQUE(run_id,request_id));
             CREATE INDEX IF NOT EXISTS inbox ON invocations(target,state,created);
             CREATE INDEX IF NOT EXISTS action_history ON invocations(run_id,created DESC);
+            CREATE INDEX IF NOT EXISTS invocations_by_state ON invocations(state);
             """);
         InitializeSessions();
         InitializeSshCredentials();

@@ -105,9 +105,10 @@ static class InvocationAllocationContracts
             }
             JsonObject Distribution(List<double> values){values.Sort();return Json.Object(new{samples=values.Count,p50Milliseconds=values[values.Count/2],p95Milliseconds=values[(int)Math.Ceiling(values.Count*.95)-1],maxMilliseconds=values[^1]});}
             var connectorTimings=new JsonObject{["poll"]=Distribution(pollTimes),["complete"]=Distribution(completeTimes)};
+            var sweep=SweepProbe(controls,directory,secondaryId);
             var source=Path.GetFullPath("src/AgenticView.Server");
             string Hash(string path)=>Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(path)));
-            var report=Json.Object(new{small,heavy=large,connectorTimings,syntheticChartPoints=3000,syntheticGridRows=1000,inputSha256=Convert.ToHexStringLower(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(heavy.ToJsonString()))),hubSourceSha256=Hash(Path.Combine(source,"Hub.cs")),controlSourceSha256=Hash(Path.Combine(source,"ControlStore.cs")),serverBinarySha256=Hash(typeof(Hub).Assembly.Location),scope="Synchronous actual ControlStore.Invoke allocation/timing; warmed8 calls per card size. Separate connector poll/complete timings cover68 warmed calls each, FULL/WAL unchanged. Synthetic preparation excluded. Not HTTP or native UI throughput."});
+            var report=Json.Object(new{small,heavy=large,connectorTimings,sweep,syntheticChartPoints=3000,syntheticGridRows=1000,inputSha256=Convert.ToHexStringLower(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(heavy.ToJsonString()))),hubSourceSha256=Hash(Path.Combine(source,"Hub.cs")),controlSourceSha256=Hash(Path.Combine(source,"ControlStore.cs")),serverBinarySha256=Hash(typeof(Hub).Assembly.Location),scope="Synchronous actual ControlStore.Invoke allocation/timing; warmed8 calls per card size. Separate connector poll/complete timings cover68 warmed calls each, FULL/WAL unchanged. Sweep timing compares same synthetic private history before/after state index. Synthetic preparation excluded. Not HTTP or native UI throughput."});
             var evidence=Environment.GetEnvironmentVariable("AV_INVOKE_PROBE_EVIDENCE");
             if(!string.IsNullOrEmpty(evidence)){Directory.CreateDirectory(evidence);File.WriteAllText(Path.Combine(evidence,"input.json"),heavy.ToJsonString());File.WriteAllText(Path.Combine(evidence,"result.json"),report.ToJsonString());}
             if(enforce)Check(large["medianAllocatedBytes"]!.GetValue<long>()<=small["medianAllocatedBytes"]!.GetValue<long>()+262144,"Read invocation allocation scales with unrelated card data");
@@ -122,6 +123,42 @@ static class InvocationAllocationContracts
             foreach(var file in files)File.Delete(file);
             Directory.Delete(directory);
         }
+    }
+    private static JsonObject SweepProbe(ControlStore controls,string directory,string runId)
+    {
+        using var db=new SqliteConnection("Data Source="+Path.Combine(directory,"controls.sqlite"));db.Open();
+        object? Sql(string text){using var command=db.CreateCommand();command.CommandText=text;return command.ExecuteScalar();}
+        Check(Sql("SELECT name FROM sqlite_master WHERE type='index' AND name='invocations_by_state'") is string,"Constructor did not create state-leading index");
+        // Only synthetic completed commands are added; no credentials or live database is copied.
+        using(var transaction=db.BeginTransaction()){
+            using var insert=db.CreateCommand();insert.Transaction=transaction;
+            insert.CommandText="INSERT INTO invocations VALUES($id,'synthetic-history',$id,'synthetic','connector:unused','succeeded',0,$payload)";
+            var idParameter=insert.Parameters.Add("$id",SqliteType.Text);var payload=insert.Parameters.Add("$payload",SqliteType.Text);
+            var content=new string('s',4096);
+            for(var i=0;i<4096;i++){var id="history-"+i;idParameter.Value=id;payload.Value=Json.Object(new{id,runId="synthetic-history",kind="command",state="succeeded",createdAt=0,result=new{synthetic=content}}).ToJsonString();insert.ExecuteNonQuery();}
+            transaction.Commit();
+        }
+        const string select="SELECT payload FROM invocations WHERE state IN ('queued','running')";
+        JsonArray Plan(){var result=new JsonArray();using var c=db.CreateCommand();c.CommandText="EXPLAIN QUERY PLAN "+select;using var reader=c.ExecuteReader();while(reader.Read())result.Add(reader.GetString(3));return result;}
+        JsonArray Times(){var result=new JsonArray();for(var i=0;i<8;i++){using var c=db.CreateCommand();c.CommandText=select;var tick=Stopwatch.GetTimestamp();using(var reader=c.ExecuteReader())Check(!reader.Read(),"Expected empty active set");result.Add((Stopwatch.GetTimestamp()-tick)*1000d/Stopwatch.Frequency);}return result;}
+        var beforeCount=Convert.ToInt64(Sql("SELECT count(*) FROM invocations"));
+        Check(Convert.ToInt64(Sql("SELECT count(*) FROM invocations WHERE state IN ('queued','running')"))==0,"History fixture unexpectedly active");
+        Sql("DROP INDEX invocations_by_state");var beforePlan=Plan();var beforeTimes=Times();
+        Sql("CREATE INDEX invocations_by_state ON invocations(state)");var afterPlan=Plan();var afterTimes=Times();
+        Check(afterPlan.Any(node=>node!.GetValue<string>().Contains("SEARCH invocations USING INDEX invocations_by_state",StringComparison.Ordinal)),"Active sweep does not SEARCH its state-leading index");
+        Check(!afterPlan.Any(node=>node!.GetValue<string>().Contains("SCAN invocations",StringComparison.Ordinal)),"Active sweep still scans completed history");
+        var now=DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        foreach(var item in new[]{("expired-queued","queued",0L), ("expired-running","running",0L), ("fresh-queued","queued",now), ("fresh-running","running",now)}){
+            using var c=db.CreateCommand();c.CommandText="INSERT INTO invocations VALUES($id,$run,$id,'synthetic','connector:expiry',$state,$created,$payload)";
+            c.Parameters.AddWithValue("$id",item.Item1);c.Parameters.AddWithValue("$run",runId);c.Parameters.AddWithValue("$state",item.Item2);c.Parameters.AddWithValue("$created",item.Item3);
+            c.Parameters.AddWithValue("$payload",Json.Object(new{id=item.Item1,runId,kind="command",state=item.Item2,createdAt=item.Item3,startedAt=item.Item3}).ToJsonString());c.ExecuteNonQuery();
+        }
+        Check(Text(controls.Invocation(runId,"expired-queued"),"state")=="cancelled","Expired queued job did not cancel");
+        Check(Text(controls.Invocation(runId,"expired-running"),"state")=="unknown","Expired running job did not become unknown");
+        Check(Text(controls.Invocation(runId,"fresh-queued"),"state")=="queued"&&Text(controls.Invocation(runId,"fresh-running"),"state")=="running","Index changed unexpired active jobs");
+        Check(Convert.ToInt64(Sql("SELECT count(*) FROM invocations WHERE state IN ('queued','running')"))==2,"Active job count differs after expiry");
+        Check(Convert.ToInt64(Sql("SELECT count(*) FROM invocations"))==beforeCount+4&&Convert.ToInt64(Sql("SELECT count(*) FROM invocations WHERE run_id='synthetic-history'"))==4096,"Sweep removed retained completed history");
+        return new JsonObject{["syntheticCompletedHistoryRows"]=4096,["emptyActiveRows"]=0,["beforePlan"]=beforePlan,["afterPlan"]=afterPlan,["beforeMilliseconds"]=beforeTimes,["afterMilliseconds"]=afterTimes,["activeAfterExpiry"]=2,["queuedExpiry"]="cancelled",["runningExpiry"]="unknown"};
     }
     private static string Text(JsonObject obj,string key)=>obj[key]!.GetValue<string>();
     private static void Check(bool valid,string message){if(!valid)throw new Exception(message);}
