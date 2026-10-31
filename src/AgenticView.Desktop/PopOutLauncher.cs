@@ -31,8 +31,10 @@ internal static class PopOutLauncher
         var executable=Path.Combine(app,"AgenticView.Desktop.exe");if(!File.Exists(executable))throw new IOException("A published desktop runtime is required.");
         var options=owner with{DataDirectory=Path.Combine(root,"profile"),CardId=cardId,CardName=title,Windowed=true,Diagnose=false,OpenCard=false,FocusCardId=null};
         PlainPath(options.DataDirectory);Directory.CreateDirectory(options.DataDirectory);
+        var iconPath=Path.Combine(root,"card.ico");PlainPath(iconPath);
+        if(!File.Exists(iconPath)){using var icon=BrandIcon.Create();using var iconFile=new FileStream(iconPath,FileMode.CreateNew,FileAccess.Write,FileShare.Read);icon.Save(iconFile);}
         var shortcut=Path.Combine(root,"Open card.lnk");PlainPath(shortcut);
-        WriteShortcut(shortcut,executable,options);
+        WriteShortcut(shortcut,executable,options,iconPath);
         File.WriteAllText(Path.Combine(root,"definition.json"),JsonSerializer.Serialize(new{url=options.Url.AbsoluteUri,cardId,title,appId=CardWindowSpec.AppId(options.Url,cardId),shortcut,profile=options.DataDirectory,runtime=app}));
         var start=new ProcessStartInfo(executable){UseShellExecute=false,WorkingDirectory=app,CreateNoWindow=false,WindowStyle=ProcessWindowStyle.Normal};
         foreach(var name in new[]{"AV_INGEST_KEY","AV_INGEST_TOKEN","AV_RUN_TOKEN","AV_PARENT_TOKEN","OPENAI_API_KEY","ANTHROPIC_API_KEY"})start.Environment.Remove(name);
@@ -42,11 +44,11 @@ internal static class PopOutLauncher
         File.WriteAllText(receiptPath,JsonSerializer.Serialize(new Receipt(child.Id,child.StartTime.ToUniversalTime(),executable,cardId,shortcut)));
         return new(child.Id,false);
     }
-    private static void WriteShortcut(string path,string executable,DesktopOptions options)
+    private static void WriteShortcut(string path,string executable,DesktopOptions options,string iconPath)
     {
         var type=Type.GetTypeFromProgID("WScript.Shell")??throw new InvalidOperationException("Windows shortcut support is unavailable.");
         object? shell=null,shortcut=null;
-        try{shell=Activator.CreateInstance(type)!;shortcut=type.InvokeMember("CreateShortcut",BindingFlags.InvokeMethod,null,shell,[path])!;var target=shortcut.GetType();void Set(string name,object value)=>target.InvokeMember(name,BindingFlags.SetProperty,null,shortcut,[value]);Set("TargetPath",executable);Set("Arguments",string.Join(' ',CardWindowSpec.RelaunchArguments(options).Select(CardWindowSpec.Quote)));Set("WorkingDirectory",Path.GetDirectoryName(executable)!);Set("Description",options.CardName??"AgenticView card");Set("IconLocation",executable+",0");target.InvokeMember("Save",BindingFlags.InvokeMethod,null,shortcut,null);}
+        try{shell=Activator.CreateInstance(type)!;shortcut=type.InvokeMember("CreateShortcut",BindingFlags.InvokeMethod,null,shell,[path])!;var target=shortcut.GetType();void Set(string name,object value)=>target.InvokeMember(name,BindingFlags.SetProperty,null,shortcut,[value]);Set("TargetPath",executable);Set("Arguments",string.Join(' ',CardWindowSpec.RelaunchArguments(options).Select(CardWindowSpec.Quote)));Set("WorkingDirectory",Path.GetDirectoryName(executable)!);Set("Description",options.CardName??"AgenticView card");Set("IconLocation",iconPath+",0");target.InvokeMember("Save",BindingFlags.InvokeMethod,null,shortcut,null);}
         finally{if(shortcut is not null&&Marshal.IsComObject(shortcut))Marshal.FinalReleaseComObject(shortcut);if(shell is not null&&Marshal.IsComObject(shell))Marshal.FinalReleaseComObject(shell);}
         TaskbarIdentity.SetShortcutIdentity(path,CardWindowSpec.AppId(options.Url,options.CardId!));
     }

@@ -38,7 +38,7 @@ internal sealed class DesktopWindow : Form
         Bounds = fullscreen?monitor.Bounds:normalBounds;
         Controls.Add(view);
         Shown += async (_, _) => await InitializeAsync();
-        if(options.CardId is not null)HandleCreated+=(_,_)=>{TaskbarIdentity.Apply(Handle,CardWindowSpec.AppId(options.Url,options.CardId),CardWindowSpec.Command(Environment.ProcessPath!,options),options.CardName??"AgenticView card",Environment.ProcessPath!+",0");Console.WriteLine(JsonSerializer.Serialize(new{@event="desktop-card-identity",cardId=options.CardId,appId=CardWindowSpec.AppId(options.Url,options.CardId),relaunchConfigured=true}));};
+        if(options.CardId is not null)HandleCreated+=(_,_)=>{var retainedIcon=Path.Combine(Path.GetDirectoryName(options.DataDirectory)!,"card.ico");TaskbarIdentity.Apply(Handle,CardWindowSpec.AppId(options.Url,options.CardId),CardWindowSpec.Command(Environment.ProcessPath!,options),options.CardName??"AgenticView card",(File.Exists(retainedIcon)?retainedIcon:Environment.ProcessPath!)+",0");Console.WriteLine(JsonSerializer.Serialize(new{@event="desktop-card-identity",cardId=options.CardId,appId=CardWindowSpec.AppId(options.Url,options.CardId),relaunchConfigured=true}));};
         Resize += (_, _) => PublishState();
     }
 
