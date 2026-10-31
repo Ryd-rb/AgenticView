@@ -36,7 +36,7 @@ test('logical window configuration schemas are strict, bounded and retain explic
 });
 
 test('native, browser and server logical icon catalogues agree without rendering',async()=>{
-  const native=spawnSync('dotnet',['run','--project','tests/AgenticView.Desktop.Contracts','-c','Release','--no-restore','--','--window-icon-catalog'],{encoding:'utf8',timeout:60_000,maxBuffer:1024*1024});
+  const native=spawnSync('dotnet',['tests/AgenticView.Desktop.Contracts/bin/Release/net10.0/AgenticView.Desktop.Contracts.dll','--window-icon-catalog'],{encoding:'utf8',timeout:60_000,maxBuffer:1024*1024});
   assert.equal(native.status,0,native.stderr||native.error?.message);
   const line=native.stdout.split(/\r?\n/).find(value=>value.startsWith('["status"'));
   assert.ok(line,native.stdout);assert.deepEqual(JSON.parse(line),[...cardIconNames]);

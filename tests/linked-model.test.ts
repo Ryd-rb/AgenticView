@@ -64,7 +64,7 @@ test('generic formatters apply scale, supplied precision, suffixes, compact UTC 
 });
 test('C# generic validation agrees with TypeScript acceptance and preserves logical data',async()=>{
   const wrapped=cases.map(item=>({id:'linked',title:'Linked',kind:'linked-workbench',data:item.data}));
-  const result=spawnSync('dotnet',['run','--project','tests/AgenticView.Contracts','-c','Release','--no-restore','--','--native-validation-probe'],{input:JSON.stringify(wrapped),encoding:'utf8',timeout:60_000,maxBuffer:4*1024*1024});
+  const result=spawnSync('dotnet',['tests/AgenticView.Contracts/bin/Release/net10.0/AgenticView.Contracts.dll','--native-validation-probe'],{input:JSON.stringify(wrapped),encoding:'utf8',timeout:60_000,maxBuffer:4*1024*1024});
   assert.equal(result.status,0,result.stderr||result.error?.message);const line=result.stdout.split(/\r?\n/).find(line=>line.startsWith('[{"ok"'));assert.ok(line,result.stdout);const results=JSON.parse(line) as {ok:boolean;value?:unknown}[];
   for(const [i,item] of cases.entries()){
     let detail='';

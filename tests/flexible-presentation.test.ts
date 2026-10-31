@@ -29,7 +29,7 @@ test('typed presentation accepts precise zero and edge spacing and rejects unsaf
 
 test('C# and TypeScript agree on flexible presentation and conditional effect contracts',()=>{
   const cases=[...valid,...invalid].map(presentation=>metric(presentation));cases.push({...metric({}),configuration:{presentation:{},manualFields:['configuration.presentation'],rules:[{when:{all:[{field:'data.value',op:'eq',value:42}]},effect:{presentation:upper}}]}} as any);
-  const process=spawnSync('dotnet',['run','--project','tests/AgenticView.Contracts','-c','Release','--no-restore','--','--native-validation-probe'],{input:JSON.stringify(cases),encoding:'utf8',timeout:60000,maxBuffer:4*1024*1024});assert.equal(process.status,0,process.stderr||process.error?.message);
+  const process=spawnSync('dotnet',['tests/AgenticView.Contracts/bin/Release/net10.0/AgenticView.Contracts.dll','--native-validation-probe'],{input:JSON.stringify(cases),encoding:'utf8',timeout:60000,maxBuffer:4*1024*1024});assert.equal(process.status,0,process.stderr||process.error?.message);
   const line=process.stdout.split(/\r?\n/).find(line=>line.startsWith('[{"ok"'));assert.ok(line,process.stdout);const results=JSON.parse(line);
   for(const [i,value] of cases.entries()){const parsed=componentSchema.safeParse(value);assert.equal(results[i].ok,parsed.success,'presentation case '+i);if(parsed.success)assert.deepEqual(results[i].value,parsed.data);}
 });

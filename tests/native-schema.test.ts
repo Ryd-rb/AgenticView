@@ -98,7 +98,7 @@ test('native catalog schema accepts boundaries and rejects invalid relationships
 });
 
 test('C# native validation and normalization agree with TypeScript for the same bounded cases', () => {
-  const process = spawnSync('dotnet', ['run', '--project', 'tests/AgenticView.Contracts', '-c', 'Release', '--no-restore', '--', '--native-validation-probe'], { input: JSON.stringify(cases.map(item => item.input)), encoding: 'utf8', timeout: 60000, maxBuffer: 8 * 1024 * 1024 });
+  const process = spawnSync('dotnet', ['tests/AgenticView.Contracts/bin/Release/net10.0/AgenticView.Contracts.dll', '--native-validation-probe'], { input: JSON.stringify(cases.map(item => item.input)), encoding: 'utf8', timeout: 60000, maxBuffer: 8 * 1024 * 1024 });
   assert.equal(process.status, 0, process.stderr || process.error?.message);
   const line = process.stdout.split(/\r?\n/).find(value => value.startsWith('[{"ok"'));
   assert.ok(line, process.stdout);
