@@ -106,6 +106,17 @@ Check(DesktopOptions.Parse(["--background-test-host","1"]).BackgroundTestHostSec
 Check(DesktopOptions.Parse(["--windowed","--start-minimized","--card-id","synthetic-card"]).StartMinimized,"Standalone/minimized flags conflict");
 foreach(var duration in new[]{"0","-1","7201","2147483648","1.5","NaN","Infinity","1e3","","--diagnose"})Reject(["--background-test-host",duration]);
 Reject(["--background-test-host"]);Reject(["--start-minimized","true"]);
+Check(!options.TestRendererUnavailable&&!DesktopOptions.Parse(["--background-test-host","1"]).TestRendererUnavailable,"Normal/finite launch implicitly injects renderer failure");
+foreach(var duration in new[]{"1","7200"}){
+    var failure=DesktopOptions.Parse(["--test-renderer-unavailable","--background-test-host",duration]);
+    Check(failure.TestRendererUnavailable&&failure.BackgroundTestHostSeconds==int.Parse(duration),"Explicit finite renderer failure injection rejected or lifetime lost");
+}
+Check(DesktopOptions.Parse(["--background-test-host","30","--test-renderer-unavailable","--card-id","synthetic-card","--start-minimized"]).TestRendererUnavailable,"Option order or standalone finite test target rejected");
+Reject(["--test-renderer-unavailable"]);
+Reject(["--start-minimized","--test-renderer-unavailable"]);
+Reject(["--test-renderer-unavailable","true","--background-test-host","1"]);
+Reject(["--background-test-host","1","--test-renderer-unavailable","--card-id","synthetic-card","--open-card"]);
+Reject(["--open-card","--card-id","synthetic-card","--test-renderer-unavailable","--background-test-host","1"]);
 var debugClientId="00000000-0000-4000-8000-000000000001";
 var debugClientProof=new string('a',32);
 var debugRegistration=JsonSerializer.Serialize(new{type="agenticview:debug-client",clientId=debugClientId,clientToken=debugClientProof,cardIds=new[]{"synthetic-card","nested:child","run.2"}});

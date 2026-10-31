@@ -55,6 +55,10 @@ internal sealed class DesktopDebugChannel : IDisposable
             await SetBackground(null);
             if(previous is not null){
                 using var stopped=await client.PostAsJsonAsync(new Uri(origin,"/api/debug/poll"),new{clientId=previous.ClientId,clientToken=previous.ClientToken,cardIds=Array.Empty<string>(),visible=physicalVisible(),platform="desktop",backgroundTesting=false,background=acknowledgment.DeepClone()},lifetime.Token);
+                if(stopped.IsSuccessStatusCode&&!view.Ready&&acknowledgment["state"]?.GetValue<string>()=="failed"){
+                    acknowledgment["state"]="inactive";acknowledgment.Remove("error");
+                    using var inactive=await client.PostAsJsonAsync(new Uri(origin,"/api/debug/poll"),new{clientId=previous.ClientId,clientToken=previous.ClientToken,cardIds=Array.Empty<string>(),visible=physicalVisible(),platform="desktop",backgroundTesting=false,background=acknowledgment.DeepClone()},lifetime.Token);
+                }
                 using var response=await client.PostAsJsonAsync(new Uri(origin,"/api/debug/disconnect"),new{clientId=previous.ClientId,clientToken=previous.ClientToken},lifetime.Token);
             }
         }catch{}finally{acknowledgment=new JsonObject{["state"]="inactive"};foreach(Cookie cookie in cookies.GetCookies(origin))cookie.Expired=true;}
@@ -64,20 +68,30 @@ internal sealed class DesktopDebugChannel : IDisposable
         if(disposed)return;
         // Expiry runs independently of renderer timers and outstanding HTTP requests.
         if(activeSession is not null&&Now>=activeUntil)await SetBackground(null);
-        if(busy||!resetTask.IsCompleted||registration is not{} identity||Now<nextPoll||!view.Ready||!trusted())return;
+        if(busy||!resetTask.IsCompleted||registration is not{} identity||Now<nextPoll)return;
+        var terminal=unavailable&&!view.Ready;
+        if(!terminal&&(!view.Ready||!trusted()))return;
         busy=true;var version=generation;
         try{
-            var browserCookies=await view.CoreWebView2.CookieManager.GetCookiesAsync(options.Url.AbsoluteUri);
-            var session=browserCookies.FirstOrDefault(c=>c.Name=="av_session"&&c.IsHttpOnly);if(session is null){nextPoll=Now+5000;return;}
-            cookies.Add(origin,new Cookie("av_session",session.Value,"/",origin.Host){HttpOnly=true,Secure=origin.Scheme=="https"});
-            var body=new JsonObject{["clientId"]=identity.ClientId,["clientToken"]=identity.ClientToken,["cardIds"]=System.Text.Json.JsonSerializer.SerializeToNode(identity.CardIds),["visible"]=physicalVisible(),["platform"]="desktop",["backgroundTesting"]=!unavailable,["background"]=acknowledgment.DeepClone()};
+            if(!terminal){
+                var browserCookies=await view.CoreWebView2.CookieManager.GetCookiesAsync(options.Url.AbsoluteUri);
+                var session=browserCookies.FirstOrDefault(c=>c.Name=="av_session"&&c.IsHttpOnly);if(session is null){nextPoll=Now+5000;return;}
+                cookies.Add(origin,new Cookie("av_session",session.Value,"/",origin.Host){HttpOnly=true,Secure=origin.Scheme=="https"});
+            }else if(cookies.GetCookies(origin)["av_session"] is null)return;
+            var body=new JsonObject{["clientId"]=identity.ClientId,["clientToken"]=identity.ClientToken,["cardIds"]=System.Text.Json.JsonSerializer.SerializeToNode(terminal?Array.Empty<string>():identity.CardIds),["visible"]=physicalVisible(),["platform"]="desktop",["backgroundTesting"]=!unavailable,["background"]=acknowledgment.DeepClone()};
             using var response=await client.PostAsJsonAsync(new Uri(origin,"/api/debug/poll"),body,lifetime.Token);
             if(!response.IsSuccessStatusCode){nextPoll=Now+2000;return;}
             var raw=await response.Content.ReadAsStringAsync(lifetime.Token);if(raw.Length>262144)throw new InvalidOperationException("Bounded native debug poll exceeded.");
             var result=JsonNode.Parse(raw)?.AsObject()??throw new InvalidOperationException();if(disposed||version!=generation||registration?.ClientId!=identity.ClientId)return;
+            if(terminal){
+                // Reporting must survive a destroyed renderer. Cached native cookies
+                // authorize terminal acknowledgments only; no cards/jobs are claimed.
+                if(acknowledgment["state"]?.GetValue<string>()=="failed"){var ended=acknowledgment["sessionId"]?.GetValue<string>();acknowledgment=new JsonObject{["state"]="inactive"};if(ended is not null)acknowledgment["sessionId"]=ended;nextPoll=Now+250;}else nextPoll=Now+5000;
+                return;
+            }
             var background=(result["sessions"] as JsonArray)?.OfType<JsonObject>().FirstOrDefault(s=>s["background"] is JsonObject);
             await SetBackground(background);
-            if(disposed||version!=generation||!trusted()||!view.Ready)return;
+            if(disposed||version!=generation||!view.Ready||!trusted())return;
             view.CoreWebView2.PostWebMessageAsJson(new JsonObject{["type"]="agenticview:debug-poll",["clientId"]=identity.ClientId,["response"]=result}.ToJsonString());
             nextPoll=Now+(activeSession is null&&background is null?(result["pollMs"]?.GetValue<int>()??5000):250);
         }finally{busy=false;}
@@ -93,15 +107,17 @@ internal sealed class DesktopDebugChannel : IDisposable
             if(activeSession is not null||id is null){
                 activeSession=null;activeUntil=0;
                 PostBackground(false,prior,0);
+                var failedToStop=false;
                 try{if(view.Ready)await view.CoreWebView2.CallDevToolsProtocolMethodAsync("Emulation.setFocusEmulationEnabled","{\"enabled\":false}").WaitAsync(TimeSpan.FromSeconds(3));}
-                catch{unavailable=true;view.CloseController();}
+                catch{failedToStop=true;unavailable=true;view.CloseController();}
                 finally{view.SetTestViewport(null);view.SetHostVisibility(physicalVisible());}
-                acknowledgment=new JsonObject{["state"]="inactive"};if(prior is not null)acknowledgment["sessionId"]=prior;
+                acknowledgment=new JsonObject{["state"]=failedToStop?"failed":"inactive"};if(prior is not null)acknowledgment["sessionId"]=prior;if(failedToStop)acknowledgment["error"]="Native renderer closed after background emulation cleanup failed.";
             }
             if(id is null)return;
             try{
                 if(!Guid.TryParseExact(id,"D",out _)||expires>Now+7_200_000||hostDeadline>0&&expires>hostDeadline)throw new InvalidOperationException();
                 var config=session!["background"]!.AsObject();var width=config["width"]!.GetValue<int>();var height=config["height"]!.GetValue<int>();if(width is <320 or >4096||height is <240 or >4096)throw new InvalidOperationException();
+                if(options.TestRendererUnavailable){unavailable=true;view.CloseController();throw new InvalidOperationException();}
                 view.SetTestViewport(new Size(width,height));
                 await view.CoreWebView2.CallDevToolsProtocolMethodAsync("Emulation.setFocusEmulationEnabled","{\"enabled\":true}").WaitAsync(TimeSpan.FromSeconds(3));
                 if(disposed||expires<=Now)throw new InvalidOperationException();
@@ -110,7 +126,7 @@ internal sealed class DesktopDebugChannel : IDisposable
             }catch{
                 try{if(view.Ready)await view.CoreWebView2.CallDevToolsProtocolMethodAsync("Emulation.setFocusEmulationEnabled","{\"enabled\":false}").WaitAsync(TimeSpan.FromSeconds(3));}catch{unavailable=true;view.CloseController();}
                 view.SetTestViewport(null);view.SetHostVisibility(physicalVisible());activeSession=null;activeUntil=0;
-                acknowledgment=new JsonObject{["state"]="failed",["sessionId"]=id,["error"]="Native background rendering unavailable or requested lease exceeds test-host lifetime."};PostBackground(false,id,0);
+                acknowledgment=new JsonObject{["state"]="failed",["sessionId"]=id,["error"]=options.TestRendererUnavailable?"Renderer unavailability was requested by the finite test host.":"Native background rendering unavailable or requested lease exceeds test-host lifetime."};PostBackground(false,id,0);
                 Console.WriteLine("{\"event\":\"desktop-background-test\",\"state\":\"failed\"}");
             }
         }finally{modeGate.Release();}

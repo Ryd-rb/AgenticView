@@ -209,3 +209,9 @@ Use `ui_guide` with `goal:"test"` for copyable MCP steps. The desktop keeps a na
 control poll alive while page rendering is paused; the private HttpOnly session
 cookie stays in native HTTP handling, outside page scripts. The native controller
 uses a logical offscreen viewport and fixed focus emulation only during the lease.
+
+To verify native failure handling, add `-TestRendererUnavailable` to that finite
+host command. The renderer closes on background activation; MCP must report
+`state:"failed"`, retain the failure reason and reach `stopAcknowledged:true`
+through the native control channel. This flag is rejected outside finite test
+hosts and cannot launch a normal pop-out. No installed runtime is changed.

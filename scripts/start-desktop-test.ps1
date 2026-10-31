@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$Source='dist/desktop',[string]$Url='http://127.0.0.1:4318/',[Parameter(Mandatory)][string]$ViewerKeyFile,[ValidateRange(1,7200)][int]$LifetimeSeconds=600)
+param([string]$Source='dist/desktop',[string]$Url='http://127.0.0.1:4318/',[Parameter(Mandatory)][string]$ViewerKeyFile,[ValidateRange(1,7200)][int]$LifetimeSeconds=600,[switch]$TestRendererUnavailable)
 $ErrorActionPreference='Stop'
 # Explicit finite diagnostic host. This never shows, restores or replaces a window.
 $repository=[IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot));$boundary=$repository+[IO.Path]::DirectorySeparatorChar
@@ -16,7 +16,8 @@ $stage=Join-Path $repository ('.task/desktop-tests/'+[guid]::NewGuid().ToString(
 New-Item -ItemType Directory -Path (Join-Path $stage 'app') -Force|Out-Null
 foreach($file in $files){$relative=[IO.Path]::GetRelativePath($sourceRoot,$file.FullName);$target=Join-Path (Join-Path $stage 'app') $relative;Assert-Plain $target;New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force|Out-Null;Copy-Item -LiteralPath $file.FullName -Destination $target}
 $entry=Join-Path $stage 'app/AgenticView.Desktop.exe';$data=Join-Path $stage 'profile';$arguments='--url "'+$parsed.AbsoluteUri+'" --data-dir "'+$data+'" --viewer-key-file "'+[IO.Path]::GetFullPath($ViewerKeyFile)+'" --windowed --background-test-host '+$LifetimeSeconds
+if($TestRendererUnavailable){$arguments+=' --test-renderer-unavailable'}
 $process=Start-Process -FilePath $entry -ArgumentList $arguments -WorkingDirectory (Join-Path $stage 'app') -WindowStyle Hidden -RedirectStandardOutput (Join-Path $stage 'stdout.log') -RedirectStandardError (Join-Path $stage 'stderr.log') -PassThru
 $native=Get-CimInstance Win32_Process -Filter ('ProcessId='+$process.Id);if(!$native -or $native.ExecutablePath -ne $entry){throw 'Test host process custody failed.'}
-$receipt=@{ProcessId=$native.ProcessId;Entry=$entry;CreatedUtc=$native.CreationDate.ToUniversalTime().ToString('o');LifetimeSeconds=$LifetimeSeconds;Url=$parsed.AbsoluteUri;Data=$data;Stage=$stage;BuildHash=(Get-FileHash -LiteralPath (Join-Path $stage 'app/AgenticView.Desktop.dll')).Hash;Mode='finite-hidden-test-host'}
+$receipt=@{ProcessId=$native.ProcessId;Entry=$entry;CreatedUtc=$native.CreationDate.ToUniversalTime().ToString('o');LifetimeSeconds=$LifetimeSeconds;Url=$parsed.AbsoluteUri;Data=$data;Stage=$stage;BuildHash=(Get-FileHash -LiteralPath (Join-Path $stage 'app/AgenticView.Desktop.dll')).Hash;Mode='finite-hidden-test-host';TestRendererUnavailable=[bool]$TestRendererUnavailable}
 $receipt|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $stage 'session.json');$receipt|ConvertTo-Json -Compress

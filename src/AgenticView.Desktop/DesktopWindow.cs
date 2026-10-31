@@ -62,7 +62,7 @@ internal sealed class DesktopWindow : Form
             view.SetHostVisibility(Visible&&WindowState!=FormWindowState.Minimized);
             await view.EnsureCoreWebView2Async(environment);
             var core = view.CoreWebView2;
-            debugChannel=new DesktopDebugChannel(view,options,()=>documentReady&&policy.IsTrustedDocument(core.Source),()=>Visible&&WindowState!=FormWindowState.Minimized,hostDeadline);
+            debugChannel=new DesktopDebugChannel(view,options,()=>documentReady&&view.Ready&&policy.IsTrustedDocument(core.Source),()=>Visible&&WindowState!=FormWindowState.Minimized,hostDeadline);
             core.Settings.AreDevToolsEnabled = false;
             core.Settings.AreDefaultContextMenusEnabled = false;
             core.Settings.AreBrowserAcceleratorKeysEnabled = false;
@@ -75,7 +75,7 @@ internal sealed class DesktopWindow : Form
             core.NavigationStarting += (_, e) => { e.Cancel = !policy.IsTrustedDocument(e.Uri); if (!e.Cancel){documentReady = false;debugChannel?.Reset();} };
             core.NavigationCompleted += (_, e) =>
             {
-                documentReady = e.IsSuccess && policy.IsTrustedDocument(core.Source);
+                documentReady = e.IsSuccess && view.Ready && policy.IsTrustedDocument(core.Source);
                 Console.WriteLine(JsonSerializer.Serialize(new { @event = "desktop-navigation", ready = documentReady }));
                 PublishState();
                 if(documentReady)core.PostWebMessageAsJson("{\"type\":\"agenticview:debug-ready\"}");
@@ -85,21 +85,21 @@ internal sealed class DesktopWindow : Form
             core.PermissionRequested += (_, e) => e.State = CoreWebView2PermissionState.Deny;
             core.WebMessageReceived += (_, e) =>
             {
-                if(documentReady&&policy.TryReadDebugClient(e.Source,core.Source,e.WebMessageAsJson,out var registration)){debugChannel?.Register(registration);return;}
-                if(documentReady&&policy.TryReadDebugStop(e.Source,core.Source,e.WebMessageAsJson,out var stoppedClient)){debugChannel?.Disconnect(stoppedClient);return;}
-                if(documentReady&&policy.TryReadDiagnostic(e.Source,core.Source,e.WebMessageAsJson,out var diagnosticId,out var diagnosticOperation,out var diagnosticSeconds)){
-                    BeginInvoke(async()=>{try{diagnostics??=new(options.DataDirectory);var result=await diagnostics.Capture(core,diagnosticOperation,diagnosticSeconds,()=>{if(!IsDisposed&&documentReady&&policy.IsTrustedDocument(core.Source))core.PostWebMessageAsJson(JsonSerializer.Serialize(new{type="agenticview:debug-native-started",requestId=diagnosticId}));});if(!IsDisposed&&documentReady&&policy.IsTrustedDocument(core.Source))core.PostWebMessageAsJson(JsonSerializer.Serialize(new{type="agenticview:debug-native-result",requestId=diagnosticId,ok=true,result}));}catch(Exception){if(!IsDisposed&&documentReady&&policy.IsTrustedDocument(core.Source))core.PostWebMessageAsJson(JsonSerializer.Serialize(new{type="agenticview:debug-native-result",requestId=diagnosticId,ok=false,error="Native diagnostics unavailable or bounded profile limit reached."}));}});return;
+                if(documentReady&&view.Ready&&policy.TryReadDebugClient(e.Source,core.Source,e.WebMessageAsJson,out var registration)){debugChannel?.Register(registration);return;}
+                if(documentReady&&view.Ready&&policy.TryReadDebugStop(e.Source,core.Source,e.WebMessageAsJson,out var stoppedClient)){debugChannel?.Disconnect(stoppedClient);return;}
+                if(documentReady&&view.Ready&&policy.TryReadDiagnostic(e.Source,core.Source,e.WebMessageAsJson,out var diagnosticId,out var diagnosticOperation,out var diagnosticSeconds)){
+                    BeginInvoke(async()=>{try{diagnostics??=new(options.DataDirectory);var result=await diagnostics.Capture(core,diagnosticOperation,diagnosticSeconds,()=>{if(!IsDisposed&&documentReady&&view.Ready&&policy.IsTrustedDocument(core.Source))core.PostWebMessageAsJson(JsonSerializer.Serialize(new{type="agenticview:debug-native-started",requestId=diagnosticId}));});if(!IsDisposed&&documentReady&&view.Ready&&policy.IsTrustedDocument(core.Source))core.PostWebMessageAsJson(JsonSerializer.Serialize(new{type="agenticview:debug-native-result",requestId=diagnosticId,ok=true,result}));}catch(Exception){if(!IsDisposed&&documentReady&&view.Ready&&policy.IsTrustedDocument(core.Source))core.PostWebMessageAsJson(JsonSerializer.Serialize(new{type="agenticview:debug-native-result",requestId=diagnosticId,ok=false,error="Native diagnostics unavailable or bounded profile limit reached."}));}});return;
                 }
-                if(documentReady&&policy.TryReadWindowIcon(e.Source,core.Source,e.WebMessageAsJson,out var iconRequest,out var iconSpec)){
-                    BeginInvoke(()=>{if(IsDisposed||!documentReady||!policy.IsTrustedDocument(core.Source))return;var ok=false;try{if(WindowIconSpec.Key(windowIcon)!=WindowIconSpec.Key(iconSpec)){var next=iconSpec is null?BrandIcon.Create():WindowIconRenderer.Create(iconSpec);try{CardWindowIcon.Persist(options,iconSpec,next);CardWindowIcon.ApplyIdentity(Handle,options);var old=currentIcon;Icon=next;currentIcon=next;windowIcon=iconSpec;old.Dispose();}catch{next.Dispose();throw;}}else{CardWindowIcon.Persist(options,iconSpec,currentIcon);CardWindowIcon.ApplyIdentity(Handle,options);}ok=true;}catch(Exception){Console.WriteLine("{\"event\":\"desktop-window-icon\",\"ok\":false}");}core.PostWebMessageAsJson(JsonSerializer.Serialize(new{type="agenticview:window-icon-result",requestId=iconRequest,ok,windowId,processId=Environment.ProcessId,version=WindowIconSpec.Key(windowIcon)}));});return;
+                if(documentReady&&view.Ready&&policy.TryReadWindowIcon(e.Source,core.Source,e.WebMessageAsJson,out var iconRequest,out var iconSpec)){
+                    BeginInvoke(()=>{if(IsDisposed||!documentReady||!view.Ready||!policy.IsTrustedDocument(core.Source))return;var ok=false;try{if(WindowIconSpec.Key(windowIcon)!=WindowIconSpec.Key(iconSpec)){var next=iconSpec is null?BrandIcon.Create():WindowIconRenderer.Create(iconSpec);try{CardWindowIcon.Persist(options,iconSpec,next);CardWindowIcon.ApplyIdentity(Handle,options);var old=currentIcon;Icon=next;currentIcon=next;windowIcon=iconSpec;old.Dispose();}catch{next.Dispose();throw;}}else{CardWindowIcon.Persist(options,iconSpec,currentIcon);CardWindowIcon.ApplyIdentity(Handle,options);}ok=true;}catch(Exception){Console.WriteLine("{\"event\":\"desktop-window-icon\",\"ok\":false}");}core.PostWebMessageAsJson(JsonSerializer.Serialize(new{type="agenticview:window-icon-result",requestId=iconRequest,ok,windowId,processId=Environment.ProcessId,version=WindowIconSpec.Key(windowIcon)}));});return;
                 }
-                if(documentReady&&policy.TryReadPopOut(e.Source,core.Source,e.WebMessageAsJson,out var requestId,out var cardId,out var title)){
-                    BeginInvoke(()=>{if(IsDisposed||!documentReady||!policy.IsTrustedDocument(core.Source))return;try{var result=PopOutLauncher.Open(options,cardId,title);core.PostWebMessageAsJson(JsonSerializer.Serialize(new{type="agenticview:popout-result",requestId,ok=true,processId=result.ProcessId,alreadyOpen=result.AlreadyOpen}));}catch(Exception){core.PostWebMessageAsJson(JsonSerializer.Serialize(new{type="agenticview:popout-result",requestId,ok=false,message="The independent card window could not open. Retained profiles were preserved."}));}});return;
+                if(documentReady&&view.Ready&&policy.TryReadPopOut(e.Source,core.Source,e.WebMessageAsJson,out var requestId,out var cardId,out var title)){
+                    BeginInvoke(()=>{if(IsDisposed||!documentReady||!view.Ready||!policy.IsTrustedDocument(core.Source))return;try{var result=PopOutLauncher.Open(options,cardId,title);core.PostWebMessageAsJson(JsonSerializer.Serialize(new{type="agenticview:popout-result",requestId,ok=true,processId=result.ProcessId,alreadyOpen=result.AlreadyOpen}));}catch(Exception){core.PostWebMessageAsJson(JsonSerializer.Serialize(new{type="agenticview:popout-result",requestId,ok=false,message="The independent card window could not open. Retained profiles were preserved."}));}});return;
                 }
-                if (documentReady && traceInput && traceCount < 4096 && policy.TryReadInputTrace(e.Source, core.Source, e.WebMessageAsJson, out var input))
+                if (documentReady && view.Ready && traceInput && traceCount < 4096 && policy.TryReadInputTrace(e.Source, core.Source, e.WebMessageAsJson, out var input))
                 { traceCount++; Console.WriteLine("{\"event\":\"desktop-input\",\"trace\":" + input + "}"); return; }
-                if (documentReady && policy.TryReadAction(e.Source, core.Source, e.WebMessageAsJson, out var action))
-                    BeginInvoke(() => { if (!IsDisposed && documentReady && policy.IsTrustedDocument(core.Source)) HandleAction(action); });
+                if (documentReady && view.Ready && policy.TryReadAction(e.Source, core.Source, e.WebMessageAsJson, out var action))
+                    BeginInvoke(() => { if (!IsDisposed && documentReady && view.Ready && policy.IsTrustedDocument(core.Source)) HandleAction(action); });
             };
             view.KeyDown += (_, e) =>
             {
