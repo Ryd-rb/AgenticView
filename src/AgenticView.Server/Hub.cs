@@ -9,7 +9,7 @@ using System.Text.RegularExpressions;
 
 namespace AgenticView.Server;
 
-public sealed class Hub : IDisposable
+public sealed partial class Hub : IDisposable
 {
     private const int MaxRunBytes = 2 * 1024 * 1024;
     private const long MaxLiveBytes = 128L * 1024 * 1024;
@@ -390,7 +390,21 @@ public sealed class Hub : IDisposable
             }
             if (sequence != Integer(run.View, "sequence") + 1) throw new HubError(409, $"Expected sequence {Integer(run.View, "sequence") + 1}.");
             var received = DateTimeOffset.UtcNow; var now = received.ToUnixTimeMilliseconds(); var receipt = received.ToString("O");
-            var view = Clone(run.View); view["lastSeen"] = now; view["updatedAt"] = now; view["sequence"] = sequence; if (String(view, "status") == "stale") view["status"] = "active";
+            // Replacing one existing component leaves the serialized key/comma structure unchanged.
+            // Stage only metadata and that component; do not duplicate every other heavy tree.
+            var replacementId = "";
+            JsonObject? oldComponent = null;
+            if (!recovering && operations.Count == 1 && operations[0] is JsonObject single &&
+                single["op"] is JsonValue actionValue && actionValue.TryGetValue<string>(out var singleAction) && singleAction == "upsert" &&
+                single["component"] is JsonObject supplied && supplied["id"] is JsonValue idValue && idValue.TryGetValue<string>(out var suppliedId) &&
+                suppliedId is not null && run.View["components"]?[suppliedId] is JsonObject existing)
+            { replacementId = suppliedId; oldComponent = existing; }
+            var fastReplacement = oldComponent is not null;
+            var oldMetadataBytes = fastReplacement ? Size(Metadata(run.View)) : 0;
+            var oldComponentBytes = fastReplacement ? Size(oldComponent!) : 0;
+            var view = fastReplacement ? Metadata(run.View) : Clone(run.View);
+            if (fastReplacement) view["components"] = new JsonObject { [replacementId] = Clone(oldComponent!) };
+            view["lastSeen"] = now; view["updatedAt"] = now; view["sequence"] = sequence; if (String(view, "status") == "stale") view["status"] = "active";
             var componentTimes = view["componentTimes"] as JsonObject ?? new JsonObject(); if (view["componentTimes"] is null) view["componentTimes"] = componentTimes;
             var taskTimes = view["taskTimes"] as JsonObject ?? new JsonObject(); if (view["taskTimes"] is null) view["taskTimes"] = taskTimes;
             var touched = new HashSet<string>(); var trimmed = 0; var copied = Stopwatch.GetTimestamp();
@@ -418,9 +432,12 @@ public sealed class Hub : IDisposable
                 }
             }
             var mutated = Stopwatch.GetTimestamp();
-            if (((JsonObject)view["components"]!).Count > 64) throw new HubError(413, "A run can contain at most 64 components.");
+            if (((JsonObject)(fastReplacement ? run.View : view)["components"]!).Count > 64) throw new HubError(413, "A run can contain at most 64 components.");
             if (recovering) PrepareRestore(view);
-            var bytes = Size(view); if (bytes > MaxRunBytes || totalBytes - (recovering ? 0 : run.Bytes) + bytes > MaxLiveBytes) throw new HubError(413, "Live data budget exceeded.");
+            var bytes = fastReplacement
+                ? run.Bytes - oldMetadataBytes - oldComponentBytes + Size(Metadata(view)) + Size(view["components"]![replacementId]!)
+                : Size(view);
+            if (bytes > MaxRunBytes || totalBytes - (recovering ? 0 : run.Bytes) + bytes > MaxLiveBytes) throw new HubError(413, "Live data budget exceeded.");
             var budgeted = Stopwatch.GetTimestamp();
             Transaction(() =>
             {
@@ -435,7 +452,13 @@ public sealed class Hub : IDisposable
             });
             var committed = Stopwatch.GetTimestamp(); var previousView = run.View;
             if (recovering) AcceptRestore(run, view);
-            else { totalBytes += bytes - run.Bytes; run.Bytes = bytes; run.View = view; QueueBatch(view, operations); }
+            else
+            {
+                // SQLite committed before transferring any canonical JsonNode ownership.
+                // On every validation/quota/SQLite failure the original view remains intact.
+                if (fastReplacement) AdoptComponents(previousView, view, replacementId);
+                totalBytes += bytes - run.Bytes; run.Bytes = bytes; run.View = view; QueueBatch(view, operations);
+            }
             revision++; updates += operations.Count;
             monitoring.Accepted(id, operations, view, previousView, payloadBytes, start, entered, authorized, digested, copied, mutated, budgeted, committed, Stopwatch.GetTimestamp());
             return new JsonObject { ["sequence"] = sequence, ["duplicate"] = false, ["trimmed"] = trimmed, ["restored"] = recovering };
@@ -443,7 +466,30 @@ public sealed class Hub : IDisposable
     }
     public JsonObject Heartbeat(string id, string token)
     {
-        lock (gate) { if (!runs.ContainsKey(id)) { AuthorizeArchive(id, token); var archived = ReadArchive(id); return new JsonObject { ["lastSeen"] = Integer(archived, "lastSeen"), ["sequence"] = Integer(archived, "sequence"), ["archived"] = true }; } var run = Authorize(id, token); var view = Clone(run.View); var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(); view["lastSeen"] = now; if (String(view, "status") == "stale") view["status"] = "active"; SaveView(run, view); Queue(view); revision++; return new JsonObject { ["lastSeen"] = now, ["sequence"] = Integer(view, "sequence") }; }
+        lock (gate)
+        {
+            if (!runs.ContainsKey(id)) { AuthorizeArchive(id, token); var archived = ReadArchive(id); return new JsonObject { ["lastSeen"] = Integer(archived, "lastSeen"), ["sequence"] = Integer(archived, "sequence"), ["archived"] = true }; }
+            var run = Authorize(id, token); var view = Metadata(run.View); var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            view["lastSeen"] = now; if (String(view, "status") == "stale") view["status"] = "active";
+            var bytes = run.Bytes - Size(Metadata(run.View)) + Size(view);
+            if (bytes > MaxRunBytes || totalBytes - run.Bytes + bytes > MaxLiveBytes) throw new HubError(413, "Live data budget exceeded.");
+            Execute("UPDATE runs SET payload=$p0 WHERE id=$p1", Serialize(view), id);
+            AdoptComponents(run.View, view);
+            totalBytes += bytes - run.Bytes; run.Bytes = bytes; run.View = view; Queue(view); revision++;
+            return new JsonObject { ["lastSeen"] = now, ["sequence"] = Integer(view, "sequence") };
+        }
+    }
+    // Only under gate, only after persistence succeeds. Components cannot have two
+    // JsonNode parents; move the original container rather than copying its trees.
+    private static void AdoptComponents(JsonObject previous, JsonObject next, string? replacementId = null)
+    {
+        var components = (JsonObject)previous["components"]!;
+        if (replacementId is not null)
+        {
+            var staged = (JsonObject)next["components"]!; var component = staged[replacementId]!;
+            staged.Remove(replacementId); components[replacementId] = component;
+        }
+        previous.Remove("components"); next["components"] = components;
     }
     private void SaveView(Run run, JsonObject view) { var bytes = Size(view); if (bytes > MaxRunBytes || totalBytes - run.Bytes + bytes > MaxLiveBytes) throw new HubError(413, "Live data budget exceeded."); Execute("UPDATE runs SET payload=$p0 WHERE id=$p1", Serialize(Metadata(view)), String(view, "id")); totalBytes += bytes - run.Bytes; run.Bytes = bytes; run.View = view; }
     private IEnumerable<Run> EffectiveRoots() => runs.Values.Where(r => r.View["parentId"] is null || !runs.ContainsKey(String(r.View, "parentId")));

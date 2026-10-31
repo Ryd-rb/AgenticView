@@ -22,6 +22,8 @@ if (args.Contains("--layout-probe"))
 
 var cases = new (string Name, Action Test)[]
 {
+    ("snapshot UTF8 output stays atomic and avoids cloning retained data", SnapshotSerializationContracts.Run),
+    ("small publications and heartbeats retain unrelated data with bounded allocations and transactional retries", HubPublicationContracts.Run),
     ("configurable charts and additional native components", NativeExtensionsContracts.Run),
     ("native session identity, stable layouts, delayed archives, operator view and optional text actions", ViewManagementContracts.Run),
     ("monitoring is bounded and counts only accepted operations without content", () => Run((hub, _) => {

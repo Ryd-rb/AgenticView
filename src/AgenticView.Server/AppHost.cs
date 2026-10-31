@@ -81,7 +81,11 @@ public static class AppHost
             return Results.Json(new { authenticated = true });
         })).RequireRateLimiting("login");
         app.MapPost("/api/logout", (HttpContext c) => { c.Response.Headers.CacheControl = "no-store"; c.Response.Cookies.Delete("av_session", new CookieOptions { HttpOnly = true, SameSite = SameSiteMode.Strict, Secure = config.PublicUrl.Scheme == "https", Path = "/" }); return new { authenticated = false }; });
-        app.MapGet("/api/snapshot", () => hub.Snapshot());
+        app.MapGet("/api/snapshot", async (HttpContext c) =>
+        {
+            c.Response.ContentType = "application/json; charset=utf-8";
+            await c.Response.Body.WriteAsync(hub.SnapshotUtf8(), c.RequestAborted);
+        });
         app.MapGet("/api/monitoring", () => hub.Monitoring());
         app.MapPost("/api/agents/register", (Func<HttpContext, Task<IResult>>)(async c => Results.Json(hub.Register(await Body(c)), statusCode: 201)));
         app.MapPut("/api/agents/{id}/display", async (string id,HttpContext c)=>hub.SetCardDisplay(id,Authentication.Bearer(c.Request),await Body(c)));
@@ -155,7 +159,10 @@ public static class AppHost
             try
             {
                 c.Response.ContentType = "text/event-stream"; c.Response.Headers.CacheControl = "no-store"; c.Response.Headers["X-Accel-Buffering"] = "no";
-                await c.Response.WriteAsync($"retry: 1500\nevent: snapshot\ndata: {Json.Text(hub.Snapshot())}\n\n", cancellation.Token); await c.Response.Body.FlushAsync(cancellation.Token);
+                await c.Response.WriteAsync("retry: 1500\nevent: snapshot\ndata: ", cancellation.Token);
+                await c.Response.Body.WriteAsync(hub.SnapshotUtf8(), cancellation.Token);
+                await c.Response.WriteAsync("\n\n", cancellation.Token);
+                await c.Response.Body.FlushAsync(cancellation.Token);
                 await foreach (var patch in channel.Reader.ReadAllAsync(cancellation.Token)) { await c.Response.WriteAsync($"event: patch\ndata: {patch}\n\n", cancellation.Token); await c.Response.Body.FlushAsync(cancellation.Token); }
             }
             catch (OperationCanceledException) { }
