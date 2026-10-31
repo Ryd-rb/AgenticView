@@ -24,12 +24,17 @@ internal sealed class DesktopDebugChannel : IDisposable
     private int generation;
     private bool busy,disposed,unavailable;
     private Task resetTask=Task.CompletedTask;
+    private Task pollTask=Task.CompletedTask;
     private static long Now=>DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
     public DesktopDebugChannel(NativeWebView view,DesktopOptions options,Func<bool> trusted,Func<bool> physicalVisible,long hostDeadline)
     {
         this.view=view;this.options=options;this.trusted=trusted;this.physicalVisible=physicalVisible;this.hostDeadline=hostDeadline;origin=new(options.Url.GetLeftPart(UriPartial.Authority));
         client=new(new HttpClientHandler{CookieContainer=cookies,AllowAutoRedirect=false,UseProxy=false}){Timeout=TimeSpan.FromSeconds(5)};client.DefaultRequestHeaders.TryAddWithoutValidation("Origin",origin.AbsoluteUri.TrimEnd('/'));
-        timer.Tick+=async(_,_)=>{try{await Tick();}catch{if(!disposed)nextPoll=Now+2000;}};timer.Start();
+        timer.Tick+=async(_,_)=>{try{
+            if(activeSession is not null&&Now>=activeUntil)await SetBackground(null);
+            if(disposed||!pollTask.IsCompleted)return;
+            pollTask=Tick();await pollTask;
+        }catch{if(!disposed)nextPoll=Now+2000;}};timer.Start();
     }
     public void Register(NativeDebugRegistration value)
     {
@@ -39,11 +44,20 @@ internal sealed class DesktopDebugChannel : IDisposable
     public void Reset()
     {
         var previous=registration;registration=null;generation++;nextPoll=0;
-        resetTask=ResetAsync(previous);
+        resetTask=ResetAsync(previous,resetTask);
     }
-    private async Task ResetAsync(NativeDebugRegistration? previous)
+    private async Task ResetAsync(NativeDebugRegistration? previous,Task priorReset)
     {
-        try{await SetBackground(null);if(previous is not null){using var response=await client.PostAsJsonAsync(new Uri(origin,"/api/debug/disconnect"),new{clientId=previous.ClientId,clientToken=previous.ClientToken},lifetime.Token);}}catch{}finally{foreach(Cookie cookie in cookies.GetCookies(origin))cookie.Expired=true;}
+        try{
+            // Drain the prior request before the terminal acknowledgment. A delayed
+            // active poll must never overwrite inactive readiness after disconnect.
+            try{await priorReset;await pollTask;}catch{}
+            await SetBackground(null);
+            if(previous is not null){
+                using var stopped=await client.PostAsJsonAsync(new Uri(origin,"/api/debug/poll"),new{clientId=previous.ClientId,clientToken=previous.ClientToken,cardIds=Array.Empty<string>(),visible=physicalVisible(),platform="desktop",backgroundTesting=false,background=acknowledgment.DeepClone()},lifetime.Token);
+                using var response=await client.PostAsJsonAsync(new Uri(origin,"/api/debug/disconnect"),new{clientId=previous.ClientId,clientToken=previous.ClientToken},lifetime.Token);
+            }
+        }catch{}finally{acknowledgment=new JsonObject{["state"]="inactive"};foreach(Cookie cookie in cookies.GetCookies(origin))cookie.Expired=true;}
     }
     private async Task Tick()
     {

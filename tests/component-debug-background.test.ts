@@ -60,6 +60,14 @@ test('operator background leases require desktop capability and same-session nat
   hold=false;for(let i=0;i<100;i++){status=await tool('ui_test_status',{debugId});if(status.state==='stopped')break;await new Promise(r=>setTimeout(r,15));}assert.equal(status.state,'stopped');
   fail=true;activate=true;const failed=await tool('ui_test_open',base);assert.ok(['cancelled','unknown'].includes(failed.state),JSON.stringify(failed));
   const failure=await tool('ui_test_status',{debugId:failed.debugId});assert.ok(['failed','stopped'].includes(failure.state));
+  running=false;await viewer;viewer=undefined;
+  const terminal=await json(await f.call('/api/debug/poll',secrets.viewerToken,{...body,cardIds:[],backgroundTesting:false,background:{state:'inactive',sessionId:failed.debugId.split('.')[0]}}));
+  assert.deepEqual(terminal.jobs,[]);assert.deepEqual(terminal.sessions,[],'terminal native poll withdraws capabilities before disconnect');
+  await json(await f.call('/api/debug/disconnect',secrets.viewerToken,{clientId:body.clientId,clientToken:body.clientToken}));
+  const stoppedFailure=await tool('ui_test_status',{debugId:failed.debugId});assert.equal(stoppedFailure.stopAcknowledged,true);assert.equal(stoppedFailure.state,'failed');assert.ok(stoppedFailure.nativeFailure,'disconnect preserves the original native failure');
+  const replacement={...body,clientId:randomUUID(),clientToken:'replacement-native-client-proof-0123456789'};
+  assert.equal((await f.call('/api/debug/poll',secrets.viewerToken,{...replacement,background:{state:'inactive',sessionId:failed.debugId.split('.')[0]}})).status,403,'replacement identity must not inherit an old session acknowledgment');
+  assert.equal((await f.call('/api/debug/poll',secrets.viewerToken,{...replacement,background:{state:'inactive'}})).status,200);
  }finally{running=false;await viewer;await mcp.close();await f.close();}
 });
 
