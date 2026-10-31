@@ -17,7 +17,7 @@ internal sealed class DesktopDiagnostics(string directory)
             var metrics=JsonNode.Parse(await core.CallDevToolsProtocolMethodAsync("Performance.getMetrics","{}"));
             var heap=JsonNode.Parse(await core.CallDevToolsProtocolMethodAsync("Runtime.getHeapUsage","{}"));
             var dom=JsonNode.Parse(await core.CallDevToolsProtocolMethodAsync("Memory.getDOMCounters","{}"));
-            return new JsonObject{["runtime"]=core.Environment.BrowserVersionString,["metrics"]=metrics,["heap"]=heap,["dom"]=dom};
+            return new JsonObject{["runtime"]=core.Environment.BrowserVersionString,["metrics"]=metrics,["heap"]=heap,["dom"]=dom,["processes"]=DesktopProcessMetrics.Capture(core)};
         }
         if(profiling)throw new InvalidOperationException("A profile is already active.");
         profiling=true;var started=false;

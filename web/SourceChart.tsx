@@ -9,7 +9,7 @@ const resultSchema=z.strictObject({series:chartDataSchema.shape.series,rawPoints
 const Plot=memo(ChartView);
 export function SourceChart({data,runId,manual}:{data:ChartData;runId:string;manual:boolean}){
   const frame=useRef<HTMLDivElement>(null),visible=useElementActivity(frame),controls=useControls(runId,manual&&visible,visible);
-  const [last,setLast]=useState<{data:ChartData;rawPoints?:number;count:number}>(),[error,setError]=useState(''),[refresh,setRefresh]=useState(0);
+  const [last,setLast]=useState<{data:ChartData;rawPoints?:number;count:number;receivedAt:number}>(),[error,setError]=useState(''),[refresh,setRefresh]=useState(0);
   const sourceKey=JSON.stringify(data.source),source=data.source;
   const fallback=useMemo(()=>{const {source:_,...value}=data;return value;},[data]);
   useEffect(()=>{setLast(undefined);setError('');},[sourceKey]);
@@ -27,7 +27,7 @@ export function SourceChart({data,runId,manual}:{data:ChartData;runId:string;man
         const result=resultSchema.parse(invocation.result??{});
         if(result.series.some(series=>series.points.length>maxPoints))throw new Error('Provider returned more than the requested point limit.');
         const next=chartDataSchema.parse({...fallback,series:result.series});
-        setLast({data:next,rawPoints:result.rawPoints,count:result.series.reduce((count,series)=>count+series.points.length,0)});
+        setLast({data:next,rawPoints:result.rawPoints,count:result.series.reduce((count,series)=>count+series.points.length,0),receivedAt:Date.now()});
       }catch(failure){if(!disposed)setError(failure instanceof DOMException&&failure.name==='AbortError'?'Chart query was cancelled or exceeded its deadline.':failure instanceof Error?failure.message:'Chart query failed.');}
       finally{if(deadline!==undefined)clearTimeout(deadline);if(!disposed)timer=setTimeout(()=>void poll(),source.pollMs??1500);}
     };
@@ -36,7 +36,7 @@ export function SourceChart({data,runId,manual}:{data:ChartData;runId:string;man
   },[visible,sourceKey,fallback,controls.config,controls.invoke,controls.cancel,refresh]);
   // A frozen plot retains local series/table inspection state while a query is pending or hidden.
   const shown=useRef<ChartData>(fallback);if(visible)shown.current=last?{...fallback,series:last.data.series}:fallback;
-  return <div ref={frame} className="source-chart" aria-busy={visible&&controls.busy}>
+  return <div ref={frame} className="source-chart" data-source-state={!visible?'paused':error||controls.error?'error':last?'ready':controls.busy?'loading':'fallback'} data-source-received-at={last?.receivedAt} aria-busy={visible&&controls.busy}>
     <div className="control-toolbar"><span role="status">{!visible?'Chart queries paused':last?`${last.rawPoints===undefined?'Provider':last.rawPoints.toLocaleString('en-US')+' raw'} points · ${last.count.toLocaleString('en-US')} displayed`:controls.busy?'Loading chart query…':'Static chart fallback'}</span><button type="button" disabled={!manual||!visible||controls.busy} onClick={()=>setRefresh(value=>value+1)}>Refresh chart</button></div>
     {(error||controls.error)&&<p role="alert">{error||controls.error}</p>}
     <Plot data={shown.current} manual={manual} sampledByProvider={!!last}/>

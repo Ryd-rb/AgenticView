@@ -89,3 +89,10 @@ test('stopping a viewport during its timed wait cancels pending movement and rel
   assert.deepEqual(calls.map(c=>c?.phase),['begin','end']);assert.equal(calls.some(c=>c?.zoom!==undefined),false);
  }finally{await f.close();}
 });
+
+test('metrics distinguish live provider receipts from paused/loading/fallback charts without exposing data',async()=>{
+ const f=await fixture();try{
+  const now=Date.now();for(const state of ['ready','paused','loading','error','fallback','unexpected']){const chart=document.createElement('div');chart.className='source-chart';chart.dataset.sourceState=state;chart.textContent='private series label';if(state==='ready'||state==='paused')chart.dataset.sourceReceivedAt=String(now-500);document.body.append(chart);}
+  const result=f.measurements.snapshot().sourceCharts;assert.equal(result.total,6);assert.equal(result.received,2);assert.deepEqual(result.states,{ready:1,paused:1,loading:1,error:1,fallback:1,unknown:1});assert.ok(result.oldestReceiptAgeMs!>=500);assert.equal(JSON.stringify(result).includes('private series label'),false);
+ }finally{await f.close();}
+});

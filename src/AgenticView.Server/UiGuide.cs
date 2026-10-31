@@ -57,8 +57,10 @@ public static class UiGuide
                 "Ordinary hidden windows stay idle. ui_test_open requests a finite native rendering lease at an explicit logical viewport without showing or restoring the OS window.",
                 "Follow nextCall and returned target refs just like ui_open. Pending commands use ui_wait; ui_test_status reports native start/stop acknowledgments and expiry.",
                 "Metrics label background-test mode, physicalVisible and logical viewport. They measure offscreen render opportunities and synthetic input, never physical display presentation or human click latency.",
+                "Check metrics.sourceCharts before a data-load test: ready means a bounded provider response was received; paused, fallback, loading and error are separate states. Receipt ages are local observation times, not source execution times.",
                 "Call ui_close, then ui_test_status until stopAcknowledged:true. Expiry also stops the native override independently of page timers. A failed native start is explicit; never silently fall back to ordinary hidden measurements."],
                 Call("ui_test_open",new{operatorToken="<operatorToken>",cardId="<cardId>",durationSeconds=300,width=1920,height=1080},"Starts an operator-authorized bounded offscreen test; does not restore the window"),[
+                    Call("ui_action",new{debugId="<debugId>",requestId="<nextActionId>",action="metrics"},"Reads native readiness, chart source states and bounded frame/input measurements"),
                     Call("ui_test_status",new{debugId="<debugId>"},"Reads native readiness, expiry and stop acknowledgment"),
                     Call("ui_close",new{debugId="<debugId>"},"Ends the lease; follow status until native rendering is inactive")],["debug","data"]),
             UiGuideGoal.windows=>Page("Configure native window icons and understand pop-outs",["Your runId/runToken","Dedicated native desktop for pop-out windows and native icon receipts"],[
