@@ -5,6 +5,9 @@ using ModelContextProtocol.Server;
 
 namespace AgenticView.Server;
 
+[System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter<UiDebugAction>))]
+public enum UiDebugAction { click, type, press, scroll, focus, zoom, metrics, profile, layers }
+
 [McpServerToolType]
 public sealed class McpTools(Hub hub, ControlStore controls, OperatorView view)
 {
@@ -13,13 +16,27 @@ public sealed class McpTools(Hub hub, ControlStore controls, OperatorView view)
         try { return action(); }
         catch (HubError error) { throw new McpException(error.Message); }
     }
-    [McpServerTool(Name="component_debug_catalog",ReadOnly=true,Idempotent=true,UseStructuredContent=true),Description("Discover scoped native component debug commands, safe CSS properties and durable history limits. No scripts/selectors, URLs, screenshots or external UI automation.")]
+    [McpServerTool(Name="ui_guide",ReadOnly=true,Idempotent=true,UseStructuredContent=true),Description("START HERE if unsure which AgenticView tool to use. Choose one goal: start/create/style/data/debug/windows/templates. Returns a short read-only recipe, required credentials, copyable examples and one nextCall. Replace angle-bracket placeholders with your real retained values. Never executes the example calls.")]
+    public JsonObject Guide(UiGuideGoal goal=UiGuideGoal.start)=>Invoke(()=>UiGuide.Read(goal));
+    [McpServerTool(Name="ui_open",UseStructuredContent=true),Description("START HERE to inspect or interact with your own native card. Supply runId/runToken and optional componentId; selects a fresh visible viewer, maximizes the card and inspects safe targets. Returns private debugId, readable targets, nextActionId and copyable nextCall. Follow nextCall when pending. No scripts, selectors, screenshots or operational actions.")]
+    public Task<JsonObject> UiOpen(string runId,string runToken,string? componentId=null)=>controls.UiOpen(runId,runToken,componentId);
+    [McpServerTool(Name="ui_open_card",UseStructuredContent=true),Description("Operator-only easy debugging for a selected card: supply explicit installation operatorToken (viewer key), cardId and optional componentId. Ingestion/run tokens do not grant operator authority. Returns the same scoped debugId/targets/nextCall as ui_open; never returns the card's run proof.")]
+    public Task<JsonObject> UiOpenCard(string operatorToken,string cardId,string? componentId=null)=>controls.UiOpenCard(operatorToken,cardId,componentId);
+    [McpServerTool(Name="ui_inspect",UseStructuredContent=true),Description("Refresh safe target refs for an existing debugId. Optional componentId narrows inspection. Copy target.ref and its allowedActions; stale refs require inspection, never guessing.")]
+    public Task<JsonObject> UiInspect(string debugId,string? componentId=null)=>controls.UiInspect(debugId,componentId);
+    [McpServerTool(Name="ui_action",Idempotent=true,UseStructuredContent=true),Description("Act using ui_open results: copy nextActionId into requestId. action: click/type/press/scroll/focus needs targetRef; type also value, press key, scroll x/y. zoom needs zoom0.001..16. metrics/profile/layers need no target. Exact retries MUST reuse identical requestId and arguments. Unknown outcomes must never be replayed with a new identity. Follow returned nextCall; no operational actions.")]
+    public Task<JsonObject> UiAction(string debugId,string requestId,UiDebugAction action,string? targetRef=null,string? value=null,string? key=null,double? x=null,double? y=null,double? zoom=null)=>controls.UiAction(debugId,requestId,action.ToString(),targetRef,value,key,x,y,zoom);
+    [McpServerTool(Name="ui_wait",UseStructuredContent=true),Description("Wait at most8seconds for a queued easy UI command; copy debugId and commandId from nextCall. Pending means call ui_wait again, NOT ui_action. Never replay unknown results.")]
+    public Task<JsonObject> UiWait(string debugId,string commandId)=>controls.UiWait(debugId,commandId);
+    [McpServerTool(Name="ui_close",Idempotent=true,UseStructuredContent=true),Description("Finish debugging using only debugId. Cancels queued commands, marks uncertain claimed work unknown, and retains durable retry history.")]
+    public JsonObject UiClose(string debugId)=>controls.UiClose(debugId);
+    [McpServerTool(Name="component_debug_catalog",ReadOnly=true,Idempotent=true,UseStructuredContent=true),Description("Advanced protocol; prefer ui_open for automatic setup and copyable next calls. Discover scoped native component debug commands, safe CSS properties and durable history limits. No scripts/selectors, URLs, screenshots or external UI automation.")]
     public JsonObject DebugCatalog()=>ControlStore.ComponentDebugCatalog();
     [McpServerTool(Name="component_debug_clients",ReadOnly=true,Idempotent=true,UseStructuredContent=true),Description("List online viewer clients advertising your own run only. Requires your private run proof; never returns other advertised cards or client credentials.")]
     public JsonObject DebugClients(string runId,string runToken)=>Invoke(()=>controls.ComponentDebugClients(runId,runToken));
     [McpServerTool(Name="component_debug_open",Idempotent=true,UseStructuredContent=true),Description("Open a bounded native component debugging lease for your own run on an online visible client. Retain requestId for exact retries. Duration1..7200 seconds. No raw run credentials reach the viewer.")]
     public JsonObject DebugOpen(string runId,string runToken,string clientId,string requestId,int durationSeconds=300)=>Invoke(()=>controls.ComponentDebugOpen(runId,runToken,clientId,requestId,durationSeconds));
-    [McpServerTool(Name="component_debug_command",Idempotent=true,UseStructuredContent=true),Description("Queue one typed native command on your own debugging lease: command.operation inspect/styles/click/doubleClick/focus/input/key/scroll/navigate/metrics/profile. Discover schemas/limits via component_debug_catalog. Targets use role/name/index, never selectors or JavaScript. Native frontend forbids operational actions/custom frames. Exact request retries return the same command; a claimed operation is never replayed.")]
+    [McpServerTool(Name="component_debug_command",Idempotent=true,UseStructuredContent=true),Description("Queue one typed native command on your own debugging lease: command.operation inspect/styles/click/doubleClick/focus/input/key/scroll/navigate/viewport/metrics/profile/layers. Discover schemas/limits via component_debug_catalog. Prefer target:{ref} copied from inspect; legacy role/name/index also works. Never selectors or JavaScript. Native frontend forbids operational actions/custom frames. Exact request retries return the same command; a claimed operation is never replayed.")]
     public JsonObject DebugCommand(string runId,string runToken,string sessionId,string requestId,JsonObject command)=>Invoke(()=>controls.ComponentDebugCommand(runId,runToken,sessionId,requestId,command));
     [McpServerTool(Name="component_debug_result",ReadOnly=true,Idempotent=true,UseStructuredContent=true),Description("Read bounded state/result for your own debug command. unknown means claim/restart/lease uncertainty; never automatically re-execute it. No client proof or claim tokens returned.")]
     public JsonObject DebugResult(string runId,string runToken,string sessionId,string commandId)=>Invoke(()=>controls.ComponentDebugResult(runId,runToken,sessionId,commandId));

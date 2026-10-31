@@ -7,7 +7,34 @@ This interface implements the owner's explicit exception for injected component
 actions. It never evaluates agent scripts, accepts selectors, drives another app,
 captures images or invokes configured operational actions.
 
-## Workflow
+## Quickstart: use the easy tools
+
+1. Call `ui_open({runId, runToken})` using your own private registration proof.
+   Optionally include `componentId`. It chooses the freshest visible viewer,
+   opens or reuses a five-minute lease, maximizes your card and inspects it.
+2. Follow the returned `nextCall`. If `state` is `pending`, call `ui_wait` with
+   exactly its arguments until the command finishes. A pending operation is not
+   permission to queue the same action again.
+3. Read `targets`: each has `ref`, `label`, `role`, `componentId` and
+   `allowedActions`. To act, call for example
+   `ui_action({debugId, requestId: nextActionId, action: "click", targetRef: ref})`.
+   Copy the returned `nextActionId` for each new action. Retry the identical call
+   with the identical identity after a transport failure; conflicting input is
+   rejected. Never replay an `unknown` action with a new request ID.
+4. `ui_inspect({debugId})` refreshes stale targets. `type` additionally takes
+   `value` (empty clears a draft), `press` takes `key`, and `scroll` takes `x/y`.
+   `focus` uses a target; `zoom` takes an absolute `zoom` from 0.001 to 16.
+   `metrics`, `layers`, and the bounded five-second `profile` take no target.
+5. Call `ui_close({debugId})` when finished. Treat `debugId` as a private scoped
+   capability. It contains no run token and grants access only to that lease.
+   Expired/offline leases require `ui_open` again. Errors include recovery guidance.
+
+Only inspection-advertised safe actions are offered. Custom frames, sensitive
+fields and configured operational actions remain excluded by the native frontend.
+The tools do not accept selectors, scripts or URLs, and do not generate screenshots.
+All command identities and outcomes use the same durable history as the advanced API.
+
+## Advanced workflow
 
 1. Call `component_debug_catalog` for current schemas, limits and CSS properties.
 2. Call `component_debug_clients` with your run credentials. Choose a visible

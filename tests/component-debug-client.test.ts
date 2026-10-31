@@ -36,3 +36,39 @@ test('debugging excludes operational actions, submissions, custom frames, ambigu
  }finally{await f.close();}
 });
 
+
+test('inspected references preserve identity and reject renamed, replaced and cross-card controls',async()=>{
+ const f=await fixture();try{
+  const inspect=async()=>(await f.run({operation:'inspect'} ) as any).components[0].targets;
+  const entries=await inspect(),entry=entries.find((e:any)=>e.name==='Series A'),button=document.querySelector('button')!;
+  assert.deepEqual(Object.keys(entry.target),['ref']);assert.ok(entry.actions.includes('click'));
+  assert.deepEqual((await inspect()).find((e:any)=>e.name==='Series A').target,entry.target);
+  assert.deepEqual(entries.find((e:any)=>e.name==='Secret').actions,[]);
+  let clicks=0;button.addEventListener('click',()=>clicks++);await f.run({operation:'click',componentId:'chart',target:entry.target});assert.equal(clicks,1);
+  button.setAttribute('aria-label','Renamed');await assert.rejects(f.run({operation:'click',componentId:'chart',target:entry.target}),/stale/);
+  const fresh=(await inspect()).find((e:any)=>e.name==='Renamed');assert.notEqual(fresh.target.ref,entry.target.ref);
+  const second=document.querySelector<HTMLElement>('[data-debug-run=two]')!;second.append(button);await assert.rejects(f.run({operation:'click',componentId:'chart',target:fresh.target}),/stale/);
+  document.querySelector('[data-debug-run=one]')!.innerHTML='<button aria-label="Renamed">Replacement</button>';
+  await assert.rejects(f.run({operation:'click',componentId:'chart',target:fresh.target}),/stale/);assert.equal(clicks,1);
+ }finally{await f.close();}
+});
+
+test('native inspection exposes dropdown choices and safe bounded grid scrolling',async()=>{
+ const f=await fixture();try{
+  const root=document.querySelector<HTMLElement>('[data-debug-run=one]')!;root.dataset.debugKind='data-grid';
+  root.innerHTML='<div class="control-grid" style="overflow-x:auto;overflow-y:auto"><table><tr><td>Observation</td></tr></table></div><button data-control="place">Place order</button>';
+  const grid=root.querySelector<HTMLElement>('.control-grid')!;Object.defineProperties(grid,{scrollHeight:{value:900},clientHeight:{value:100}});let y=0;grid.scrollBy=options=>{y+=(options as ScrollToOptions).top??0;};
+  const inspect=await f.run({operation:'inspect'}) as any,entries=inspect.components[0].targets;
+  assert.ok(entries.find((e:any)=>e.target&&e.actions.includes('scroll')));assert.deepEqual(entries.find((e:any)=>e.name==='Place order').actions,[]);
+  await f.run({operation:'scroll',componentId:'chart',target:entries.find((e:any)=>e.actions.includes('scroll')).target,x:0,y:200});assert.equal(y,200);
+  root.dataset.debugKind='chart';root.innerHTML='<select aria-label="Interval"><option value="s">Seconds</option><option value="h" disabled>Hours</option></select>';
+  const field=(await f.run({operation:'inspect'}) as any).components[0].targets[0];assert.ok(field.actions.includes('input'));assert.deepEqual(field.field.options,[{value:'s',label:'Seconds',disabled:false},{value:'h',label:'Hours',disabled:true}]);
+ }finally{await f.close();}
+});
+test('viewport diagnostics retain ordered bounded frame gaps and report actual step count',async()=>{
+ const f=await fixture();try{
+  const calls:any[]=[];let zoom=.1;
+  const result=await executeDebugCommand('one',{operation:'viewport',zoom:1,steps:3,intervalMs:8},(_id,_mode,view)=>{calls.push(view);if(view?.zoom)zoom=view.zoom;return {zoom,x:0,y:0};},f.measurements) as any;
+  assert.equal(result.steps,3);assert.equal(result.stepFrameMs.length,3);assert.equal(result.firstStepMs,result.stepFrameMs[0]);assert.equal(result.lastStepMs,result.stepFrameMs.at(-1));assert.equal(result.stepFrameP99Ms,Math.max(...result.stepFrameMs));assert.equal(calls[0].phase,'begin');assert.equal(calls.at(-2).phase,'end');assert.equal(zoom,1);
+ }finally{await f.close();}
+});

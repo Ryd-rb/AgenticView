@@ -44,6 +44,8 @@
   strategies, orders and trades are forex-template concepts, not native types.
 - Use a freeform canvas with nonoverlapping draggable cards, position locks,
   content sizing and manual fixed sizing. Native displays are agent subcards.
+- Keep the MCP intuitive for weaker models: guided next calls, clear native target references,
+  allowed actions and actionable errors; preserve scoped authority and safe retries.
 - Support compact, composable native GUIs across buttons, text fields, dropdowns,
   grids and other built-in components, with optional plain borderless surfaces.
   Compact native views may use a small accessible Built-in origin marker; custom

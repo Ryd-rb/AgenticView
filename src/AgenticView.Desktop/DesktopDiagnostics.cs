@@ -11,6 +11,7 @@ internal sealed class DesktopDiagnostics(string directory)
     private bool profiling;
     public async Task<JsonObject> Capture(CoreWebView2 core,string operation,int seconds)
     {
+        if(operation=="layers")return await DesktopLayers.Capture(core);
         if(operation=="metrics"){
             await core.CallDevToolsProtocolMethodAsync("Performance.enable","{}");
             var metrics=JsonNode.Parse(await core.CallDevToolsProtocolMethodAsync("Performance.getMetrics","{}"));

@@ -41,7 +41,7 @@ public sealed class BridgePolicy(Uri document, string? cardId = null, string? fo
             if(root.ValueKind!=JsonValueKind.Object)return false;var fields=root.EnumerateObject().ToArray();
             if(fields.Length is <3 or >4||fields.Select(p=>p.Name).Distinct(StringComparer.Ordinal).Count()!=fields.Length||fields.Any(p=>p.Name is not ("type" or "requestId" or "operation" or "durationSeconds")))return false;
             if(!root.TryGetProperty("type",out var type)||type.GetString()!="agenticview:debug-native"||!root.TryGetProperty("requestId",out var request)||!Guid.TryParseExact(request.GetString(),"D",out _))return false;
-            if(!root.TryGetProperty("operation",out var op)||op.GetString() is not ("metrics" or "profile"))return false;
+            if(!root.TryGetProperty("operation",out var op)||op.GetString() is not ("metrics" or "profile" or "layers"))return false;
             if(root.TryGetProperty("durationSeconds",out var duration)&&(!duration.TryGetInt32(out seconds)||seconds is <1 or >30))return false;
             id=request.GetString()!;operation=op.GetString()!;return true;
         }catch(JsonException){return false;}catch(InvalidOperationException){return false;}

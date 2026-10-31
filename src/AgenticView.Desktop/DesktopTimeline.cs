@@ -11,7 +11,7 @@ namespace AgenticView.Desktop;
 // category, stream, filename, URL, script, screenshot or snapshot is accepted.
 internal sealed class DesktopTimeline(CoreWebView2 core) : IAsyncDisposable
 {
-    private const int ByteLimit=16_777_216;
+    private const int ByteLimit=67_108_864;
     private static readonly HashSet<string> EventNames=["Paint","PrePaint","UpdateLayerTree","Layerize","Commit","DrawFrame","CompositeLayers","Layout","UpdateLayoutTree","RecalculateStyles","FunctionCall","RunTask"];
     private readonly TaskCompletionSource<(string Stream,bool DataLoss)> completion=new(TaskCreationOptions.RunContinuationsAsynchronously);
     private CoreWebView2DevToolsProtocolEventReceiver? receiver;
@@ -34,9 +34,9 @@ internal sealed class DesktopTimeline(CoreWebView2 core) : IAsyncDisposable
         try{
             receiver=core.GetDevToolsProtocolEventReceiver("Tracing.tracingComplete");receiver.DevToolsProtocolEventReceived+=OnComplete;
             // Only this positive category filter is enabled. Sampling is provided
-            // separately by Profiler; systrace and all disabled categories stay off.
+            // separately by Profiler; only the fixed invalidation metadata category is added.
             await core.CallDevToolsProtocolMethodAsync("Tracing.start","""
-                {"transferMode":"ReturnAsStream","streamFormat":"json","streamCompression":"none","traceConfig":{"recordMode":"recordUntilFull","traceBufferSizeInKb":4096,"enableSampling":false,"enableSystrace":false,"includedCategories":["devtools.timeline"]}}
+                {"transferMode":"ReturnAsStream","streamFormat":"json","streamCompression":"none","traceConfig":{"recordMode":"recordUntilFull","traceBufferSizeInKb":32768,"enableSampling":false,"enableSystrace":false,"includedCategories":["devtools.timeline","disabled-by-default-devtools.timeline.invalidationTracking"]}}
                 """);
             started=true;
         }catch(Exception){unavailable="Native timeline tracing is unavailable or already in use.";Detach();}
@@ -56,7 +56,7 @@ internal sealed class DesktopTimeline(CoreWebView2 core) : IAsyncDisposable
                 using var chunk=JsonDocument.Parse(raw);var value=chunk.RootElement;
                 var text=value.GetProperty("data").GetString()??throw new InvalidOperationException("Timeline chunk is not text.");
                 var bytes=value.TryGetProperty("base64Encoded",out var encoded)&&encoded.ValueKind==JsonValueKind.True?Convert.FromBase64String(text):Encoding.UTF8.GetBytes(text);
-                if(bytes.Length>65536||output.Length+bytes.Length>ByteLimit)throw new InvalidOperationException("Timeline exceeds its 16MiB byte cap.");
+                if(bytes.Length>65536||output.Length+bytes.Length>ByteLimit)throw new InvalidOperationException("Timeline exceeds its 64MiB byte cap.");
                 await output.WriteAsync(bytes);
                 if(value.GetProperty("eof").GetBoolean()){
                     var trace=output.ToArray();var summary=Summarize(trace);
@@ -75,9 +75,12 @@ internal sealed class DesktopTimeline(CoreWebView2 core) : IAsyncDisposable
     {
         using var document=JsonDocument.Parse(trace);
         if(document.RootElement.ValueKind!=JsonValueKind.Object||!document.RootElement.TryGetProperty("traceEvents",out var events)||events.ValueKind!=JsonValueKind.Array)throw new InvalidOperationException("Invalid timeline JSON.");
-        var costs=new Dictionary<string,(int Count,double Total,double Max)>();var count=0;var matched=0;var truncated=false;
+        var invalidations=new Dictionary<string,int>();var costs=new Dictionary<string,(int Count,double Total,double Max)>();var count=0;var matched=0;var truncated=false;
         foreach(var item in events.EnumerateArray()){
             count++;
+            if(item.ValueKind==JsonValueKind.Object&&item.TryGetProperty("name",out var invalidationName)&&invalidationName.ValueKind==JsonValueKind.String&&invalidationName.GetString() is string tracking&&tracking.EndsWith("InvalidationTracking",StringComparison.Ordinal)){
+                var reason=tracking;if(item.TryGetProperty("args",out var args)&&args.TryGetProperty("data",out var data)&&data.TryGetProperty("reason",out var why)&&why.ValueKind==JsonValueKind.String)reason+=": "+why.GetString();reason=reason[..Math.Min(reason.Length,240)];if(invalidations.ContainsKey(reason)||invalidations.Count<128)invalidations[reason]=invalidations.GetValueOrDefault(reason)+1;
+            }
             if(item.ValueKind!=JsonValueKind.Object||!item.TryGetProperty("ph",out var phase)||phase.ValueKind!=JsonValueKind.String||phase.GetString()!="X"||!item.TryGetProperty("name",out var nameValue)||nameValue.ValueKind!=JsonValueKind.String)continue;
             var name=nameValue.GetString()!;
             if(name.Length>160||!(EventNames.Contains(name)||name.StartsWith("AX",StringComparison.Ordinal)||name.Contains("accessibility",StringComparison.OrdinalIgnoreCase)))continue;
@@ -87,7 +90,7 @@ internal sealed class DesktopTimeline(CoreWebView2 core) : IAsyncDisposable
             var old=costs.GetValueOrDefault(name);costs[name]=(old.Count+1,old.Total+microseconds/1000,Math.Max(old.Max,microseconds/1000));
         }
         var top=new JsonArray();foreach(var item in costs.OrderByDescending(pair=>pair.Value.Total).Take(50))top.Add(new JsonObject{["name"]=item.Key,["count"]=item.Value.Count,["totalMs"]=item.Value.Total,["maxMs"]=item.Value.Max});
-        return new JsonObject{["categories"]=new JsonArray("devtools.timeline"),["eventCount"]=count,["matchedCompleteEvents"]=matched,["top"]=top,["truncated"]=truncated||costs.Count>50,["scope"]="Known named complete (X) timeline events only, across captured processes/threads. Inclusive durations overlap; do not add totals. Absent events are not proof of zero cost. No screenshots/snapshots, physical input or compositor presentation measurement."};
+        return new JsonObject{["categories"]=new JsonArray("devtools.timeline","disabled-by-default-devtools.timeline.invalidationTracking"),["invalidationReasons"]=JsonSerializer.SerializeToNode(invalidations),["eventCount"]=count,["matchedCompleteEvents"]=matched,["top"]=top,["truncated"]=truncated||costs.Count>50,["scope"]="Known named complete (X) timeline events only, across captured processes/threads. Inclusive durations overlap; do not add totals. Absent events are not proof of zero cost. No screenshots/snapshots, physical input or compositor presentation measurement."};
     }
     private async Task End(){if(!started||ended)return;await core.CallDevToolsProtocolMethodAsync("Tracing.end","{}").WaitAsync(TimeSpan.FromSeconds(10));ended=true;}
     private void Detach(){if(receiver is not null){receiver.DevToolsProtocolEventReceived-=OnComplete;receiver=null;}}

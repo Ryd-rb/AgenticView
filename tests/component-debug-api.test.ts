@@ -120,3 +120,15 @@ test('viewport diagnostics accept precise bounded zoom paths and preserve exact 
     }
   }finally{await client.close();await f.close();}
 });
+
+test('diagnostics accept scoped refs and fixed layers metadata, rejecting mixed refs and arbitrary methods',async()=>{
+ const f=await fixture();try{
+  const a=await register(f,'ref-debug'),clientId=randomUUID();await json(await f.call('/api/debug/poll',secrets.viewerToken,{clientId,clientToken:proof,cardIds:[a.runId],visible:true,platform:'desktop'}));
+  const client=await mcp(f),session=await tool(client,'component_debug_open',{...a,clientId,requestId:'refs-lease',durationSeconds:30});
+  await tool(client,'component_debug_command',{...a,sessionId:session.id,requestId:'fixed-layers',command:{operation:'layers'}});
+  await tool(client,'component_debug_command',{...a,sessionId:session.id,requestId:'safe-ref',command:{operation:'click',componentId:'chart',target:{ref:'e123abc'}}});
+  for(const [index,target] of [{ref:'e123abc',name:'Other'},{ref:'e/x'},{ref:'e'}].entries())await tool(client,'component_debug_command',{...a,sessionId:session.id,requestId:'bad-ref-'+index,command:{operation:'click',componentId:'chart',target}},true);
+  await tool(client,'component_debug_command',{...a,sessionId:session.id,requestId:'raw-layers',command:{operation:'LayerTree.enable'}},true);
+  await client.close();
+ }finally{await f.close();}
+});
