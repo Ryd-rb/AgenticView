@@ -147,5 +147,5 @@ table{font-size:12px;line-height:1.25}th{font-size:11px;line-height:1.25;color:#
 :is(.card-surface[data-preview=true],.world[data-camera-gesture=true] .card-surface) [data-scroll-retained=true]{overflow:hidden!important}
 :is(.card-surface[data-preview=true],.world[data-camera-gesture=true] .card-surface) :is(.table-scroll,.control-grid,.linked-grid-shell):not([data-scroll-retained=true]) th{position:static}
 
-/* Native offscreen paint skipping preserves every visible far-zoom view. */
-.world-card.agent-card{content-visibility:auto}
+/* Keep complete native views painted at every zoom; the viewport clips offscreen geometry. */
+.world-card.agent-card{content-visibility:visible}
