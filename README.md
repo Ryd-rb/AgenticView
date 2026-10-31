@@ -67,6 +67,9 @@ C# · .NET 10 · React · MIT
   belong to your adapter. Provider-backed charts query bounded numeric envelopes
   over raw high-rate history. See [application cards and controls](docs/controls.md)
   and the [high-rate example](examples/applications/high-rate-data.agenticview.json).
+- **Debug native components through MCP.** Inspect layout/styles, inject scoped
+  local input and collect native renderer metrics/profiles with durable receipts.
+  See [component debugging](docs/component-debugging.md).
 - **Share the application.** Agents can keep versioned `.agenticview.json`
   definitions in their own repositories. Import them through an agent or the
   settings card, binding reusable controls to local workers. Definitions exclude

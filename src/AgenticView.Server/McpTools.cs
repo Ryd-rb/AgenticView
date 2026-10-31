@@ -13,6 +13,18 @@ public sealed class McpTools(Hub hub, ControlStore controls, OperatorView view)
         try { return action(); }
         catch (HubError error) { throw new McpException(error.Message); }
     }
+    [McpServerTool(Name="component_debug_catalog",ReadOnly=true,Idempotent=true,UseStructuredContent=true),Description("Discover scoped native component debug commands, safe CSS properties and durable history limits. No scripts/selectors, URLs, screenshots or external UI automation.")]
+    public JsonObject DebugCatalog()=>ControlStore.ComponentDebugCatalog();
+    [McpServerTool(Name="component_debug_clients",ReadOnly=true,Idempotent=true,UseStructuredContent=true),Description("List online viewer clients advertising your own run only. Requires your private run proof; never returns other advertised cards or client credentials.")]
+    public JsonObject DebugClients(string runId,string runToken)=>Invoke(()=>controls.ComponentDebugClients(runId,runToken));
+    [McpServerTool(Name="component_debug_open",Idempotent=true,UseStructuredContent=true),Description("Open a bounded native component debugging lease for your own run on an online visible client. Retain requestId for exact retries. Duration1..7200 seconds. No raw run credentials reach the viewer.")]
+    public JsonObject DebugOpen(string runId,string runToken,string clientId,string requestId,int durationSeconds=300)=>Invoke(()=>controls.ComponentDebugOpen(runId,runToken,clientId,requestId,durationSeconds));
+    [McpServerTool(Name="component_debug_command",Idempotent=true,UseStructuredContent=true),Description("Queue one typed native command on your own debugging lease: command.operation inspect/styles/click/doubleClick/focus/input/key/scroll/navigate/metrics/profile. Discover schemas/limits via component_debug_catalog. Targets use role/name/index, never selectors or JavaScript. Native frontend forbids operational actions/custom frames. Exact request retries return the same command; a claimed operation is never replayed.")]
+    public JsonObject DebugCommand(string runId,string runToken,string sessionId,string requestId,JsonObject command)=>Invoke(()=>controls.ComponentDebugCommand(runId,runToken,sessionId,requestId,command));
+    [McpServerTool(Name="component_debug_result",ReadOnly=true,Idempotent=true,UseStructuredContent=true),Description("Read bounded state/result for your own debug command. unknown means claim/restart/lease uncertainty; never automatically re-execute it. No client proof or claim tokens returned.")]
+    public JsonObject DebugResult(string runId,string runToken,string sessionId,string commandId)=>Invoke(()=>controls.ComponentDebugResult(runId,runToken,sessionId,commandId));
+    [McpServerTool(Name="component_debug_close",Idempotent=true,UseStructuredContent=true),Description("Close your native debug lease, cancel queued commands and mark claimed work unknown. Retain bounded history and exact retry identities.")]
+    public JsonObject DebugClose(string runId,string runToken,string sessionId)=>Invoke(()=>controls.ComponentDebugClose(runId,runToken,sessionId));
     [McpServerTool(Name="view_read",ReadOnly=true,Idempotent=true,UseStructuredContent=true),Description("Read the whole view with explicit operator authority. operatorToken is the installation viewer key supplied only to authorized managing agents; ingestion/run/session keys never qualify. resource: cards (metadata pages 1..100), card, settings, archives, archive, controls or session; cardId selects the resource. Never publish returned installation-private content or credentials.")]
     public JsonObject ReadView(string operatorToken,string resource,string? cardId=null,int offset=0,int limit=25)=>Invoke(()=>view.Read(operatorToken,resource,cardId,offset,limit));
 

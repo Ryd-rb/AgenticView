@@ -125,6 +125,11 @@
   in configured providers; page grids and query bounded chart envelopes. Validate
   100 cards with many heavy components and million-point data passes; distinguish
   headless work, storage throughput, browser paint and desktop-framework comparisons.
+- Owner clarification, 31 October 2026: the general computer/browser automation
+  ban remains. Explicit component click/input injection through the application's
+  scoped MCP debugging API is allowed. Keep diagnostics thorough, bounded and
+  observable, with own-card authority, typed commands, receipts and uncertain
+  outcomes retained; no arbitrary evaluation, screenshots or operational actions.
 - Reuse unchanged agent branches and telemetry state; navigation and stats updates
   must not rebuild every card. Keep asset compression/caching separate from SSE.
 - Support a dedicated Windows fullscreen window with no system title bar and

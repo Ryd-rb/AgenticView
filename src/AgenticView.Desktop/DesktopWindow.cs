@@ -21,6 +21,7 @@ internal sealed class DesktopWindow : Form
     private readonly bool traceInput = Environment.GetEnvironmentVariable("AV_INPUT_TRACE") == "1";
     private int traceCount;
     private Rectangle normalBounds;
+    private DesktopDiagnostics? diagnostics;
 
     public DesktopWindow(DesktopOptions options)
     {
@@ -74,6 +75,9 @@ internal sealed class DesktopWindow : Form
             core.PermissionRequested += (_, e) => e.State = CoreWebView2PermissionState.Deny;
             core.WebMessageReceived += (_, e) =>
             {
+                if(documentReady&&policy.TryReadDiagnostic(e.Source,core.Source,e.WebMessageAsJson,out var diagnosticId,out var diagnosticOperation,out var diagnosticSeconds)){
+                    BeginInvoke(async()=>{try{diagnostics??=new(options.DataDirectory);var result=await diagnostics.Capture(core,diagnosticOperation,diagnosticSeconds);if(!IsDisposed&&documentReady&&policy.IsTrustedDocument(core.Source))core.PostWebMessageAsJson(JsonSerializer.Serialize(new{type="agenticview:debug-native-result",requestId=diagnosticId,ok=true,result}));}catch(Exception){if(!IsDisposed&&documentReady&&policy.IsTrustedDocument(core.Source))core.PostWebMessageAsJson(JsonSerializer.Serialize(new{type="agenticview:debug-native-result",requestId=diagnosticId,ok=false,error="Native diagnostics unavailable or bounded profile limit reached."}));}});return;
+                }
                 if(documentReady&&policy.TryReadWindowIcon(e.Source,core.Source,e.WebMessageAsJson,out var iconRequest,out var iconSpec)){
                     BeginInvoke(()=>{if(IsDisposed||!documentReady||!policy.IsTrustedDocument(core.Source))return;var ok=false;try{if(WindowIconSpec.Key(windowIcon)!=WindowIconSpec.Key(iconSpec)){var next=iconSpec is null?BrandIcon.Create():WindowIconRenderer.Create(iconSpec);try{CardWindowIcon.Persist(options,iconSpec,next);CardWindowIcon.ApplyIdentity(Handle,options);var old=currentIcon;Icon=next;currentIcon=next;windowIcon=iconSpec;old.Dispose();}catch{next.Dispose();throw;}}else{CardWindowIcon.Persist(options,iconSpec,currentIcon);CardWindowIcon.ApplyIdentity(Handle,options);}ok=true;}catch(Exception){Console.WriteLine("{\"event\":\"desktop-window-icon\",\"ok\":false}");}core.PostWebMessageAsJson(JsonSerializer.Serialize(new{type="agenticview:window-icon-result",requestId=iconRequest,ok,windowId,processId=Environment.ProcessId,version=WindowIconSpec.Key(windowIcon)}));});return;
                 }

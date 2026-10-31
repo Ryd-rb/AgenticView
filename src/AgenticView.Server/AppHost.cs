@@ -64,6 +64,9 @@ public static class AppHost
         });
         app.UseRateLimiter();
         app.MapGet("/health", () => new { status = "ok", version = "0.4.0", runtime = ".NET 10" });
+        app.MapPost("/api/debug/poll",(Func<HttpContext,Task<JsonObject>>)(async c=>controls.ComponentDebugPoll(await Body(c))));
+        app.MapPost("/api/debug/complete",(Func<HttpContext,Task<JsonObject>>)(async c=>controls.ComponentDebugComplete(await Body(c))));
+        app.MapPost("/api/debug/disconnect",(Func<HttpContext,Task<JsonObject>>)(async c=>controls.ComponentDebugDisconnect(await Body(c))));
         app.MapGet("/api/session", (HttpContext c) => { c.Response.Headers.CacheControl = "no-store"; return new { authenticated = Authentication.Viewer(c.Request, config.Secrets) }; });
         app.MapPost("/api/login", (Func<HttpContext, Task<IResult>>)(async c =>
         {

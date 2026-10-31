@@ -30,7 +30,22 @@ public sealed class BridgePolicy(Uri document, string? cardId = null, string? fo
 
     public string InitializationScript => "if(window===window.top&&location.origin===" +
         JsonSerializer.Serialize(document.GetLeftPart(UriPartial.Authority)) + "&&location.pathname===" +
-        JsonSerializer.Serialize(document.AbsolutePath) + "&&location.search===''){Object.defineProperty(window,'agenticViewDesktop',{value:Object.freeze({version:1,platform:'windows',popOut:true,windowIcons:true,cardId:"+JsonSerializer.Serialize(cardId)+",focusCardId:"+JsonSerializer.Serialize(focusCardId)+"}),writable:false,configurable:false});}";
+        JsonSerializer.Serialize(document.AbsolutePath) + "&&location.search===''){Object.defineProperty(window,'agenticViewDesktop',{value:Object.freeze({version:1,platform:'windows',popOut:true,windowIcons:true,debugging:true,cardId:"+JsonSerializer.Serialize(cardId)+",focusCardId:"+JsonSerializer.Serialize(focusCardId)+"}),writable:false,configurable:false});}";
+
+    public bool TryReadDiagnostic(string source,string currentSource,string json,out string id,out string operation,out int seconds)
+    {
+        id="";operation="";seconds=5;
+        if(!IsTrustedDocument(source)||!IsTrustedDocument(currentSource)||json.Length>512)return false;
+        try{
+            using var message=JsonDocument.Parse(json,new JsonDocumentOptions{MaxDepth=3});var root=message.RootElement;
+            if(root.ValueKind!=JsonValueKind.Object)return false;var fields=root.EnumerateObject().ToArray();
+            if(fields.Length is <3 or >4||fields.Select(p=>p.Name).Distinct(StringComparer.Ordinal).Count()!=fields.Length||fields.Any(p=>p.Name is not ("type" or "requestId" or "operation" or "durationSeconds")))return false;
+            if(!root.TryGetProperty("type",out var type)||type.GetString()!="agenticview:debug-native"||!root.TryGetProperty("requestId",out var request)||!Guid.TryParseExact(request.GetString(),"D",out _))return false;
+            if(!root.TryGetProperty("operation",out var op)||op.GetString() is not ("metrics" or "profile"))return false;
+            if(root.TryGetProperty("durationSeconds",out var duration)&&(!duration.TryGetInt32(out seconds)||seconds is <1 or >30))return false;
+            id=request.GetString()!;operation=op.GetString()!;return true;
+        }catch(JsonException){return false;}catch(InvalidOperationException){return false;}
+    }
 
     public bool TryReadPopOut(string source,string currentSource,string json,out string requestId,out string targetId,out string title)
     {

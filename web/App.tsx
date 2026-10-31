@@ -1,3 +1,4 @@
+import {useComponentDebug} from './ComponentDebug.js';
 import { control } from '../shared/control-presentation.js';
 import { ComponentLayout } from './ComponentLayout.js';
 import { CardActions, CardHeading, CardDetails, type CardAction } from './CardChrome.js';
@@ -328,6 +329,7 @@ function Monitor() {
       if(shortcut.cardId!==id){const child=document.querySelector<HTMLElement>('[data-child-card-id="'+shortcut.cardId+'"]'),view=child?.closest<HTMLElement>('.card-content-scroll');if(child&&view){const bounds=child.getBoundingClientRect(),frame=view.getBoundingClientRect(),scale=frame.width/view.offsetWidth;if(scale>0){view.scrollTop+=(bounds.top-frame.top)/scale;view.scrollLeft+=Math.min(0,(bounds.left-frame.left)/scale);}}}
     });
   }
+  useComponentDebug(snapshot,auth===true&&documentActive,(id,mode)=>{if(!snapshot.agents.some(agent=>agent.id===id))throw new Error('Debug card is unavailable.');if(mode==='canvas'){setMaximized(null);activateCard(null);}else if(mode==='fit'){setMaximized(null);activateCard(null);applyCamera(fitToViewport(Object.values(layouts),size,80));}else{setMaximized(mode==='maximize'?id:null);activateCard(id);if(mode==='focus')focusCard(id);}});
   function focusCard(id: string) { const rect = worldRect(id); if (rect) applyCamera(fitToViewport([rect], size, 80)); }
   async function arrangeAll() {
     setPacking(true);
