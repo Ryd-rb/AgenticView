@@ -14,6 +14,7 @@ import { ControlView } from './ControlViews.js';
 import { configureCollection, resolveConfiguration } from '../shared/component-config.js';
 import { ComponentSettings, presentationStyle } from './ComponentSettings.js';
 import { SessionView } from './SessionViews.js';
+import { ExecutionWorkbench } from './ExecutionWorkbench.js';
 import { control } from '../shared/control-presentation.js';
 import { ComponentControls, ControlContainer, ControlContent, controlStyle } from './ControlPresentation.js';
 
@@ -63,6 +64,7 @@ export const ComponentView = memo(function ComponentView({ component: original, 
   if (configuration.visible === false) return null;
   let body: React.ReactNode;
   switch (c.kind) {
+    case 'execution-workbench': body=<ExecutionWorkbench component={original as Extract<Component,{kind:'execution-workbench'}>} runId={runId} manual={active}/>;break;
     case 'action-panel': case 'log-stream': case 'data-grid': body = <ControlView component={c} runId={runId} />; break;
     case 'session-launcher': case 'agent-session': body = <SessionView component={c} runId={runId} embeds={embeds} />; break;
     case 'metric': body = <div className={`metric tone-${c.data.tone ?? 'neutral'}`}><div><strong>{stringify(c.data.value)}</strong><span>{c.data.unit}</span></div>{c.data.change && <small>{c.data.change}</small>}{!!c.data.history?.length && <Sparkline values={c.data.history} />}</div>; break;

@@ -6,5 +6,6 @@
   <ItemGroup>
     <Compile Include="../../src/AgenticView.Desktop/DesktopOptions.cs" Link="DesktopOptions.cs" />
     <Compile Include="../../src/AgenticView.Desktop/BridgePolicy.cs" Link="BridgePolicy.cs" />
+    <Compile Include="../../src/AgenticView.Desktop/CardWindowSpec.cs" Link="CardWindowSpec.cs" />
   </ItemGroup>
 </Project>

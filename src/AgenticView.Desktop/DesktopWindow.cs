@@ -23,10 +23,10 @@ internal sealed class DesktopWindow : Form
     public DesktopWindow(DesktopOptions options)
     {
         this.options = options;
-        policy = new(options.Url);
+        policy = new(options.Url,options.CardId,options.FocusCardId);
         brandIcon = BrandIcon.Create();
         Icon = brandIcon;
-        Text = "AgenticView";
+        Text = options.CardName??"AgenticView";
         FormBorderStyle = FormBorderStyle.None;
         StartPosition = FormStartPosition.Manual;
         BackColor = view.DefaultBackgroundColor;
@@ -34,9 +34,11 @@ internal sealed class DesktopWindow : Form
         var monitor = Screen.FromPoint(Cursor.Position);
         normalBounds = new Rectangle(monitor.WorkingArea.X + 60, monitor.WorkingArea.Y + 60,
             Math.Max(640, monitor.WorkingArea.Width - 120), Math.Max(420, monitor.WorkingArea.Height - 120));
-        Bounds = monitor.Bounds;
+        fullscreen=!options.Windowed;
+        Bounds = fullscreen?monitor.Bounds:normalBounds;
         Controls.Add(view);
         Shown += async (_, _) => await InitializeAsync();
+        if(options.CardId is not null)HandleCreated+=(_,_)=>{TaskbarIdentity.Apply(Handle,CardWindowSpec.AppId(options.Url,options.CardId),CardWindowSpec.Command(Environment.ProcessPath!,options),options.CardName??"AgenticView card",Environment.ProcessPath!+",0");Console.WriteLine(JsonSerializer.Serialize(new{@event="desktop-card-identity",cardId=options.CardId,appId=CardWindowSpec.AppId(options.Url,options.CardId),relaunchConfigured=true}));};
         Resize += (_, _) => PublishState();
     }
 
@@ -69,6 +71,9 @@ internal sealed class DesktopWindow : Form
             core.PermissionRequested += (_, e) => e.State = CoreWebView2PermissionState.Deny;
             core.WebMessageReceived += (_, e) =>
             {
+                if(documentReady&&policy.TryReadPopOut(e.Source,core.Source,e.WebMessageAsJson,out var requestId,out var cardId,out var title)){
+                    BeginInvoke(()=>{if(IsDisposed||!documentReady||!policy.IsTrustedDocument(core.Source))return;try{var result=PopOutLauncher.Open(options,cardId,title);core.PostWebMessageAsJson(JsonSerializer.Serialize(new{type="agenticview:popout-result",requestId,ok=true,processId=result.ProcessId,alreadyOpen=result.AlreadyOpen}));}catch(Exception){core.PostWebMessageAsJson(JsonSerializer.Serialize(new{type="agenticview:popout-result",requestId,ok=false,message="The independent card window could not open. Retained profiles were preserved."}));}});return;
+                }
                 if (documentReady && traceInput && traceCount < 4096 && policy.TryReadInputTrace(e.Source, core.Source, e.WebMessageAsJson, out var input))
                 { traceCount++; Console.WriteLine("{\"event\":\"desktop-input\",\"trace\":" + input + "}"); return; }
                 if (documentReady && policy.TryReadAction(e.Source, core.Source, e.WebMessageAsJson, out var action))
@@ -166,7 +171,7 @@ internal sealed class DesktopWindow : Form
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { Icon = null; brandIcon.Dispose(); }
+        if (disposing) { if(options.CardId is not null&&IsHandleCreated)TaskbarIdentity.Clear(Handle);Icon = null; brandIcon.Dispose(); }
         base.Dispose(disposing);
     }
 

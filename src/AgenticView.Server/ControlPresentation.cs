@@ -5,7 +5,7 @@ namespace AgenticView.Server;
 
 public static class ControlPresentation
 {
-    private static readonly HashSet<string> Ids = ["configure", "header", "footer", "title", "role", "context", "agentId", "times", "status", "fit", "lock", "collapse", "archive", "resize", "navigation", "zoomIn", "zoomOut", "resetView", "deactivate", "scale", "caption", "filter", "refresh", "add", "edit", "delete", "history", "evaluate", "bulk", "columns", "pagination", "legend", "dataTable", "stepSelect", "expand", "save", "cancel", "submit"];
+    private static readonly HashSet<string> Ids = ["configure", "header", "footer", "title", "role", "context", "agentId", "times", "status", "fit", "lock", "collapse", "archive", "resize", "navigation", "zoomIn", "zoomOut", "resetView", "deactivate", "scale", "caption", "filter", "refresh", "add", "edit", "delete", "history", "evaluate", "bulk", "columns", "pagination", "legend", "dataTable", "stepSelect", "expand", "save", "cancel", "submit", "popout"];
     private static readonly HashSet<string> Properties = ["visible", "label", "tooltip", "appearance", "icon", "variant", "placement", "mode", "initiallyOpen"];
     public static string[] Catalog => Ids.Order(StringComparer.Ordinal).ToArray();
     public static void Validate(JsonObject map)

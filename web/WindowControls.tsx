@@ -4,12 +4,20 @@ import { Copy, Minus, Square, X } from 'lucide-react';
 
 type WindowState = 'fullscreen' | 'normal' | 'minimized' | 'maximized';
 type Bridge = { postMessage: (message: unknown) => void; addEventListener: (event: 'message', callback: (event: { data: unknown }) => void) => void; removeEventListener: (event: 'message', callback: (event: { data: unknown }) => void) => void };
-function desktop() { return window as unknown as { agenticViewDesktop?: { version: number }; chrome?: { webview?: Bridge } }; }
+function desktop() { return (typeof window==='undefined'?{}:window) as unknown as { agenticViewDesktop?: { version: number; popOut?:boolean; cardId?:string; focusCardId?:string }; chrome?: { webview?: Bridge } }; }
+export function desktopCardId(){const id=desktop().agenticViewDesktop?.cardId;return id&&/^[a-zA-Z0-9_.:-]{1,100}$/.test(id)?id:null;}
+export function desktopFocusCardId(){const id=desktop().agenticViewDesktop?.focusCardId;return id&&/^[a-zA-Z0-9_.:-]{1,100}$/.test(id)?id:null;}
+export function canPopOut(){return desktop().agenticViewDesktop?.version===1&&desktop().agenticViewDesktop?.popOut===true&&!!desktop().chrome?.webview;}
+export function popOutCard(cardId:string,title:string):Promise<void>{
+  const bridge=desktop().chrome?.webview;
+  if(!canPopOut()||!bridge)return Promise.reject(new Error('Pop out is available in the dedicated Windows app.'));
+  return new Promise((resolve,reject)=>{const requestId=crypto.randomUUID();const stop=()=>{clearTimeout(timer);bridge.removeEventListener('message',changed);};const changed=(event:{data:unknown})=>{const value=event.data as {type?:string;requestId?:string;ok?:boolean;message?:string};if(value?.type!=='agenticview:popout-result'||value.requestId!==requestId)return;stop();if(value.ok)resolve();else reject(new Error(value.message??'The independent window did not open.'));};const timer=setTimeout(()=>{stop();reject(new Error('Window launch was not acknowledged. Check the taskbar before trying again.'));},15000);bridge.addEventListener('message',changed);try{bridge.postMessage({type:'agenticview:popout',requestId,cardId,title:title.slice(0,160)});}catch(error){stop();reject(error);}});
+}
 export function windowCommand(action: 'minimize' | 'maximize' | 'close' | 'drag' | 'fullscreen') {
   if (desktop().agenticViewDesktop?.version === 1) desktop().chrome?.webview?.postMessage({ type: 'agenticview:window', action });
 }
 export function WindowControls() {
-  const [enabled, setEnabled] = useState(false), [state, setState] = useState<WindowState>('fullscreen');
+  const [enabled, setEnabled] = useState(false), [state, setState] = useState<WindowState>(desktopCardId()?'normal':'fullscreen');
   useEffect(() => {
     const bridge = desktop().chrome?.webview; if (!bridge || desktop().agenticViewDesktop?.version !== 1) return;
     setEnabled(true); document.documentElement.classList.add('desktop-host');

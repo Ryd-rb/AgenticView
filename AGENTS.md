@@ -45,6 +45,10 @@
   grids and other built-in components, with optional plain borderless surfaces.
   Compact native views may use a small accessible Built-in origin marker; custom
   views retain their labeled frame. Keep input semantics and action safety intact.
+- Keep colors and styles configurable per card. Support duplicate application cards
+  with independent styles and pop-out Windows processes with separate profiles,
+  durable relaunch shortcuts and distinct taskbar identities for manual pinning.
+  Closing the canvas must not close popped-out cards; they share the configured hub.
 - Support mouse, keyboard and touchscreen pinch/tap input. Fit all must frame
   every world card without a fixed zoom-out floor.
 - Agents own cleanup. Completed session and monitoring cards archive after a

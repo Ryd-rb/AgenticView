@@ -25,7 +25,7 @@ C# · .NET 10 · React · MIT
 - **Look closer.** Ordinary cards and nested components expand naturally. Large
   logs, paged grids and deliberate fixed views keep bounded scrolling. Mouse,
   keyboard and touch inputs share the same navigation model.
-- **Choose the right view.** Use 39 built-in types: task lists, query results,
+- **Choose the right view.** Use 40 built-in types: task lists, query results,
   commands, traces, charts, heatmaps, comparisons, code, diffs and more. Native
   components handle display and interaction; custom HTML is an escape hatch with
   a distinct frame and **Custom view** label. See the [native catalog](docs/native-components.md).
@@ -42,6 +42,10 @@ C# · .NET 10 · React · MIT
 - **Compose compact GUIs.** Plain native surfaces and inline layouts support small
   icon actions, text fields, dropdowns, toggles and grids without decorated subcards.
   See [compact configuration](docs/configurable-components.md#compact-native-guis).
+- **Inspect execution.** A compact native forex example links strategy/order/trade
+  hierarchy to bid/ask prices and status events, with configurable Graphite, Paper
+  and Terminal styles. Cards can pop out into independent Windows processes for
+  manual taskbar pinning. See the [forex workbench](docs/forex-workbench.md).
 - **Talk back.** Add buttons, prompts, forms, selects and toggles with optional
   inline confirmations. Agents consume an action inbox; .NET connectors execute
   locally configured commands on the machine with access.

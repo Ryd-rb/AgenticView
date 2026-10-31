@@ -1,7 +1,8 @@
 [CmdletBinding()]
-param([string]$Source = 'dist/desktop', [string]$Url = 'http://127.0.0.1:4317/', [string]$ViewerKeyFile, [switch]$Replace)
+param([string]$Source = 'dist/desktop', [string]$Url = 'http://127.0.0.1:4317/', [string]$ViewerKeyFile, [string]$FocusCardId, [switch]$Replace)
 $ErrorActionPreference = 'Stop'
 $inputTrace = $env:AV_INPUT_TRACE -eq '1'
+if($FocusCardId -and ($FocusCardId.Length -gt 100 -or $FocusCardId -cnotmatch '^[a-zA-Z0-9_.:-]+$' -or $FocusCardId -match '[\r\n]' -or $FocusCardId -in @('__proto__','prototype','constructor'))){throw 'Use a bounded focus card identifier.'}
 $repository = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 $sourceRoot = [IO.Path]::GetFullPath((Join-Path $repository $Source))
 $boundary = $repository + [IO.Path]::DirectorySeparatorChar
@@ -73,7 +74,7 @@ try {
         if ($existing) {
             Assert-PlainPath ([string]$state.Entry)
             if ($existing.ExecutablePath -ne [string]$state.Entry -or !$existing.CommandLine -or !$existing.CommandLine.Contains('"' + $data + '"') -or $existing.CreationDate.ToUniversalTime() -ne ([DateTime]$state.CreatedUtc).ToUniversalTime()) { throw 'The previous desktop process identity cannot be established.' }
-            if (!$Replace -and $state.BuildHash -eq $buildHash -and $state.Url -eq $parsed.AbsoluteUri -and $state.PageHash -eq $pageHash -and [bool]$state.InputTrace -eq $inputTrace) { $state | ConvertTo-Json -Compress; return }
+            if (!$Replace -and $state.BuildHash -eq $buildHash -and $state.Url -eq $parsed.AbsoluteUri -and $state.PageHash -eq $pageHash -and [bool]$state.InputTrace -eq $inputTrace -and [string]$state.FocusCardId -eq $FocusCardId) { $state | ConvertTo-Json -Compress; return }
             if (!$Replace) { throw 'Another owned desktop build is running. Use -Replace to relaunch with the same private profile.' }
             # Only the PID with matching command line, creation time and bounded profile is owned.
             Stop-Process -Id ([int]$state.ProcessId)
@@ -96,6 +97,7 @@ try {
     if ($health.runtime -ne '.NET 10') { throw 'Start the isolated AgenticView server before the desktop host.' }
     $arguments = '--url "' + $parsed.AbsoluteUri + '" --data-dir "' + $data + '"'
     if ($ViewerKeyFile) { $arguments += ' --viewer-key-file "' + $ViewerKeyFile + '"' }
+    if ($FocusCardId) { $arguments += ' --focus-card "' + $FocusCardId + '"' }
     # A visible interactive desktop window is the purpose of this launcher.
     $process = Start-Process -FilePath $entry -ArgumentList $arguments -WorkingDirectory $stage -WindowStyle Normal -RedirectStandardOutput (Join-Path $stage 'stdout.log') -RedirectStandardError (Join-Path $stage 'stderr.log') -PassThru
     Start-Sleep -Milliseconds 1200
@@ -107,8 +109,9 @@ try {
     $relativeStage = $application.Substring($repository.Length + 1)
     $launcher = '$env:AV_INPUT_TRACE=' + $(if ($inputTrace) { "'1'; " } else { "'0'; " }) + "& '" + (Join-Path $repository 'scripts/start-desktop.ps1').Replace("'","''") + "' -Source '" + $relativeStage.Replace("'","''") + "' -Url '" + $parsed.AbsoluteUri.Replace("'","''") + "' -Replace"
     if ($ViewerKeyFile) { $launcher += " -ViewerKeyFile '" + $ViewerKeyFile.Replace("'","''") + "'" }
+    if ($FocusCardId) { $launcher += " -FocusCardId '" + $FocusCardId.Replace("'","''") + "'" }
     [IO.File]::WriteAllText($relaunch,$launcher,[Text.UTF8Encoding]::new($false))
-    $state = [ordered]@{ ProcessId=$process.Id; Entry=$entry; CreatedUtc=$native.CreationDate.ToUniversalTime().ToString('O'); BuildHash=$buildHash; PageHash=$pageHash; InputTrace=$inputTrace; Url=$parsed.AbsoluteUri; Data=$data; Relaunch=$relaunch }
+    $state = [ordered]@{ ProcessId=$process.Id; Entry=$entry; CreatedUtc=$native.CreationDate.ToUniversalTime().ToString('O'); BuildHash=$buildHash; PageHash=$pageHash; InputTrace=$inputTrace; Url=$parsed.AbsoluteUri; Data=$data; Relaunch=$relaunch; FocusCardId=$FocusCardId }
     [IO.File]::WriteAllText($statePath,($state | ConvertTo-Json),[Text.UTF8Encoding]::new($false))
     $state | ConvertTo-Json -Compress
 } finally { $launcherLock.Dispose() }

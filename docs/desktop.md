@@ -99,3 +99,25 @@ is retained in the offline package feed; the installed browser runtime is separa
 Contract checks cover URL policy, trusted document boundaries, malformed commands
 and navigation races. They neither create a window nor inspect images. Manual
 window review remains separate.
+
+
+## Independent card windows
+
+Use **Pop out in independent window** in a desktop card header. The native host
+creates a separate process, private browser profile and taskbar identity for that
+card. Its local runtime and relaunch shortcut remain available after the canvas
+closes. Pin the running card manually from its taskbar menu; no automatic pin is
+performed. The card continues to use its configured hub, with protected sign-in
+cookies in its own profile. Loopback previews can reuse the private key-file
+bootstrap; remote profiles sign in independently.
+
+`--card-id` / `--card-name` open a scoped window, `--open-card` prepares and launches
+the durable card runtime, and `--focus-card` opens the canvas on a requested card.
+Only the trusted top-level document can request a pop-out; embedded frames cannot
+select executables, arguments, profiles or credentials. Native launch arguments
+use a fixed allowlist and process argument arrays rather than shell source.
+
+Windows integration sets an explicit window and shortcut AppUserModelID together
+with paired [relaunch command and display-name properties](https://learn.microsoft.com/en-us/windows/win32/properties/props-system-appusermodel-relaunchcommand),
+following the [window property store contract](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shgetpropertystoreforwindow).
+See [the forex example](forex-workbench.md) for the linked UI and style controls.

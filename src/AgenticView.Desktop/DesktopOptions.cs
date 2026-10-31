@@ -1,6 +1,6 @@
 namespace AgenticView.Desktop;
 
-public sealed record DesktopOptions(Uri Url, string DataDirectory, bool Diagnose, string? ViewerKeyFile = null)
+public sealed record DesktopOptions(Uri Url, string DataDirectory, bool Diagnose, string? ViewerKeyFile = null, string? CardId = null, string? CardName = null, bool Windowed = false, bool OpenCard = false, string? FocusCardId = null)
 {
     public static DesktopOptions Parse(string[] args)
     {
@@ -8,6 +8,7 @@ public sealed record DesktopOptions(Uri Url, string DataDirectory, bool Diagnose
         var data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AgenticView", "Desktop");
         var diagnose = false;
         string? viewerKeyFile = null;
+        string? cardId=null,cardName=null,focusCardId=null;var windowed=false;var openCard=false;
         for (var index = 0; index < args.Length; index++)
         {
             switch (args[index])
@@ -16,7 +17,12 @@ public sealed record DesktopOptions(Uri Url, string DataDirectory, bool Diagnose
                 case "--data-dir": data = Value(args, ref index); break;
                 case "--diagnose": diagnose = true; break;
                 case "--viewer-key-file": viewerKeyFile = Value(args, ref index); break;
-                default: throw new ArgumentException("Supported options: --url, --data-dir, --viewer-key-file, --diagnose.");
+                case "--card-id": cardId=CardWindowSpec.ValidateId(Value(args,ref index,true));break;
+                case "--card-name": cardName=CardWindowSpec.ValidateName(Value(args,ref index,true));break;
+                case "--windowed": windowed=true;break;
+                case "--open-card":openCard=true;break;
+                case "--focus-card":focusCardId=CardWindowSpec.ValidateId(Value(args,ref index,true));break;
+                default: throw new ArgumentException("Supported options: --url, --data-dir, --viewer-key-file, --card-id, --card-name, --windowed, --open-card, --focus-card, --diagnose.");
             }
         }
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
@@ -33,7 +39,10 @@ public sealed record DesktopOptions(Uri Url, string DataDirectory, bool Diagnose
             if (!uri.IsLoopback) throw new ArgumentException("Private viewer-key bootstrap is restricted to loopback URLs.");
             viewerKeyFile = ValidateViewerKeyFile(viewerKeyFile);
         }
-        return new(uri, fullPath, diagnose, viewerKeyFile);
+        if(cardName is not null&&cardId is null)throw new ArgumentException("A card name requires a card identifier.");
+        if(openCard&&cardId is null)throw new ArgumentException("Opening a card requires a card identifier.");
+        if(focusCardId is not null&&cardId is not null)throw new ArgumentException("Choose a canvas focus or a standalone card.");
+        return new(uri, fullPath, diagnose, viewerKeyFile, cardId, cardName, windowed||cardId is not null,openCard,focusCardId);
     }
 
     public static string ValidateViewerKeyFile(string path)
@@ -63,9 +72,9 @@ public sealed record DesktopOptions(Uri Url, string DataDirectory, bool Diagnose
         return key;
     }
 
-    private static string Value(string[] args, ref int index)
+    private static string Value(string[] args, ref int index, bool allowOptionPrefix = false)
     {
-        if (++index >= args.Length || args[index].StartsWith("--", StringComparison.Ordinal)) throw new ArgumentException("An option value is missing.");
+        if (++index >= args.Length || !allowOptionPrefix&&args[index].StartsWith("--", StringComparison.Ordinal)) throw new ArgumentException("An option value is missing.");
         return args[index];
     }
 }

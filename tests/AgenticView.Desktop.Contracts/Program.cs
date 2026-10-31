@@ -43,4 +43,22 @@ try
     try { local.ReadViewerKey(); throw new Exception("Invalid private key accepted"); } catch (ArgumentException) { count++; }
 }
 finally { File.Delete(privateFixture); }
+var card = DesktopOptions.Parse(["--card-id","card-1","--card-name","FX \"alpha\"","--data-dir",Path.Combine(Path.GetTempPath(),"av-card-contract")]);
+Check(card.CardId=="card-1"&&card.Windowed,"Standalone card did not select its own window mode");
+Check(CardWindowSpec.AppId(card.Url,"card-1")!=CardWindowSpec.AppId(card.Url,"card-2"),"Cards share a taskbar identity");
+Check(CardWindowSpec.AppId(card.Url,"card-1")!=CardWindowSpec.AppId(new Uri("http://127.0.0.1:4318/"),"card-1"),"Installations share a taskbar identity");
+Check(CardWindowSpec.Quote("a\\b\\")=="\"a\\b\\\\\"","Trailing slash command quoting changed");
+Check(CardWindowSpec.Quote("a\"b")=="\"a\\\"b\"","Quote command escaping changed");
+Check(CardWindowSpec.Arguments(card).Contains("--card-id")&&!CardWindowSpec.Arguments(card).Contains("--open-card"),"Pinned child would recursively launch another process");
+foreach(var value in new[]{"../escape","card\n","__proto__","","a b"})Reject(["--card-id",value]);
+Reject(["--card-name","Name"]);Reject(["--open-card"]);Reject(["--card-id","one","--focus-card","two"]);
+var popout="{\"type\":\"agenticview:popout\",\"requestId\":\"00000000-0000-4000-8000-000000000001\",\"cardId\":\"card-1\",\"title\":\"FX sample\"}";
+Check(policy.TryReadPopOut(options.Url.AbsoluteUri,options.Url.AbsoluteUri,popout,out _,out var popped,out _)&&popped=="card-1","Typed popout rejected");
+foreach(var bad in new[]{popout.Replace("card-1","../escape"),popout.Replace("card-1","constructor"),popout.Replace("00000000-0000-4000-8000-000000000001","not-an-id"),popout.Replace("FX sample","Bad\\nname"),popout.Replace("\"title\"","\"executable\""),"[]","{}"})Check(!policy.TryReadPopOut(options.Url.AbsoluteUri,options.Url.AbsoluteUri,bad,out _,out _,out _),"Invalid or executable popout input accepted");
+Check(!policy.TryReadPopOut("https://other.example/",options.Url.AbsoluteUri,popout,out _,out _,out _),"Cross-origin popout accepted");
+Check(new BridgePolicy(options.Url,"card-1").InitializationScript.Contains("card-1",StringComparison.Ordinal),"Standalone identity was not scoped into native initialization");
+Check(DesktopOptions.Parse(["--card-id","card","--card-name","-- Strategy"]).CardName=="-- Strategy","Leading-hyphen title is not an argument option");
+var privateCard=card with{ViewerKeyFile=Path.Combine(Path.GetTempPath(),"ephemeral-viewer.key")};
+Check(!CardWindowSpec.RelaunchArguments(privateCard).Contains("--viewer-key-file"),"Durable relaunch retains an ephemeral key-file dependency");
+Check(!CardWindowSpec.Command("AgenticView.Desktop.exe",privateCard).Contains("ephemeral-viewer",StringComparison.Ordinal),"Taskbar command leaked bootstrap file dependency");
 Console.WriteLine($"Passed {count} desktop URL and bridge security contracts.");

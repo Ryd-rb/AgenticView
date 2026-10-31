@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { cardIconNames } from './card-style.js';
 
-export const controlIds = ['configure', 'header', 'footer', 'title', 'role', 'context', 'agentId', 'times', 'status', 'fit', 'lock', 'collapse', 'archive', 'resize', 'navigation', 'zoomIn', 'zoomOut', 'resetView', 'deactivate', 'scale', 'caption', 'filter', 'refresh', 'add', 'edit', 'delete', 'history', 'evaluate', 'bulk', 'columns', 'pagination', 'legend', 'dataTable', 'stepSelect', 'expand', 'save', 'cancel', 'submit'] as const;
+export const controlIds = ['configure', 'header', 'footer', 'title', 'role', 'context', 'agentId', 'times', 'status', 'fit', 'lock', 'collapse', 'archive', 'resize', 'navigation', 'zoomIn', 'zoomOut', 'resetView', 'deactivate', 'scale', 'caption', 'filter', 'refresh', 'add', 'edit', 'delete', 'history', 'evaluate', 'bulk', 'columns', 'pagination', 'legend', 'dataTable', 'stepSelect', 'expand', 'save', 'cancel', 'submit', 'popout'] as const;
 export const controlIdSchema = z.enum(controlIds);
 export const controlPresentationSchema = z.strictObject({
   visible: z.boolean().optional(), label: z.string().max(160).optional(), tooltip: z.string().max(2000).optional(),

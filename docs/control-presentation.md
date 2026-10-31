@@ -4,7 +4,7 @@ Native control presentation is a bounded typed map. Components use `configuratio
 
 Each entry may specify `visible`, `label` (up to 160 characters), `tooltip` (up to 2,000 characters), `appearance` (`icon`, `text`, `both`), `icon` (a native catalog name), `variant` (`quiet`, `primary`, `bare`), `placement` (`header`, `footer`, `top-left`, `top-right`, `bottom-left`, `bottom-right`), `mode` (`disclosure`, `panel`) and `initiallyOpen`. Unknown identifiers and fields are rejected. Only relevant options apply to a given native control.
 
-The catalog is: `configure`, `header`, `footer`, `title`, `role`, `context`, `agentId`, `times`, `status`, `fit`, `lock`, `collapse`, `archive`, `resize`, `navigation`, `zoomIn`, `zoomOut`, `resetView`, `deactivate`, `scale`, `caption`, `filter`, `refresh`, `add`, `edit`, `delete`, `history`, `evaluate`, `bulk`, `columns`, `pagination`, `legend`, `dataTable`, `stepSelect`, `expand`, `save`, `cancel` and `submit`.
+The catalog is: `configure`, `header`, `footer`, `title`, `role`, `context`, `agentId`, `times`, `status`, `fit`, `lock`, `collapse`, `archive`, `resize`, `navigation`, `zoomIn`, `zoomOut`, `resetView`, `deactivate`, `scale`, `caption`, `filter`, `refresh`, `add`, `edit`, `delete`, `history`, `evaluate`, `bulk`, `columns`, `pagination`, `legend`, `dataTable`, `stepSelect`, `expand`, `save`, `cancel`, `submit` and `popout`.
 
 ```json
 {"configuration":{"manualFields":["data.unit"],"controls":{"configure":{"label":"Edit display","tooltip":"Adjust the display unit","appearance":"both","placement":"header","mode":"disclosure","initiallyOpen":false},"save":{"label":"Apply display","variant":"primary"},"times":{"visible":false}}}}

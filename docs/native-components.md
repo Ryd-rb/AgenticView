@@ -19,6 +19,7 @@ default status dot. Markdown supports large `#` / `##` headings and image links.
 | Evidence | Built-in kinds |
 | --- | --- |
 | Tasks and narrative | `checklist`, `markdown`, `status`, `alert` |
+| Linked execution | `execution-workbench` ([forex example](forex-workbench.md)) |
 | Application controls | `action-panel`, `log-stream`, `data-grid` ([setup](controls.md)) |
 | Managed agent sessions | `session-launcher`, `agent-session` ([setup](sessions.md)) |
 | Measurements | `metric`, `stat-grid`, `gauge`, `progress` |
@@ -28,7 +29,7 @@ default status dot. Markdown supports large `#` / `##` headings and image links.
 | Services and schedules | `service-map`, `gantt` |
 | References and structured data | `links`, `keyvalue`, `json` |
 
-These are **39 native kinds**. The separate `embed` kind is for agent-authored
+These are **40 native kinds**. The separate `embed` kind is for agent-authored
 views that the native catalog cannot express. Native subcards carry a quiet
 **Built-in** label. Embeds carry a persistent **Custom view** label and a warm,
 distinct frame, including when execution is paused.
