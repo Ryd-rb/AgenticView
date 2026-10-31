@@ -33,7 +33,7 @@ and pause ordinary readers/rendering. Start a new lease after they return.
 
 | Operation | Command fields | Result |
 | --- | --- | --- |
-| `navigate` | `mode:focus|maximize|canvas|fit` | Scoped card navigation and frame-opportunity timing |
+| `navigate` | `mode:focus\|maximize\|canvas\|fit` | Scoped card navigation and frame-opportunity timing |
 | `viewport` | `zoom:0.001..16`, optional `steps:1..120`, `intervalMs:8..100`, `anchorX:0..1`, `anchorY:0..1`, `profileSeconds:1..30` | Fixed canvas zoom injection, per-step frame opportunities and optional concurrent native CPU/timeline profile |
 | `inspect` | optional `componentId`, `includeText`, `limit:1..100` | Mounted components, origin, bounds, visibility and accessible targets |
 | `styles` | `componentId`, optional `target`, `properties` | Whitelisted computed styles and bounds |
@@ -139,3 +139,8 @@ Passive Event Timing is collected when available for eligible trusted events;
 it has a 16 ms threshold and quantized durations. Renderer metrics also expose
 layout/style/task durations, DOM counts and JavaScript heap usage. Diagnostic
 collection adds overhead; retained profile windows identify sampled periods.
+
+`metrics` also reports `residentCards` and `paintEligibleCards` for up to 512
+native world cards. Eligibility checks CSS visibility, opacity and browser
+offscreen paint skipping; it is not a pixel capture or compositor-present count.
+Component counts distinguish mounted, logically active and reader-updating views.

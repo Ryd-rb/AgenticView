@@ -111,6 +111,63 @@ configured provider.
 
 ## Measured synthetic pass
 
+### Actual Windows desktop, 60 minutes
+
+A release desktop/WebView2 run completed 3,600.038 seconds with 100 cards and
+900 resident native components. The synthetic adapter retained 3,600,000 new
+observations across 100 streams. The hub accepted 71,900 card updates; 2,254
+provider queries, 330 injected clicks across all 100 cards and 66 zoom gestures
+completed without provider or debugger failures. All finite load helpers exited.
+
+The fixture also held 307,200 supplied chart points, 100,000 table rows,
+100,000 log entries and linked hierarchy/curve data. Grids used bounded pages,
+logs used virtual rows, and live charts requested at most 512 points per series.
+Tiny views retained real contents while their readers paused. Runtime checks
+confirmed 100 paint-eligible cards at Fit, one when maximized, and 900 mounted
+components throughout. This exercises visibility scheduling rather than updating
+900 full-size components simultaneously.
+
+| Owned process tree | CPU median / p95 | Private RAM median / peak |
+| --- | ---: | ---: |
+| Desktop host and WebView children | 1.59% / 9.78% | 2.15 / 3.26 GiB |
+| .NET hub | 2.44% / 3.62% | 1.68 / 2.19 GiB |
+| Synthetic provider and load/debug drivers | 0.60% / 0.90% | 0.48 / 0.49 GiB |
+
+CPU percentages are normalized across 16 logical processors and sampled every
+five seconds. Private bytes are summed per owned process tree. Desktop private
+RAM medians were 1.54 GiB in the first ten minutes, 2.18 GiB in the middle ten,
+and 2.30 GiB in the last ten. Those figures include cache warmup and do not
+establish leak freedom or long-term memory stability.
+
+Local synthetic click dispatch through the second renderer frame opportunity was
+22.1 ms median, 30.9 ms p95 and 82.1 ms maximum. MCP round trips were separate:
+291.9 ms median and 573.3 ms p95. These untrusted DOM events do not measure
+physical input or compositor presentation.
+
+Across 144 bounded snapshots, the median rolling rAF p95 was 18.2 ms; the p95 of
+those rolling values was 20.2 ms. The longest observed frame opportunity gap was
+3,005 ms. Dense camera gestures remain costlier: median per-gesture p95 was
+102.6 ms, with a worst gesture p95 of 258.9 ms. Four bounded native CPU/timeline
+pairs had no dropped events and identified native paint/layer preparation as the
+remaining dense-zoom cost. This is endurance and functional qualification, not a
+smooth-zoom guarantee or a WPF/WinForms/DevExpress comparison.
+
+The delivered fixes remove ancestor inline-style substring selectors, batch
+card geometry work, retain painted views without transformed height placeholders,
+defer React camera reconciliation during gestures, and suppress unnecessary
+scrollport/sticky-header work in previews. Retained card shells update geometry
+and input authority independently of frozen bodies. A separate 100-card native
+switching check verified exactly one visible maximized card after every switch.
+
+Reproduce with the finite `desktop-soak-workload.ts`,
+`desktop-soak-provider.py`, `desktop-soak-debug.ts` and
+`measure-process-tree.ps1` scripts in an isolated installation. Use
+`analyze-desktop-soak.py` only after final receipts exist. Retain manifests,
+binary/source identities, database and raw native profiles privately; credentials
+and live telemetry are not application templates.
+
+### Earlier bounded headless measurements
+
 The 100-card workload contains 800 native components, 50,000 grid rows, 153,600 chart
 points, 7,700 linked rows, 28,800 linked scalar points and 50,000 log entries. Each
 measurement excludes a warmup and uses eight update rounds. V8 CPU profiles found
