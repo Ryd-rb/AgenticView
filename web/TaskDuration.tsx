@@ -1,29 +1,31 @@
 import {useRenderUpdates} from './RenderActivity.js';
-import { useRef,useSyncExternalStore } from 'react';
+import { useMemo,useRef,useSyncExternalStore } from 'react';
 import type { TaskTiming } from '../shared/protocol.js';
 import { compactDuration, exactTime } from '../shared/time-format.js';
 
 // One low-frequency clock for visible running labels. Markdown itself never ticks.
 const listeners = new Set<() => void>();
 let now = Date.now(), timer: ReturnType<typeof setInterval> | undefined;
-const snapshot = () => now, idle = () => 0, noSubscription = () => () => {};
+const idle = () => 0, noSubscription = () => () => {};
 function tick() { now = Date.now(); for (const listener of listeners) listener(); }
-function visibility() {
-  if (timer !== undefined) { clearInterval(timer); timer = undefined; }
-  if (document.visibilityState !== 'hidden') { tick(); timer = setInterval(tick, 1000); }
-}
 function subscribe(listener: () => void) {
   listeners.add(listener);
-  if (listeners.size === 1) { document.addEventListener('visibilitychange', visibility); visibility(); }
+  // useRenderUpdates already owns physical/logical document activity, including
+  // explicit background-test leases. No second physical-visibility gate here.
+  if (listeners.size === 1) { tick(); timer = setInterval(tick, 1000); }
   return () => {
     listeners.delete(listener);
-    if (!listeners.size) { if (timer !== undefined) clearInterval(timer); timer = undefined; document.removeEventListener('visibilitychange', visibility); }
+    if (!listeners.size) { if (timer !== undefined) clearInterval(timer); timer = undefined; }
   };
 }
 
 export function TaskDuration({ timing }: { timing?: TaskTiming }) {
   const active=useRenderUpdates(),retained=useRef(Date.now());
   const running = timing?.startedAt !== undefined && timing.completedAt === undefined;
+  const snapshot=useMemo(()=>{
+    const startedAt=timing?.startedAt;let label:string|undefined,value=now;
+    return()=>{if(startedAt===undefined)return 0;const next=compactDuration(Math.max(0,now-startedAt));if(next!==label){label=next;value=now;}return value;};
+  },[timing?.startedAt]);
   const current=useSyncExternalStore(running&&active?subscribe:noSubscription,running?snapshot:idle,idle),clock=active?current:retained.current;retained.current=clock;
   if (timing?.startedAt === undefined) return <span className="task-duration is-unknown" title="Duration unavailable: no start was observed" aria-label="Task duration unavailable">—</span>;
   const elapsed = Math.max(0, (timing.completedAt ?? clock) - timing.startedAt), label = compactDuration(elapsed);
