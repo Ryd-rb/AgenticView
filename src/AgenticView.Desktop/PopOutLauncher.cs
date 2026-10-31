@@ -44,7 +44,7 @@ internal static class PopOutLauncher
         File.WriteAllText(receiptPath,JsonSerializer.Serialize(new Receipt(child.Id,child.StartTime.ToUniversalTime(),executable,cardId,shortcut)));
         return new(child.Id,false);
     }
-    private static void WriteShortcut(string path,string executable,DesktopOptions options,string iconPath)
+    internal static void WriteShortcut(string path,string executable,DesktopOptions options,string iconPath)
     {
         var type=Type.GetTypeFromProgID("WScript.Shell")??throw new InvalidOperationException("Windows shortcut support is unavailable.");
         object? shell=null,shortcut=null;
@@ -56,7 +56,7 @@ internal static class PopOutLauncher
     {
         PlainPath(directory);foreach(var item in Directory.EnumerateFileSystemEntries(directory)){PlainPath(item);if(Directory.Exists(item)){foreach(var file in Files(item))yield return file;}else yield return item;}
     }
-    private static void PlainPath(string path)
+    internal static void PlainPath(string path)
     {
         if(!Path.IsPathFullyQualified(path)||path.StartsWith("\\\\",StringComparison.Ordinal))throw new IOException("Card storage must be local.");
         for(var current=path;current is not null;current=Path.GetDirectoryName(current))if((File.Exists(current)||Directory.Exists(current))&&(File.GetAttributes(current)&FileAttributes.ReparsePoint)!=0)throw new IOException("Card storage cannot follow links.");

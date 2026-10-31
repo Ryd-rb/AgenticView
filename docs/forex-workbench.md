@@ -52,6 +52,13 @@ Publish that generated data through an ordinary component upsert after importing
 the chosen template; the authored definition remains separate from observations.
 No limit increase or broker credentials are needed.
 
+All three version 1.1 templates are reusable `.agenticview.json` definitions with
+numeric strategy IDs, coherent order/trade references and theme-specific Windows
+icons. Import one from Settings → Applications or `application_import`; a fresh
+request identity creates a new independent card. `application_define` updates an
+existing card's saved template without capturing its live observations. See
+[portable applications](applications.md) for import/export and source ownership.
+
 ## Per-card styles
 
 Open **Style** for theme, literal color, row-height and text-size controls. Changes

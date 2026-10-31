@@ -64,6 +64,21 @@ test('synthetic fixture is deterministic, bounded, hierarchy-valid and matches i
   const manifest=forexExecutionManifest();const text=readFileSync(new URL('../examples/applications/forex-execution.agenticview.json',import.meta.url),'utf8');
   assert.deepEqual(JSON.parse(text),manifest);assert.deepEqual(forexExecutionExample(),forexExecutionExample());assert.ok(Buffer.byteLength(text)<262_144);
   const data=executionDataSchema.parse(forexExecutionExample());assert.equal(data.rows.filter(row=>row.kind==='strategy').length,300);assert.ok(data.rows.length>=1800&&data.rows.length<=2400);assert.equal(data.series.reduce((count,series)=>count+series.points.length,0),7200);
+  assert.ok(Buffer.byteLength(JSON.stringify(data))<1_000_000,'full generated observations remain a bounded payload');
+  for(const row of data.rows){assert.doesNotMatch(row.id,/SOE/);assert.match(row.strategyId,/^\d+$/);if(row.kind==='strategy')assert.equal(row.id,row.strategyId);if(row.parentId)assert.doesNotMatch(row.parentId,/SOE/);}
+  for(const series of data.series)assert.match(series.strategyId,/^\d+$/);
   const byId=new Map(data.rows.map(row=>[row.id,row]));for(const row of data.rows)if(row.parentId){const parent=byId.get(row.parentId)!;assert.equal(row.strategyId,parent.strategyId);assert.ok(row.start>=parent.start);}
   for(const series of data.series){const ticker=byId.get(series.strategyId)!.ticker;for(const point of series.points)assert.ok(Math.abs(point.ask-point.bid-(ticker==='USD/JPY'?.05:.0005))<1e-9);}
+});
+
+test('portable forex seeds retain theme-specific logical window icons and numeric associations',()=>{
+  const icons={graphite:{icon:'chart',color:'#74d4c8',background:'#101722'},paper:{icon:'layers',color:'#2157aa',background:'#f3f6fa'},terminal:{icon:'terminal',color:'#72e3bc',background:'#0b1413'}};
+  for(const theme of ['graphite','paper','terminal'] as const){
+    const manifest=forexExecutionManifest(12,theme),name=theme==='graphite'?'forex-execution':`forex-execution-${theme}`;
+    const text=readFileSync(new URL(`../examples/applications/${name}.agenticview.json`,import.meta.url),'utf8');
+    assert.deepEqual(JSON.parse(text),manifest);assert.equal(manifest.version,'1.1.0');assert.deepEqual(manifest.windowIcon,icons[theme]);assert.ok(Buffer.byteLength(text)<262_144);assert.doesNotMatch(text,/SOE/);
+    const data=executionDataSchema.parse(manifest.components[0]!.data),ids=new Set(data.rows.map(row=>row.id));
+    assert.equal(data.rows.filter(row=>row.kind==='strategy').length,12);assert.ok(data.rows.every(row=>ids.has(row.strategyId)&&(!row.parentId||ids.has(row.parentId))));assert.ok(data.series.every(series=>ids.has(series.strategyId)));
+    assert.equal(data.style?.theme,theme);assert.equal(manifest.actions.length,0);assert.equal(manifest.bindings.length,0);
+  }
 });

@@ -33,6 +33,7 @@ export function applyLivePatch(old: Snapshot, patch: Patch): Snapshot {
     for (const component of change.components ?? []) if (components[component.id] !== component) { if (!copied) { components = { ...components }; copied = true; } components[component.id] = component; }
     const meta = { ...change.meta };
     if (before && meta.layout && sameRecord(before.layout, meta.layout)) meta.layout = before.layout;
+    if (before && meta.windowIcon && sameRecord(before.windowIcon??undefined, meta.windowIcon)) meta.windowIcon=before.windowIcon;
     if (before && meta.componentLayout && sameRecord(before.componentLayout, meta.componentLayout)) meta.componentLayout = before.componentLayout;
     if (before && meta.chrome) {
       const retained = Object.fromEntries(Object.entries(meta.chrome).map(([id,spec]) => [id,sameRecord(before.chrome?.[id as keyof NonNullable<AgentView['chrome']>],spec!) ? before.chrome?.[id as keyof NonNullable<AgentView['chrome']>] : spec]));

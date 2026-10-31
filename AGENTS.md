@@ -99,6 +99,9 @@
   Monitor subtitle and navigation-help text beside the cog. Manual archiving
   shows a quiet accessible Undo notification. Header icons are configurable via
   MCP from the native catalog, including nested cards and portable definitions.
+- Agents can configure independent Windows card process/taskbar icons through
+  MCP, including native icon names and colors retained in portable templates.
+  Forex example templates use synthetic numeric strategy identifiers.
 - Default to canvas navigation until a card is explicitly activated. Global
   controls always retain canvas authority. Keep text legible within component bounds.
   Card zoom and pan must stay within content fit and native scroll boundaries.

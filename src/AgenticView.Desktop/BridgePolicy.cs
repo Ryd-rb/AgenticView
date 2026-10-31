@@ -30,7 +30,7 @@ public sealed class BridgePolicy(Uri document, string? cardId = null, string? fo
 
     public string InitializationScript => "if(window===window.top&&location.origin===" +
         JsonSerializer.Serialize(document.GetLeftPart(UriPartial.Authority)) + "&&location.pathname===" +
-        JsonSerializer.Serialize(document.AbsolutePath) + "&&location.search===''){Object.defineProperty(window,'agenticViewDesktop',{value:Object.freeze({version:1,platform:'windows',popOut:true,cardId:"+JsonSerializer.Serialize(cardId)+",focusCardId:"+JsonSerializer.Serialize(focusCardId)+"}),writable:false,configurable:false});}";
+        JsonSerializer.Serialize(document.AbsolutePath) + "&&location.search===''){Object.defineProperty(window,'agenticViewDesktop',{value:Object.freeze({version:1,platform:'windows',popOut:true,windowIcons:true,cardId:"+JsonSerializer.Serialize(cardId)+",focusCardId:"+JsonSerializer.Serialize(focusCardId)+"}),writable:false,configurable:false});}";
 
     public bool TryReadPopOut(string source,string currentSource,string json,out string requestId,out string targetId,out string title)
     {
@@ -60,5 +60,11 @@ public sealed class BridgePolicy(Uri document, string? cardId = null, string? fo
         }
         catch (JsonException) { return false; }
         catch (InvalidOperationException) { return false; }
+    }
+
+    public bool TryReadWindowIcon(string source,string currentSource,string json,out string requestId,out WindowIconSpec? spec)
+    {
+        requestId="";spec=null;if(cardId is null||!IsTrustedDocument(source)||!IsTrustedDocument(currentSource)||json.Length>1024)return false;
+        try{using var message=JsonDocument.Parse(json,new JsonDocumentOptions{MaxDepth=4});var root=message.RootElement;if(root.ValueKind!=JsonValueKind.Object||root.EnumerateObject().Count()!=4||root.EnumerateObject().Select(property=>property.Name).Distinct(StringComparer.Ordinal).Count()!=4||!root.TryGetProperty("type",out var type)||type.GetString()!="agenticview:window-icon"||!root.TryGetProperty("cardId",out var target)||target.GetString()!=cardId||!root.TryGetProperty("requestId",out var request)||!Guid.TryParseExact(request.GetString(),"D",out _)||!root.TryGetProperty("windowIcon",out var value))return false;spec=WindowIconSpec.Parse(value);requestId=request.GetString()!;return true;}catch(JsonException){return false;}catch(InvalidOperationException){return false;}catch(ArgumentException){return false;}
     }
 }

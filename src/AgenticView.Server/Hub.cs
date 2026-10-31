@@ -193,7 +193,7 @@ public sealed class Hub : IDisposable
     {
         // Component/task timing arrays can approach the full per-card budget. List pages contain only bounded summaries.
         var result = new JsonObject { ["permanent"] = view["application"] is not null };
-        foreach (var key in new[] { "id", "agentId", "name", "role", "status", "parentId", "createdAt", "lastSeen", "updatedAt", "completedAt", "sequence", "layout", "icon", "managedSessionId", "orphanComponentId", "sessionId", "sessionProvider" })
+        foreach (var key in new[] { "id", "agentId", "name", "role", "status", "parentId", "createdAt", "lastSeen", "updatedAt", "completedAt", "sequence", "layout", "icon", "windowIcon", "windowIconRevision", "managedSessionId", "orphanComponentId", "sessionId", "sessionProvider" })
             if (view.TryGetPropertyValue(key, out var value)) result[key] = value?.DeepClone();
         return result;
     }
@@ -254,9 +254,22 @@ public sealed class Hub : IDisposable
     }
     public JsonObject SetCardStyle(string id,string token,JsonObject style)
     {
-        CardStyles.Validate(style); lock(gate) { if(!runs.ContainsKey(id)){AuthorizeArchive(id,token);Restore(id);} var run=Authorize(id,token); var view=Clone(run.View); view["icon"]=style["icon"]!.DeepClone(); SaveView(run,view); Queue(view); revision++; return new JsonObject{["icon"]=String(view,"icon")}; }
+        ComponentConfiguration.Keys(style,"icon","windowIcon");CardStyles.Validate(style); lock(gate) { if(!runs.ContainsKey(id)){AuthorizeArchive(id,token);Restore(id);} var run=Authorize(id,token); var view=Clone(run.View);CardStyles.Apply(view,style);if(style.ContainsKey("windowIcon"))view["windowIconRevision"]=(view["windowIconRevision"]?.GetValue<long>()??0)+1;SaveView(run,view);Queue(view);revision++;var result=new JsonObject();foreach(var key in new[]{"icon","windowIcon","windowIconRevision"})if(view.ContainsKey(key))result[key]=view[key]?.DeepClone();return result; }
     }
     public void VerifyRun(string id, string token) { lock (gate) Authorize(id, token); }
+    public JsonObject WindowIconStatus(string id,string token)
+    {
+        lock(gate){JsonObject view;if(runs.ContainsKey(id))view=Authorize(id,token).View;else{AuthorizeArchive(id,token);view=ReadArchive(id);}return new JsonObject{["windowIcon"]=view["windowIcon"]?.DeepClone(),["revision"]=view["windowIconRevision"]?.DeepClone()??JsonValue.Create(0),["windows"]=view["windowIconReports"]?.DeepClone()??new JsonArray()};}
+    }
+    public JsonObject ReportWindowIcon(string id,JsonObject input)
+    {
+        ComponentValidator.Budget(input);ComponentConfiguration.Keys(input,"expected","revision","windowId","processId","state","version");var configuredRevision=(long)ComponentValidator.Number(input,"revision",0,9_007_199_254_740_991,true,true);
+        var windowId=ComponentValidator.Text(input,"windowId",36,true,36);if(!Guid.TryParseExact(windowId,"D",out _))ComponentValidator.Fail("Invalid window identity.");
+        ComponentValidator.Number(input,"processId",1,int.MaxValue,true,true);ComponentValidator.Choice(input,"state",["applied","failed"]);
+        var version=ComponentValidator.Text(input,"version",64,true,1);if(version!="default"&&(version.Length!=64||version.Any(c=>!char.IsAsciiHexDigit(c))))ComponentValidator.Fail("Invalid logical icon version.");
+        lock(gate){if(!runs.TryGetValue(id,out var run))throw new HubError(404,"Live card unavailable.");if(!input.ContainsKey("expected")||!JsonNode.DeepEquals(run.View["windowIcon"],input["expected"])||configuredRevision!=(run.View["windowIconRevision"]?.GetValue<long>()??0))throw new HubError(409,"Window icon configuration changed.");
+            var view=Clone(run.View);var reports=(view["windowIconReports"] as JsonArray??new JsonArray()).OfType<JsonObject>().Where(report=>String(report,"windowId")!=windowId).TakeLast(7).Select(report=>(JsonNode)report.DeepClone()).ToArray();var next=new JsonArray(reports);var receipt=new JsonObject{["windowId"]=windowId,["processId"]=input["processId"]!.DeepClone(),["state"]=input["state"]!.DeepClone(),["version"]=version,["revision"]=configuredRevision,["observedAt"]=DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()};next.Add(receipt);view["windowIconReports"]=next;SaveView(run,view);Queue(view);revision++;return (JsonObject)receipt.DeepClone();}
+    }
     public JsonObject MakeApplication(string id, string token, JsonObject application)
     {
         lock (gate) { var run = Authorize(id, token); var view = Clone(run.View); view["application"] = application.DeepClone(); view["name"] = application["name"]!.DeepClone(); view["role"] = "Application"; view["status"] = "active"; view.Remove("completedAt"); SaveView(run, view); Queue(view); revision++; return Metadata(view); }
@@ -285,7 +298,7 @@ public sealed class Hub : IDisposable
             if (sessionProvider.Length > 0 && sessionId.Length == 0) throw new HubError(400, "sessionId is required with sessionProvider.");
             var identity = sessionId.Length == 0 ? "" : Digest(AgenticView.Server.Json.Object(new { sessionProvider, sessionId }));
             if (identity.Length > 0) { registration["sessionId"] = sessionId; registration["sessionProvider"] = sessionProvider; }
-            if(raw.ContainsKey("icon")) { CardStyles.Validate(raw); registration["icon"]=raw["icon"]!.DeepClone(); }
+            if(raw.ContainsKey("icon")||raw.ContainsKey("windowIcon")) { CardStyles.Validate(raw);CardStyles.Apply(registration,raw); }
             if (raw.ContainsKey("parentId")) registration["parentId"] = parent; if (raw.ContainsKey("parentToken")) registration["parentToken"] = proof;
             var display=new JsonObject();foreach(var key in new[]{"chrome","componentLayout"})if(raw.ContainsKey(key))display[key]=raw[key]?.DeepClone();CardDisplay.Validate(display);foreach(var pair in display)registration[pair.Key]=pair.Value?.DeepClone();
             var hash = Digest(registration);
@@ -314,7 +327,7 @@ public sealed class Hub : IDisposable
             var layout = parent.Length > 0 ? initial : InitialPosition(initial, EffectiveRoots().Select(r => (JsonObject)r.View["layout"]!).ToList());
             registrationLayoutTicks += Stopwatch.GetTimestamp() - layoutStart;
             var view = new JsonObject { ["id"] = id, ["agentId"] = agentId, ["name"] = name, ["role"] = role, ["context"] = context, ["parentId"] = parent.Length > 0 ? parent : null, ["createdAt"] = now, ["lastSeen"] = now, ["status"] = "active", ["sequence"] = 0L, ["components"] = new JsonObject(), ["layout"] = layout };
-            if(registration.ContainsKey("icon")) view["icon"]=registration["icon"]!.DeepClone();
+            CardStyles.Apply(view,registration);
             foreach(var key in new[]{"chrome","componentLayout"})if(registration.ContainsKey(key))view[key]=registration[key]?.DeepClone();
             if (identity.Length > 0) { view["sessionId"] = sessionId; view["sessionProvider"] = sessionProvider; }
             var bytes = Size(view); if (totalBytes + bytes > MaxLiveBytes) throw new HubError(429, "Live capacity reached.");
@@ -382,7 +395,7 @@ public sealed class Hub : IDisposable
                     case "remove": var removedId = ComponentValidator.Id(op, "componentId"); components.Remove(removedId); componentTimes.Remove(removedId); taskTimes.Remove(removedId); break;
                     case "clear": view["components"] = new JsonObject(); componentTimes.Clear(); taskTimes.Clear(); break;
                     case "context": view["context"] = ComponentValidator.Text(op, "text", 8192); break;
-                    case "style": CardStyles.Validate(op); view["icon"]=op["icon"]!.DeepClone(); break;
+                    case "style": CardStyles.Validate(op);CardStyles.Apply(view,op);if(op.ContainsKey("windowIcon"))view["windowIconRevision"]=(view["windowIconRevision"]?.GetValue<long>()??0)+1;break;
                     case "status": ComponentValidator.Choice(op, "status", ["active", "completed", "error"]); view["status"] = String(op, "status"); if (String(view, "status") == "completed" && view["completedAt"] is null) view["completedAt"] = now; break;
                     case "append":
                         var appendId = ComponentValidator.Id(op, "componentId"); var items = ComponentValidator.Array(op, "items", 512, 1);

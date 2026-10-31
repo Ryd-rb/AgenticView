@@ -2,14 +2,14 @@ import { controlMapSchema } from './control-presentation.js';
 import { componentLayoutSchema } from './card-display.js';
 import { z } from 'zod';
 import { componentSchema, idSchema } from './protocol.js';
-import {cardStyleSchema} from './card-style.js';
+import {cardStyleSchema,windowIconSchema} from './card-style.js';
 
 const field = z.strictObject({ key:idSchema, label:z.string().min(1).max(160), type:z.enum(['text','multiline','number','select','toggle','json']), required:z.boolean().optional(), options:z.array(z.string().max(500)).min(1).max(100).optional(), min:z.number().finite().optional(), max:z.number().finite().optional() });
 const action = z.strictObject({ id:idSchema, label:z.string().min(1).max(160), kind:z.enum(['command','prompt','query','edit','history','logs','custom','session']), target:idSchema, handler:idSchema.optional(), description:z.string().max(2000).optional(), confirmation:z.string().max(2000).optional(), fields:z.array(field).max(24).optional(), connection:z.strictObject({machineId:idSchema,remoteProfileId:idSchema.optional()}).optional() });
 /** An authored application definition. Runtime bindings and telemetry are deliberately outside this format. */
 export const applicationManifestSchema = z.strictObject({
   schemaVersion:z.literal(1), id:idSchema, version:z.string().min(1).max(80), name:z.string().min(1).max(160), description:z.string().max(2000).optional(), permanent:z.literal(true),
-  icon:cardStyleSchema.shape.icon.optional(), chrome:controlMapSchema.optional(), componentLayout:componentLayoutSchema.optional(),
+  icon:cardStyleSchema.shape.icon.optional(), windowIcon:windowIconSchema.nullable().optional(), chrome:controlMapSchema.optional(), componentLayout:componentLayoutSchema.optional(),
   bindings:z.array(z.strictObject({id:idSchema,label:z.string().min(1).max(160),description:z.string().max(2000).optional()})).max(64),
   actions:z.array(action).max(64), components:z.array(componentSchema).max(64),
   layout:z.strictObject({width:z.number().min(320).max(1600),height:z.number().min(240).max(1600),sizing:z.enum(['content','fixed'])}).optional(),

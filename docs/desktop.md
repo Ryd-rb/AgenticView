@@ -121,3 +121,36 @@ Windows integration sets an explicit window and shortcut AppUserModelID together
 with paired [relaunch command and display-name properties](https://learn.microsoft.com/en-us/windows/win32/properties/props-system-appusermodel-relaunchcommand),
 following the [window property store contract](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shgetpropertystoreforwindow).
 See [the forex example](forex-workbench.md) for the linked UI and style controls.
+
+### Configure Windows icons through MCP
+
+`card_style` accepts an optional `windowIcon` independently of the card header's
+`icon`. For example:
+
+```json
+{"runId":"card-id","runToken":"private-run-token","windowIcon":{"icon":"chart","color":"#74d4c8","background":"#101722"}}
+```
+
+Discover the 50 native names with `component_catalog.windowIcon`. Colors are
+six-digit hex; omitted background is transparent. `resetWindowIcon: true`
+restores the signal icon. The typed metadata also works in registration,
+`style` publish operations, operator `view_configure`, HTTP
+`PUT /api/agents/{id}/style`, and authored application `windowIcon` definitions.
+`AgenticViewClient.configureWindowIcon(value)` accepts a descriptor or null.
+No image paths, URLs, executables or scripts are accepted.
+
+Supported standalone hosts apply changes while running, update their owned
+shortcut/icon file, and retain the logical configuration for relaunch. This
+keeps the card's existing AppUserModelID, process, profile and inspection state.
+Pin the card manually. Windows may retain its cached icon on an already pinned
+shortcut until the shell refreshes it or the operator repins it.
+Direct `--card-id` windows with a custom profile still open and receive live
+icons from the hub; use `--open-card` for owned durable icon files and shortcuts.
+
+`card_window_icon_status` returns the configured descriptor, revision and at most
+eight native window receipts. Match receipt revision and `state: "applied"` to
+the current configuration; an empty/stale receipt does not establish application.
+Receipts contain a process ID, per-launch window ID, logical configuration version
+and observed time, never credentials or filesystem paths. Applying the same
+configuration again requests a fresh revision. Older hosts need reopening to gain
+the icon bridge. The viewer-authenticated report endpoint rejects stale revisions.

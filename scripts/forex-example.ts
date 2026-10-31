@@ -9,7 +9,7 @@ export function forexExecutionExample(count=300): ExecutionData {
   const epoch=1_793_318_400_000;
   const orderStates=['filled','partially-filled','working','filled','cancelled','filled','rejected','filled','partially-filled','pending'] as const;
   for(let i=0;i<count;i++) {
-    const strategyId=`SOE${1_233_443_222_234+i}`, ticker=['EUR/USD','GBP/USD','USD/JPY'][i%3]!;
+    const strategyId=String(1_233_443_222_234+i), ticker=['EUR/USD','GBP/USD','USD/JPY'][i%3]!;
     const pip=ticker==='USD/JPY'?.01:.0001, precision=ticker==='USD/JPY'?3:5;
     const round=(value:number)=>Number(value.toFixed(precision));
     const base=(ticker==='USD/JPY'?149.5:ticker==='GBP/USD'?1.29:1.08)+(i%17)*pip*3;
@@ -40,7 +40,8 @@ export function forexExecutionExample(count=300): ExecutionData {
 }
 
 export function forexExecutionManifest(count=12,theme:'graphite'|'paper'|'terminal'='graphite') {
-  return {schemaVersion:1,id:`forex-execution-${theme}`,version:'1.0.0',name:`FX execution · ${theme[0]!.toUpperCase()+theme.slice(1)}`,description:'Local simulation of strategy, order and trade observations. No broker connection or live trading.',permanent:true,icon:'chart',bindings:[],actions:[],componentLayout:{mode:'vertical'},layout:{width:1500,height:1000,sizing:'content'},components:[{id:'forex-execution',title:'Synthetic forex execution',kind:'execution-workbench',configuration:{presentation:{surface:'plain',density:'compact'},controls:{header:{visible:false}},manualFields:['data.style']},data:{...forexExecutionExample(count),style:{theme}}}]};
+  const windowIcons={graphite:{icon:'chart',color:'#74d4c8',background:'#101722'},paper:{icon:'layers',color:'#2157aa',background:'#f3f6fa'},terminal:{icon:'terminal',color:'#72e3bc',background:'#0b1413'}};
+  return {schemaVersion:1,id:`forex-execution-${theme}`,version:'1.1.0',name:`FX execution - ${theme[0]!.toUpperCase()+theme.slice(1)}`,description:'Local simulation of strategy, order and trade observations. No broker connection or live trading.',permanent:true,icon:'chart',windowIcon:windowIcons[theme],bindings:[],actions:[],componentLayout:{mode:'vertical'},layout:{width:1500,height:1000,sizing:'content'},components:[{id:'forex-execution',title:'Synthetic forex execution',kind:'execution-workbench',configuration:{presentation:{surface:'plain',density:'compact'},controls:{header:{visible:false}},manualFields:['data.style']},data:{...forexExecutionExample(count),style:{theme}}}]};
 }
 
 if(process.argv[1]&&pathToFileURL(resolve(process.argv[1])).href===import.meta.url) {

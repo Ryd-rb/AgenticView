@@ -12,7 +12,9 @@ internal sealed class DesktopWindow : Form
 {
     private readonly DesktopOptions options;
     private readonly BridgePolicy policy;
-    private readonly Icon brandIcon;
+    private Icon currentIcon;
+    private WindowIconSpec? windowIcon;
+    private readonly string windowId=Guid.NewGuid().ToString("D");
     private readonly WebView2 view = new() { Dock = DockStyle.Fill, DefaultBackgroundColor = Color.FromArgb(13, 17, 25) };
     private bool fullscreen = true;
     private bool documentReady;
@@ -24,8 +26,9 @@ internal sealed class DesktopWindow : Form
     {
         this.options = options;
         policy = new(options.Url,options.CardId,options.FocusCardId);
-        brandIcon = BrandIcon.Create();
-        Icon = brandIcon;
+        if(options.CardId is not null)windowIcon=CardWindowIcon.Load(options);
+        currentIcon = windowIcon is null?BrandIcon.Create():WindowIconRenderer.Create(windowIcon);
+        Icon = currentIcon;
         Text = options.CardName??"AgenticView";
         FormBorderStyle = FormBorderStyle.None;
         StartPosition = FormStartPosition.Manual;
@@ -38,7 +41,7 @@ internal sealed class DesktopWindow : Form
         Bounds = fullscreen?monitor.Bounds:normalBounds;
         Controls.Add(view);
         Shown += async (_, _) => await InitializeAsync();
-        if(options.CardId is not null)HandleCreated+=(_,_)=>{var directory=Path.GetDirectoryName(options.DataDirectory)!;var retainedIcon=Path.Combine(directory,"card.ico");var shortcut=Path.Combine(directory,"Open card.lnk");var relaunch=File.Exists(shortcut)?CardWindowSpec.Quote(shortcut):CardWindowSpec.Command(Environment.ProcessPath!,options);TaskbarIdentity.Apply(Handle,CardWindowSpec.AppId(options.Url,options.CardId),relaunch,options.CardName??"AgenticView card",(File.Exists(retainedIcon)?retainedIcon:Environment.ProcessPath!)+",0");Console.WriteLine(JsonSerializer.Serialize(new{@event="desktop-card-identity",cardId=options.CardId,appId=CardWindowSpec.AppId(options.Url,options.CardId),relaunchConfigured=true}));};
+        if(options.CardId is not null)HandleCreated+=(_,_)=>{CardWindowIcon.ApplyIdentity(Handle,options);Console.WriteLine(JsonSerializer.Serialize(new{@event="desktop-card-identity",cardId=options.CardId,appId=CardWindowSpec.AppId(options.Url,options.CardId),relaunchConfigured=true}));};
         Resize += (_, _) => PublishState();
     }
 
@@ -71,6 +74,9 @@ internal sealed class DesktopWindow : Form
             core.PermissionRequested += (_, e) => e.State = CoreWebView2PermissionState.Deny;
             core.WebMessageReceived += (_, e) =>
             {
+                if(documentReady&&policy.TryReadWindowIcon(e.Source,core.Source,e.WebMessageAsJson,out var iconRequest,out var iconSpec)){
+                    BeginInvoke(()=>{if(IsDisposed||!documentReady||!policy.IsTrustedDocument(core.Source))return;var ok=false;try{if(WindowIconSpec.Key(windowIcon)!=WindowIconSpec.Key(iconSpec)){var next=iconSpec is null?BrandIcon.Create():WindowIconRenderer.Create(iconSpec);try{CardWindowIcon.Persist(options,iconSpec,next);CardWindowIcon.ApplyIdentity(Handle,options);var old=currentIcon;Icon=next;currentIcon=next;windowIcon=iconSpec;old.Dispose();}catch{next.Dispose();throw;}}else{CardWindowIcon.Persist(options,iconSpec,currentIcon);CardWindowIcon.ApplyIdentity(Handle,options);}ok=true;}catch(Exception){Console.WriteLine("{\"event\":\"desktop-window-icon\",\"ok\":false}");}core.PostWebMessageAsJson(JsonSerializer.Serialize(new{type="agenticview:window-icon-result",requestId=iconRequest,ok,windowId,processId=Environment.ProcessId,version=WindowIconSpec.Key(windowIcon)}));});return;
+                }
                 if(documentReady&&policy.TryReadPopOut(e.Source,core.Source,e.WebMessageAsJson,out var requestId,out var cardId,out var title)){
                     BeginInvoke(()=>{if(IsDisposed||!documentReady||!policy.IsTrustedDocument(core.Source))return;try{var result=PopOutLauncher.Open(options,cardId,title);core.PostWebMessageAsJson(JsonSerializer.Serialize(new{type="agenticview:popout-result",requestId,ok=true,processId=result.ProcessId,alreadyOpen=result.AlreadyOpen}));}catch(Exception){core.PostWebMessageAsJson(JsonSerializer.Serialize(new{type="agenticview:popout-result",requestId,ok=false,message="The independent card window could not open. Retained profiles were preserved."}));}});return;
                 }
@@ -171,7 +177,7 @@ internal sealed class DesktopWindow : Form
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { if(options.CardId is not null&&IsHandleCreated)TaskbarIdentity.Clear(Handle);Icon = null; brandIcon.Dispose(); }
+        if (disposing) { if(options.CardId is not null&&IsHandleCreated)TaskbarIdentity.Clear(Handle);Icon = null; currentIcon.Dispose(); }
         base.Dispose(disposing);
     }
 

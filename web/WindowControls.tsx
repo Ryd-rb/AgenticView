@@ -1,13 +1,21 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Copy, Minus, Square, X } from 'lucide-react';
+import type { WindowIcon } from '../shared/card-style.js';
 
 type WindowState = 'fullscreen' | 'normal' | 'minimized' | 'maximized';
 type Bridge = { postMessage: (message: unknown) => void; addEventListener: (event: 'message', callback: (event: { data: unknown }) => void) => void; removeEventListener: (event: 'message', callback: (event: { data: unknown }) => void) => void };
-function desktop() { return (typeof window==='undefined'?{}:window) as unknown as { agenticViewDesktop?: { version: number; popOut?:boolean; cardId?:string; focusCardId?:string }; chrome?: { webview?: Bridge } }; }
+function desktop() { return (typeof window==='undefined'?{}:window) as unknown as { agenticViewDesktop?: { version: number; popOut?:boolean; windowIcons?:boolean; cardId?:string; focusCardId?:string }; chrome?: { webview?: Bridge } }; }
 export function desktopCardId(){const id=desktop().agenticViewDesktop?.cardId;return id&&/^[a-zA-Z0-9_.:-]{1,100}$/.test(id)?id:null;}
 export function desktopFocusCardId(){const id=desktop().agenticViewDesktop?.focusCardId;return id&&/^[a-zA-Z0-9_.:-]{1,100}$/.test(id)?id:null;}
 export function canPopOut(){return desktop().agenticViewDesktop?.version===1&&desktop().agenticViewDesktop?.popOut===true&&!!desktop().chrome?.webview;}
+export function canSetWindowIcon(){return desktop().agenticViewDesktop?.version===1&&desktop().agenticViewDesktop?.windowIcons===true&&!!desktopCardId()&&!!desktop().chrome?.webview;}
+export type WindowIconResult={windowId:string;processId:number;state:'applied'|'failed';version:string};
+export function setWindowIcon(cardId:string,windowIcon:WindowIcon|null):Promise<WindowIconResult>{
+  const bridge=desktop().chrome?.webview;
+  if(!canSetWindowIcon()||!bridge||desktopCardId()!==cardId)return Promise.reject(new Error('Window icon configuration requires its own standalone desktop window.'));
+  return new Promise((resolve,reject)=>{const requestId=crypto.randomUUID();const stop=()=>{clearTimeout(timer);bridge.removeEventListener('message',changed);};const changed=(event:{data:unknown})=>{const value=event.data as {type?:string;requestId?:string;ok?:boolean;windowId?:string;processId?:number;version?:string};if(value?.type!=='agenticview:window-icon-result'||value.requestId!==requestId)return;if(!/^[a-f0-9-]{36}$/i.test(value.windowId??'')||!Number.isSafeInteger(value.processId)||value.processId!<=0||! /^(default|[a-f0-9]{64})$/.test(value.version??''))return;stop();resolve({windowId:value.windowId!,processId:value.processId!,state:value.ok===true?'applied':'failed',version:value.version!});};const timer=setTimeout(()=>{stop();reject(new Error('Native window icon was not acknowledged.'));},15000);bridge.addEventListener('message',changed);try{bridge.postMessage({type:'agenticview:window-icon',requestId,cardId,windowIcon});}catch(error){stop();reject(error);}});
+}
 export function popOutCard(cardId:string,title:string):Promise<void>{
   const bridge=desktop().chrome?.webview;
   if(!canPopOut()||!bridge)return Promise.reject(new Error('Pop out is available in the dedicated Windows app.'));

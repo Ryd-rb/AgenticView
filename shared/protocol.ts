@@ -7,7 +7,7 @@ import { configurationSchema } from './component-config.js';
 import { executionDataSchema } from './execution-workbench.js';
 import { controlPresentationSchema } from './control-presentation.js';
 import { gridDataSchema } from './grid-config.js';
-import {cardStyleSchema,type CardIconName} from './card-style.js';
+import {cardStyleSchema,windowIconSchema,type CardIconName,type WindowIcon} from './card-style.js';
 
 export const idSchema = z.string().min(1).max(100).regex(/^[a-zA-Z0-9_.:-]+$/).refine(v => !['__proto__', 'prototype', 'constructor'].includes(v), 'Reserved identifier');
 const text = z.string().max(131_072);
@@ -93,7 +93,9 @@ export type TaskTiming = { key: string; line: number; firstSeenAt: number; start
 export type AgentView = {
   chrome?:ControlMap;componentLayout?:ComponentLayout;
   id: string; agentId: string; name: string; role: string; context: string;
-  parentId: string | null; createdAt: number; lastSeen: number; status: AgentStatus; icon?: CardIconName;
+  parentId: string | null; createdAt: number; lastSeen: number; status: AgentStatus; icon?: CardIconName; windowIcon?:WindowIcon|null;
+  windowIconRevision?:number;
+  windowIconReports?:{windowId:string;processId:number;state:'applied'|'failed';version:string;revision:number;observedAt:number}[];
   updatedAt?: number; completedAt?: number; componentTimes?: Record<string, number>;
   taskTimes?: Record<string, TaskTiming[]>;
   application?: { name: string; description?: string };
@@ -115,6 +117,7 @@ export type AgentChange = { id: string; meta?: Omit<AgentView, 'components'>; co
 export type Patch = { revision: number; changes: AgentChange[]; removed: string[]; settings?: Settings; stats: Stats };
 export type ArchiveSummary = { id: string; name: string; agentId: string; role: string; parentId: string | null; status: AgentStatus; archivedAt: number; createdAt?: number; updatedAt?: number; completedAt?: number; bytes: number; rawBytes: number };
 export const registerSchema = z.object({
+  windowIcon:windowIconSchema.nullable().optional(),
   chrome:controlMapSchema.optional(),componentLayout:componentLayoutSchema.optional(),
   requestId: idSchema,
   registrationKey: z.string().min(32).max(256).describe('Private random recovery secret. Generate locally and never include in display content.'),
@@ -128,7 +131,7 @@ export const registerSchema = z.object({
 });
 export type RegisterInput = z.input<typeof registerSchema>;
 export const operationSchema = z.discriminatedUnion('op', [
-  z.object({op:z.literal('style'),icon:cardStyleSchema.shape.icon}),
+  z.object({op:z.literal('style'),icon:cardStyleSchema.shape.icon.optional(),windowIcon:windowIconSchema.nullable().optional()}).refine(value=>value.icon!==undefined||value.windowIcon!==undefined,'Supply a header icon or window icon'),
   z.object({ op: z.literal('upsert'), component: componentSchema }),
   z.object({ op: z.literal('remove'), componentId: idSchema }),
   z.object({ op: z.literal('clear') }),
