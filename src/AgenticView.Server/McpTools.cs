@@ -34,6 +34,12 @@ public sealed class McpTools(Hub hub, ControlStore controls, OperatorView view)
     public Task<JsonObject> UiWait(string debugId,string commandId)=>controls.UiWait(debugId,commandId);
     [McpServerTool(Name="ui_close",Idempotent=true,UseStructuredContent=true),Description("Finish debugging using only debugId. Cancels queued commands, marks uncertain claimed work unknown, and retains durable retry history.")]
     public JsonObject UiClose(string debugId)=>controls.UiClose(debugId);
+    [McpServerTool(Name="ui_archive_history",Idempotent=true,UseStructuredContent=true),Description("Operator-only: free active debugging history capacity by archiving terminal commands from closed sessions locally as gzip. Supply explicit installation viewer operatorToken; optional limit1..256 closed sessions (default64). Results and exact retry identities remain readable. Never closes active sessions, replays commands or changes operational action history.")]
+    public JsonObject UiArchiveHistory(string operatorToken,int limit=64)
+    {
+        try{var result=controls.UiArchiveHistory(operatorToken,limit);result["state"]="succeeded";return result;}
+        catch(HubError error){return Json.Object(new{state="error",error=error.Message,status=error.Status,recovery="Supply explicit installation viewer authority and limit1..256. Close completed debugging leases first; active work remains untouched.",nextCall=new{tool="ui_guide",arguments=new{goal="test"}}});}
+    }
     [McpServerTool(Name="component_debug_catalog",ReadOnly=true,Idempotent=true,UseStructuredContent=true),Description("Advanced protocol; prefer ui_open for automatic setup and copyable next calls. Discover scoped native component debug commands, safe CSS properties and durable history limits. No scripts/selectors, URLs, screenshots or external UI automation.")]
     public JsonObject DebugCatalog()=>ControlStore.ComponentDebugCatalog();
     [McpServerTool(Name="component_debug_clients",ReadOnly=true,Idempotent=true,UseStructuredContent=true),Description("List online viewer clients advertising your own run only. Requires your private run proof; never returns other advertised cards or client credentials.")]

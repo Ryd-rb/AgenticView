@@ -22,6 +22,7 @@ if (args.Contains("--layout-probe"))
 
 var cases = new (string Name, Action Test)[]
 {
+    ("closed debug history archives preserve retry identity, results and capacity without affecting active work", DebugHistoryContracts.Run),
     ("snapshot UTF8 output stays atomic and avoids cloning retained data", SnapshotSerializationContracts.Run),
     ("small publications and heartbeats retain unrelated data with bounded allocations and transactional retries", HubPublicationContracts.Run),
     ("configurable charts and additional native components", NativeExtensionsContracts.Run),

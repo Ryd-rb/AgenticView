@@ -70,5 +70,14 @@ test('easy UI MCP follows copyable calls, scopes capabilities and retains exact 
     assert.equal((await tool('ui_action', { ...uncertainArgs, requestId: uncertain.nextActionId })).state, 'error', 'Closed/offline leases refuse new actions');
     assert.equal((await tool('ui_close', { debugId: opened.debugId })).state, 'closed');
     assert.equal((await tool('ui_close', { debugId: opened.debugId })).state, 'closed');
+    assert.equal((await tool('ui_archive_history', {operatorToken:secrets.ingestToken})).status,403);
+    assert.equal((await tool('ui_archive_history', {operatorToken:secrets.viewerToken,limit:0})).status,400);
+    const archive=await tool('ui_archive_history',{operatorToken:secrets.viewerToken});assert.ok(archive.archivedCommands>0);
+    assert.equal((await tool('ui_archive_history',{operatorToken:secrets.viewerToken})).archivedCommands,0);
+    const archivedClick=await tool('ui_action',action);assert.equal(archivedClick.state,'succeeded');assert.equal(archivedClick.commandId,clicked.commandId);
+    assert.equal((await tool('ui_action',{...action,action:'focus'})).status,409);
+    assert.equal((await tool('ui_action',uncertainArgs)).state,'unknown');assert.equal(claimed.length,claimedAtDisconnect,'Archived retries never execute again');
+    assert.equal((await tool('ui_wait',{debugId:opened.debugId,commandId:clicked.commandId})).state,'succeeded');
+    for(const secret of [runToken,body.clientToken,secrets.viewerToken])assert.ok(!JSON.stringify(archive).includes(secret));
   } finally { running = false; await viewer; await client.close(); await f.close(); }
 });

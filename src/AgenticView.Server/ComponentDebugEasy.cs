@@ -15,7 +15,7 @@ public sealed partial class ControlStore
         DebugSweep();var session=DebugSession(parts[0]);if(session["easy"] is not JsonObject)throw new HubError(403,"This lease was not opened by ui_open.");return session;
     }
     private static JsonObject EasyCall(string tool,object arguments)=>Json.Object(new{tool,arguments});
-    private JsonObject EasyError(HubError error,string? debugId=null,string[]? allowed=null)=>Json.Object(new{state="error",error=error.Message,status=error.Status,allowedActions=allowed??[],supportedActions=EasyActions,recovery="For stale targets call ui_inspect. For expired/offline sessions call ui_open with your own runId/runToken. Never replay an unknown action with a new requestId.",nextCall=debugId is null||error.Message.Contains("lease",StringComparison.OrdinalIgnoreCase)||error.Status==403&&allowed is null?EasyCall("ui_open",new{runId="your-run-id",runToken="your-private-run-token"}):EasyCall("ui_inspect",new{debugId})});
+    private JsonObject EasyError(HubError error,string? debugId=null,string[]? allowed=null)=>Json.Object(new{state="error",error=error.Message,status=error.Status,allowedActions=allowed??[],supportedActions=EasyActions,recovery=error.Message.Contains("history cap",StringComparison.OrdinalIgnoreCase)?"Debug history is full. Close completed leases, then ask an authorized operator to call ui_archive_history. Results and retry identities are retained; never replay an unknown action.":"For stale targets call ui_inspect. For expired/offline sessions call ui_open with your own runId/runToken. Never replay an unknown action with a new requestId.",nextCall=error.Message.Contains("history cap",StringComparison.OrdinalIgnoreCase)?EasyCall("ui_guide",new{goal="test"}):debugId is null||error.Message.Contains("lease",StringComparison.OrdinalIgnoreCase)||error.Status==403&&allowed is null?EasyCall("ui_open",new{runId="your-run-id",runToken="your-private-run-token"}):EasyCall("ui_inspect",new{debugId})});
     private JsonObject EasyQueue(JsonObject session,string requestId,JsonObject command)
         =>ComponentDebugCommand(Text(session,"runId"),hub.OwnedToken(Text(session,"runId")),Text(session,"id"),requestId,command);
     public async Task<JsonObject> UiOpen(string runId,string runToken,string? componentId=null)
@@ -61,7 +61,7 @@ public sealed partial class ControlStore
             string id;lock(gate){
                 var session=EasySession(debugId);ComponentValidator.Id(Json.Object(new{requestId}),"requestId");
                 var input=Json.Object(new{action,targetRef,value,key,x,y,zoom});var digest=Hash(Canonical(input));
-                var old=DebugRows("SELECT payload FROM debug_commands WHERE session_id=$p0 AND request_id=$p1",Text(session,"id"),requestId).FirstOrDefault();
+                var old=DebugFindRetry(Text(session,"id"),requestId)?.Payload;
                 if(old is not null){if(Text(old,"easyInputDigest")!=digest)throw new HubError(409,"requestId was already used with different input. Retry the identical call or use nextActionId for a new action.");id=Text(old,"id");}
                 else{
                     var easy=(JsonObject)session["easy"]!;

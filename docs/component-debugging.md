@@ -215,3 +215,16 @@ host command. The renderer closes on background activation; MCP must report
 `state:"failed"`, retain the failure reason and reach `stopAcknowledged:true`
 through the native control channel. This flag is rejected outside finite test
 hosts and cannot launch a normal pop-out. No installed runtime is changed.
+
+### Reclaim debugging history capacity
+
+An authorized operator can call `ui_archive_history({operatorToken, limit:64})`
+after closing completed leases. It moves terminal commands from closed sessions
+into local compressed history; results and exact retry identities remain readable
+across restarts. Open sessions, queued/running commands, and operational action
+history stay intact. The limit is 1–256 sessions per call. Repeating the archive
+call is safe; it never replays a command.
+
+Native scrollports advertise named regions such as “Table rows”, “Grid rows” and
+the component's “content” region. Follow inspected target references to distinguish
+a bounded component viewport from the grid inside it.
