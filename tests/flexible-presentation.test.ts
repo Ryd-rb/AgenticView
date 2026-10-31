@@ -6,7 +6,7 @@ import { act,createElement } from 'react';
 import { Window } from 'happy-dom';
 import { presentationSchema,type Presentation } from '../shared/component-config.ts';
 import { componentSchema,type Component } from '../shared/protocol.ts';
-import { ComponentSettings,presentationStyle } from '../web/ComponentSettings.tsx';
+import { ComponentSettings,presentationStyle,presentationFlags } from '../web/ComponentSettings.tsx';
 import { CardInteraction } from '../web/CardInteraction.ts';
 import { ComponentView } from '../web/Components.tsx';
 import { fixture as serverFixture,secrets } from './server-fixture.ts';
@@ -39,10 +39,11 @@ async function ui(component:Component,view=false){
   const calls:any[]=[],original=globalThis.fetch;globalThis.fetch=async(url,init)=>{calls.push({url:String(url),body:JSON.parse(String(init?.body))});return new Response('{}',{status:200,headers:{'Content-Type':'application/json'}});};
   for(const path of ['web/control-views.css','web/linked-workbench.css','web/component-config.css','web/component-presentation.css']){try{const style=document.createElement('style');style.textContent=readFileSync(path,'utf8');document.head.append(style);}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}}
   const {createRoot}=await import('react-dom/client'),host=document.createElement('div');document.body.append(host);const root=createRoot(host),settle=()=>new Promise<void>(resolve=>setImmediate(resolve));
-  await act(async()=>{root.render(createElement(CardInteraction.Provider,{value:true},view?createElement(ComponentView,{component,runId:'synthetic',embeds:false}):createElement(ComponentSettings,{component,runId:'synthetic'})));await settle();});
+  const render=async(component:Component)=>act(async()=>{root.render(createElement(CardInteraction.Provider,{value:true},view?createElement(ComponentView,{component,runId:'synthetic',embeds:false}):createElement(ComponentSettings,{component,runId:'synthetic'})));await settle();});
+  await render(component);
   const change=async(label:string,value:string)=>act(async()=>{const input=host.querySelector<HTMLInputElement|HTMLSelectElement>(`[aria-label="${label}"]`);assert.ok(input,label);Object.getOwnPropertyDescriptor(input.tagName==='SELECT'?dom.HTMLSelectElement.prototype:dom.HTMLInputElement.prototype,'value')!.set!.call(input,value);input.dispatchEvent(new Event(input.tagName==='SELECT'?'change':'input',{bubbles:true}));await settle();});
   const click=async(label:string)=>act(async()=>{const button=[...host.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.getAttribute('aria-label')===label||button.textContent===label);assert.ok(button,label);button.click();await settle();});
-  return {host,calls,dom,change,click,close:async()=>{await act(async()=>{root.unmount();await settle();});globalThis.fetch=original;await dom.happyDOM.close();}};
+  return {host,calls,dom,render,change,click,close:async()=>{await act(async()=>{root.unmount();await settle();});globalThis.fetch=original;await dom.happyDOM.close();}};
 }
 
 test('manual presentation editor preserves zero, uses typed edge fields and omits cleared overrides',async()=>{
@@ -57,6 +58,36 @@ test('explicit native presentation metrics reach linked controls and table cells
     const configured=f.host.querySelector<HTMLElement>('.component-configured')!,input=f.host.querySelector<HTMLInputElement>('[aria-label="Find linked rows"]')!,cell=f.host.querySelector<HTMLElement>('tbody td')!;
     assert.equal(configured.style.getPropertyValue('--component-control-padding'),'0px');assert.equal(window.getComputedStyle(input).fontSize,'30px');assert.equal(window.getComputedStyle(input).paddingLeft,'0px');assert.equal(window.getComputedStyle(input).minHeight,'40px');assert.equal(window.getComputedStyle(cell).paddingLeft,'0px');assert.equal(window.getComputedStyle(cell).height,'48px');assert.equal(JSON.stringify(component),before);
   }finally{await f.close();}
+});
+
+test('stable presentation flags track explicit zero and edge overrides, remove cleared fields and ignore ancestor transforms',async()=>{
+  assert.equal(presentationFlags(presentationStyle(undefined)),undefined);
+  const component=componentSchema.parse({id:'flags',kind:'linked-workbench',title:'Stable native presentation',configuration:{presentation:{fontSize:30,controlPadding:0,cellPadding:0,gap:0}},data:{entities:[{id:'node',label:'Node'}],columns:[{key:'value',label:'Value'}],rows:[{id:'root',kind:'node',values:{value:1}}],series:[],associations:[]}}),f=await ui(component,true);
+  try{
+    const configured=f.host.querySelector<HTMLElement>('.component-configured')!,input=f.host.querySelector<HTMLInputElement>('[aria-label="Find linked rows"]')!,cell=f.host.querySelector<HTMLElement>('tbody td')!;
+    const initial=configured.getAttribute('data-presentation')!,tokens=new Set(initial.split(' '));
+    for(const flag of ['font-size','control-padding','control-padding-any','cell-padding','gap'])assert.ok(tokens.has(flag),flag);
+    for(const absent of ['control-padding-left','cell-padding-top','font-family','row-height'])assert.equal(tokens.has(absent),false,absent);
+    assert.equal(window.getComputedStyle(input).fontSize,'30px');assert.equal(window.getComputedStyle(input).paddingTop,'0px');assert.equal(window.getComputedStyle(input).minHeight,'28px');assert.equal(window.getComputedStyle(cell).paddingTop,'0px');assert.equal(window.getComputedStyle(cell).paddingLeft,'0px');
+    f.host.style.transform='translate(25px, 18px) scale(.25)';
+    assert.equal(configured.getAttribute('data-presentation'),initial);assert.equal(window.getComputedStyle(input).fontSize,'30px');
+    const next=componentSchema.parse({...component,configuration:{presentation:{fontSize:16,controlPadding:{left:0,right:3},controlHeight:40,cellPadding:{bottom:0,right:3},rowHeight:48}}});
+    await f.render(next);
+    assert.equal(f.host.querySelector('.component-configured'),configured,'A presentation update preserves the configured wrapper');
+    const changed=new Set(configured.getAttribute('data-presentation')!.split(' '));
+    for(const flag of ['font-size','control-padding-left','control-padding-right','control-padding-any','control-height','cell-padding-bottom','cell-padding-right','row-height'])assert.ok(changed.has(flag),flag);
+    for(const absent of ['control-padding','cell-padding','gap'])assert.equal(changed.has(absent),false,absent);
+    assert.equal(window.getComputedStyle(input).fontSize,'16px');assert.equal(window.getComputedStyle(input).paddingLeft,'0px');assert.equal(window.getComputedStyle(input).paddingRight,'3px');assert.equal(window.getComputedStyle(input).height,'40px');assert.equal(configured.style.getPropertyValue('--component-cell-padding-bottom'),'0px');assert.equal(configured.style.getPropertyValue('--component-cell-padding-right'),'3px');assert.equal(cell.matches('.component-configured[data-presentation~=cell-padding-bottom] td'),true);
+    await f.render(componentSchema.parse({...component,configuration:{presentation:{}}}));
+    const cleared=new Set(configured.getAttribute('data-presentation')!.split(' '));
+    for(const flag of ['font-size','control-padding-any','control-height','cell-padding-bottom','cell-padding-right','row-height'])assert.equal(cleared.has(flag),false,flag);
+    assert.equal(configured.style.getPropertyValue('--component-font-size'),'');assert.notEqual(window.getComputedStyle(input).height,'40px');
+    const rules=[...document.styleSheets].flatMap(sheet=>[...sheet.cssRules]);assert.equal(rules.some(rule=>'selectorText' in rule&&String(rule.selectorText).includes('[style*=')),false,'Inline style mutations are not native presentation selector dependencies');
+  }finally{await f.close();}
+  // happy-dom caches table-cell shorthand/variable cascade across ancestor attribute edits.
+  // Verify the second configuration's actual computed metrics on a fresh mount as well.
+  const edge=await ui(componentSchema.parse({...component,configuration:{presentation:{controlPadding:{left:0,right:3},cellPadding:{bottom:0,right:3},rowHeight:48}}}),true);
+  try{const cell=edge.host.querySelector<HTMLElement>('tbody td')!;assert.equal(window.getComputedStyle(cell).paddingBottom,'0px');assert.equal(window.getComputedStyle(cell).paddingRight,'3px');assert.equal(window.getComputedStyle(cell).height,'48px');}finally{await edge.close();}
 });
 
 test('manual HTTP presentation edits enforce exact source, type bounds and authority',async()=>{

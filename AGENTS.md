@@ -132,6 +132,8 @@
   outcomes retained; no arbitrary evaluation, screenshots or operational actions.
 - Reuse unchanged agent branches and telemetry state; navigation and stats updates
   must not rebuild every card. Keep asset compression/caching separate from SSE.
+- Owner, 31 October 2026: keep the actual views visible at far zoom. Pause
+  small-view updates/readers without hiding or replacing their contents by distance.
 - Support a dedicated Windows fullscreen window with no system title bar and
   custom minimize, maximize/restore and close controls; reuse the title's signal
   icon and keep desktop dependencies offline-ready.

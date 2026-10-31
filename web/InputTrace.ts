@@ -3,12 +3,12 @@ type TraceWindow = Window & { agenticViewInputTraceUntil?: number; chrome?: { we
 let sent = 0;
 
 /** Temporary, bounded native diagnostics: numbers and fixed labels, never panel contents. */
-export function traceInput(phase: TracePhase, values: number[]) {
+export function traceInput(phase: TracePhase, values: number[] | (()=>number[])) {
   if (typeof window === 'undefined') return;
   const host = window as TraceWindow;
   if (!host.agenticViewInputTraceUntil || Date.now() > host.agenticViewInputTraceUntil || sent >= 4096) return;
   sent++;
-  host.chrome?.webview?.postMessage({ type: 'agenticview:input-trace', phase, values: values.slice(0, 32).map(value => Number.isFinite(value) ? value : 0) });
+  host.chrome?.webview?.postMessage({ type: 'agenticview:input-trace', phase, values: (typeof values==='function'?values():values).slice(0, 32).map(value => Number.isFinite(value) ? value : 0) });
 }
 
 export function inputRegion(target: EventTarget | null): number {

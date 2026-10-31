@@ -6,7 +6,7 @@ namespace AgenticView.Server;
 /// <summary>Scoped native-component diagnostics. Commands are data, never scripts or selectors.</summary>
 public sealed partial class ControlStore
 {
-    private static readonly string[] DebugOperations=["inspect","styles","click","doubleClick","focus","input","key","scroll","navigate","metrics","profile"];
+    private static readonly string[] DebugOperations=["inspect","styles","click","doubleClick","focus","input","key","scroll","navigate","viewport","metrics","profile"];
     private static readonly string[] DebugProperties=["display","visibility","opacity","position","width","height","min-width","max-width","min-height","max-height","padding","padding-top","padding-right","padding-bottom","padding-left","margin","margin-top","margin-right","margin-bottom","margin-left","gap","row-gap","column-gap","font-size","font-family","font-weight","line-height","letter-spacing","color","background-color","border-width","border-radius","overflow","overflow-x","overflow-y","pointer-events","animation-duration","transition-duration","transform","z-index"];
     private const int DebugClientCap=128,DebugSessionCap=512,DebugCommandCap=2048,DebugSessionCommandCap=256;
     private void InitializeComponentDebug()
@@ -48,7 +48,7 @@ public sealed partial class ControlStore
         var id=DebugClientId(input);var proof=ComponentValidator.Text(input,"clientToken",256,true,32);
         if(Scalar("SELECT proof FROM debug_clients WHERE id=$p0",id) is not string stored||!Authentication.Equal(stored,Hash(proof)))throw new HubError(403,"Invalid debug client proof.");return id;
     }
-    public static JsonObject ComponentDebugCatalog()=>Json.Object(new{operations=DebugOperations,styleProperties=DebugProperties,commands=new{inspect="{operation:'inspect',componentId?:id,includeText?:boolean,limit?:integer1..100}",styles="{operation:'styles',componentId:id,target?:Target,properties?:knownCSSNames[0..32]}",click="{operation:'click'|'doubleClick'|'focus',componentId:id,target:Target}",input="{operation:'input',componentId:id,target:Target,value:string<=2000}",key="{operation:'key',componentId:id,target:Target,key:Enter|Space|Escape|ArrowUp|ArrowDown|ArrowLeft|ArrowRight|Home|End|Tab}",scroll="{operation:'scroll',componentId:id,target?:Target,x:finite(-100000..100000),y:finite(-100000..100000)}",navigate="{operation:'navigate',mode:focus|maximize|canvas|fit}",metrics="{operation:'metrics'}",profile="{operation:'profile',durationSeconds:integer1..30}"},target="Strict {role?:string<=80,name?:string<=160,index?:integer0..99}; no selectors.",limits=new{clients=DebugClientCap,sessions=DebugSessionCap,commandsPerSession=DebugSessionCommandCap,commandsGlobal=DebugCommandCap,resultBytes=65536,clientTtlSeconds=120,claimSeconds=90,maxLeaseSeconds=7200,maxProfileSeconds=30},scope="Own-run, proof-bound native component debugging only. No custom frames, operational actions, scripts, arbitrary selectors, URLs, screenshots or external UI automation. Frontend enforces allowed native controls and input authority. Hard history caps reject new requests rather than evict retry identities."});
+    public static JsonObject ComponentDebugCatalog()=>Json.Object(new{operations=DebugOperations,styleProperties=DebugProperties,commands=new{inspect="{operation:'inspect',componentId?:id,includeText?:boolean,limit?:integer1..100}",styles="{operation:'styles',componentId:id,target?:Target,properties?:knownCSSNames[0..32]}",click="{operation:'click'|'doubleClick'|'focus',componentId:id,target:Target}",input="{operation:'input',componentId:id,target:Target,value:string<=2000}",key="{operation:'key',componentId:id,target:Target,key:Enter|Space|Escape|ArrowUp|ArrowDown|ArrowLeft|ArrowRight|Home|End|Tab}",scroll="{operation:'scroll',componentId:id,target?:Target,x:finite(-100000..100000),y:finite(-100000..100000)}",navigate="{operation:'navigate',mode:focus|maximize|canvas|fit}",viewport="{operation:'viewport',zoom:finite0.001..16,steps?:integer1..120,intervalMs?:integer8..100,anchorX?:finite0..1,anchorY?:finite0..1,profileSeconds?:integer1..30}",metrics="{operation:'metrics'}",profile="{operation:'profile',durationSeconds:integer1..30}"},target="Strict {role?:string<=80,name?:string<=160,index?:integer0..99}; no selectors.",limits=new{clients=DebugClientCap,sessions=DebugSessionCap,commandsPerSession=DebugSessionCommandCap,commandsGlobal=DebugCommandCap,resultBytes=65536,clientTtlSeconds=120,claimSeconds=90,maxLeaseSeconds=7200,maxProfileSeconds=30},scope="Own-run, proof-bound native component debugging only. No custom frames, operational actions, scripts, arbitrary selectors, URLs, screenshots or external UI automation. Frontend enforces allowed native controls and input authority. Hard history caps reject new requests rather than evict retry identities."});
     private static void DebugValidateCommand(JsonObject command)
     {
         Budget(command,16384);ComponentValidator.Choice(command,"operation",DebugOperations);var operation=Text(command,"operation");
@@ -58,6 +58,7 @@ public sealed partial class ControlStore
             "input"=>["operation","componentId","target","value"],
             "key"=>["operation","componentId","target","key"],
             "scroll"=>["operation","componentId","target","x","y"],
+            "viewport"=>["operation","zoom","steps","intervalMs","anchorX","anchorY","profileSeconds"],
             "navigate"=>["operation","mode"],"profile"=>["operation","durationSeconds"],"metrics"=>["operation"],
             _=>["operation","componentId","target"]};
         ComponentConfiguration.Keys(command,keys);
@@ -76,6 +77,13 @@ public sealed partial class ControlStore
             case "key":ComponentValidator.Choice(command,"key",["Enter","Space","Escape","ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Home","End","Tab"]);break;
             case "scroll":ComponentValidator.Number(command,"x",-100000,100000,true);ComponentValidator.Number(command,"y",-100000,100000,true);break;
             case "navigate":ComponentValidator.Choice(command,"mode",["focus","maximize","canvas","fit"]);break;
+            case "viewport":
+                if(command.ContainsKey("profileSeconds"))ComponentValidator.Number(command,"profileSeconds",1,30,true,true);
+                ComponentValidator.Number(command,"zoom",.001,16,true);
+                if(command.ContainsKey("steps"))ComponentValidator.Number(command,"steps",1,120,true,true);
+                if(command.ContainsKey("intervalMs"))ComponentValidator.Number(command,"intervalMs",8,100,true,true);
+                foreach(var anchor in new[]{"anchorX","anchorY"})if(command.ContainsKey(anchor))ComponentValidator.Number(command,anchor,0,1,true);
+                break;
             case "profile":ComponentValidator.Number(command,"durationSeconds",1,30,true,true);break;
         }
     }

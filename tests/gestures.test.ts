@@ -13,7 +13,7 @@ const dom = new Window({ url: 'http://localhost/', settings: { disableIframePage
 for (const key of ['window', 'document', 'HTMLElement', 'Element', 'Node', 'DOMRect', 'Event', 'CustomEvent', 'MouseEvent', 'PointerEvent', 'WheelEvent', 'getComputedStyle'] as const) {
   Object.defineProperty(globalThis, key, { configurable: true, value: key === 'window' ? dom : key === 'getComputedStyle' ? dom.getComputedStyle.bind(dom) : dom[key] });
 }
-Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true, ResizeObserver: class { observe() {} disconnect() {} } });
+Object.assign(globalThis, { requestAnimationFrame:dom.requestAnimationFrame.bind(dom),cancelAnimationFrame:dom.cancelAnimationFrame.bind(dom), IS_REACT_ACT_ENVIRONMENT: true, ResizeObserver: class { observe() {} disconnect() {} } });
 const { createRoot } = await import('react-dom/client');
 const prototype = dom.HTMLElement.prototype;
 for (const [key, value] of Object.entries({ clientWidth: 400, clientHeight: 300, offsetWidth: 400, scrollWidth: 800, scrollHeight: 1000 })) {

@@ -5,9 +5,6 @@ html:not(.motion-enabled) *,html:not(.motion-enabled) *::before,html:not(.motion
 @keyframes component-appear{from{opacity:.75}to{opacity:1}}
 .reduced-motion *,.reduced-motion *::before,.reduced-motion *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
-.render-boundary-component{min-width:0;max-width:100%}.render-boundary[data-render-active="false"]{pointer-events:none}
-.card-overview{display:flex;flex:1;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:16px;color:#abb8ce;font-size:12px}.card-overview button{padding:6px 12px;border:1px solid #6f7f9b;border-radius:4px;color:#e5edf7}
-
-.agent-card[data-card-detail=overview]>.card-header,.agent-card[data-card-detail=overview]>.card-footer{display:none}.card-overview>strong{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.card-overview button{font:inherit}
+.render-boundary-component{min-width:0;max-width:100%}
 
 .component-debug-banner{position:fixed;right:16px;bottom:12px;z-index:2000000;display:flex;align-items:center;gap:12px;padding:8px 12px;border:1px solid #e4b45c;border-radius:6px;background:#302719;color:#ffe2ab;font:12px/1.4 system-ui}.component-debug-banner button{min-height:28px;padding:3px 8px;color:inherit;border:1px solid #967c51;border-radius:4px;background:#493a21}

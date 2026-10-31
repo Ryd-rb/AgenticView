@@ -30,6 +30,17 @@ function sampled<T>(points: T[]): T[] {
   return Array.from({ length: LIMIT }, (_, i) => points[Math.round(i * (points.length - 1) / (LIMIT - 1))]);
 }
 
+// Inactive charts still paint every supplied mark. Opaque marks can share a
+// vector path instead of thousands of independent paint/layout objects. The
+// active chart keeps per-point titles and hit targets for inspection.
+function markPath(px: number, py: number, marker: string, type: string, base: number, width: number, offset: number) {
+  if (type === 'bar') return `M${px + offset - width / 2},${Math.min(py, base)}h${width}v${Math.abs(base - py)}h${-width}Z`;
+  if (marker === 'circle') return `M${px - 3},${py}a3,3 0 1,0 6,0a3,3 0 1,0 -6,0Z`;
+  if (marker === 'square') return `M${px - 3},${py - 3}h6v6h-6Z`;
+  if (marker === 'diamond') return `M${px},${py - 4}l4,4 -4,4 -4,-4Z`;
+  return '';
+}
+
 /** Local interactions change inspection only; supplied telemetry is never mutated. */
 export function ChartView({ data, manual = true,sampledByProvider=false }: { data: ChartData; manual?: boolean;sampledByProvider?:boolean }) {
   const legendSpec=useControl('legend'),dataSpec=useControl('dataTable'),paginationSpec=useControl('pagination');
@@ -75,14 +86,18 @@ export function ChartView({ data, manual = true,sampledByProvider=false }: { dat
           {visible.map(({ series, index, key: seriesKey }) => {
             const color = series.color ?? palette[index % palette.length], points = sampledByProvider?series.points:sampled(series.points), type = series.type ?? data.type, path = points.map(p => `${x(p.x)},${y(p.y)}`).join(' '), marker = series.marker ?? (options?.markers || type === 'scatter' ? 'circle' : 'none');
             const bars = visible.filter(item => (item.series.type ?? data.type) === 'bar'), barIndex = bars.findIndex(item => item.key === seriesKey), width = Math.max(.75, Math.min(28, 440 / Math.max(1, categories.length || points.length) / Math.max(1, bars.length)));
+            const batched = !manual, offset = (barIndex - (bars.length - 1) / 2) * width;
             return <g key={seriesKey} data-series={seriesKey}>
               {type === 'area' && points.length > 0 && <polygon points={`${x(points[0].x)},${base} ${path} ${x(points.at(-1)!.x)},${base}`} fill={color} fillOpacity=".16" />}
-              {(type === 'line' || type === 'area') && <polyline points={path} fill="none" stroke={color} strokeWidth={series.width ?? 2} strokeDasharray={dash[series.dash ?? 'solid']} vectorEffect="non-scaling-stroke" />}
+              {(type === 'line' || type === 'area') && <polyline points={path} fill="none" stroke={color} strokeWidth={series.width ?? 2} strokeDasharray={dash[series.dash ?? 'solid']} />}
+              {batched && (type === 'bar' || marker !== 'none') && <path data-chart-marks={points.length} d={points.map(point => markPath(x(point.x), y(point.y), marker, type, base, width, offset)).join('')} fill={color} />}
               {points.map((point, i) => {
+                const label = options?.labels && i < 40 && matchesChartCondition(point.y, options.labelWhen);
+                if (batched && !label) return null;
                 const px = x(point.x), py = y(point.y), title = options?.tooltips !== false && matchesChartCondition(point.y, options?.tooltipWhen) ? `${series.name}: ${String(point.x)}, ${formatY(point.y)}${point.label ? ' · ' + point.label : ''}` : undefined;
-                return <g key={i} className="chart-point">{title && <title>{title}</title>}
-                  {type === 'bar' ? <rect x={px + (barIndex - (bars.length - 1) / 2) * width - width / 2} y={Math.min(py, base)} width={width} height={Math.abs(base - py)} fill={color} /> : marker === 'circle' ? <circle cx={px} cy={py} r="3" fill={color} /> : marker === 'square' ? <rect x={px - 3} y={py - 3} width="6" height="6" fill={color} /> : marker === 'diamond' ? <polygon points={`${px},${py - 4} ${px + 4},${py} ${px},${py + 4} ${px - 4},${py}`} fill={color} /> : title ? <circle cx={px} cy={py} r="5" fill="transparent" /> : null}
-                  {options?.labels && i < 40 && matchesChartCondition(point.y, options.labelWhen) && <text x={px} y={py - 7} textAnchor="middle">{point.label ?? formatY(point.y)}</text>}
+                return <g key={i} className="chart-point">{!batched && title && <title>{title}</title>}
+                  {!batched && (type === 'bar' ? <rect x={px + offset - width / 2} y={Math.min(py, base)} width={width} height={Math.abs(base - py)} fill={color} /> : marker === 'circle' ? <circle cx={px} cy={py} r="3" fill={color} /> : marker === 'square' ? <rect x={px - 3} y={py - 3} width="6" height="6" fill={color} /> : marker === 'diamond' ? <polygon points={`${px},${py - 4} ${px + 4},${py} ${px},${py + 4} ${px - 4},${py}`} fill={color} /> : title ? <circle cx={px} cy={py} r="5" fill="transparent" /> : null)}
+                  {label && <text x={px} y={py - 7} textAnchor="middle">{point.label ?? formatY(point.y)}</text>}
                 </g>;
               })}
             </g>;

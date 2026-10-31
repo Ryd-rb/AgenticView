@@ -12,10 +12,10 @@ import { inputRegion, traceInput } from './InputTrace.js';
 
 const initial: Camera = { x: 0, y: 0, zoom: 1 };
 let nextTraceSurface = 0;
-export function CardSurface({ chrome, id, active, deactivate, canvasOwnsPointer, forceCanvas, panPastEdge, zoomBeforeCard, zoomPastCard, canvasCamera, getCanvasCamera, getCanvasBounds, onInteractionChange, store, children }: {
-  chrome?: ControlMap; id: string; active: boolean; deactivate: () => void; canvasOwnsPointer: (id: number) => boolean; forceCanvas: () => boolean;
+export function CardSurface({ chrome, id, active, preview=false, deactivate, canvasOwnsPointer, forceCanvas, panPastEdge, zoomBeforeCard, zoomPastCard, canvasCamera, getCanvasCamera, getRenderedCanvasCamera, getCanvasBounds, onInteractionChange, store, children }: {
+  chrome?: ControlMap; id: string; active: boolean; preview?:boolean; deactivate: () => void; canvasOwnsPointer: (id: number) => boolean; forceCanvas: () => boolean;
   panPastEdge?: (x: number, y: number) => void; zoomBeforeCard?: (factor: number, anchor: { x: number; y: number }) => number; zoomPastCard?: (factor: number, anchor: { x: number; y: number }) => void;
-  canvasCamera?: Camera; getCanvasCamera?: () => Camera;
+  canvasCamera?: Camera; getCanvasCamera?: () => Camera; getRenderedCanvasCamera?:()=>Camera;
   getCanvasBounds?: () => { left: number; top: number; width: number; height: number };
   onInteractionChange?: (active: boolean) => void;
   store?: Map<string, Camera>; children: React.ReactNode;
@@ -29,9 +29,10 @@ export function CardSurface({ chrome, id, active, deactivate, canvasOwnsPointer,
   type Drag = { pointer: number; x: number; y: number; position: { x: number; y: number }; origin: { x: number; y: number }; regions: HTMLElement[]; journey: ScrollJourney; moved: boolean; editable: boolean; worldDebt: {x:number;y:number}; canvasAxes: {x:boolean;y:boolean} };
   const touch = useRef(new TouchViewport(1e-9, 1e9)), drag = useRef<Drag | null>(null), contacts = useRef(new Map<number, Drag>());
   const captured = useRef(new Set<number>()), suppressClickUntil = useRef(0);
-  const callbacks = useRef({ panPastEdge, zoomBeforeCard, zoomPastCard, getCanvasCamera, getCanvasBounds, onInteractionChange }); callbacks.current = { panPastEdge, zoomBeforeCard, zoomPastCard, getCanvasCamera, getCanvasBounds, onInteractionChange };
+  const callbacks = useRef({ panPastEdge, zoomBeforeCard, zoomPastCard, getCanvasCamera, getRenderedCanvasCamera, getCanvasBounds, onInteractionChange }); callbacks.current = { panPastEdge, zoomBeforeCard, zoomPastCard, getCanvasCamera, getRenderedCanvasCamera, getCanvasBounds, onInteractionChange };
   const interacting = useRef(false);
   const renderedCanvas = useRef(canvasCamera ?? initial), renderedZoom = useRef(camera.zoom), anchorCommit = useRef(false);
+  const originKnown=useRef(true);
   const scrollJourney = useRef<{ regions: HTMLElement[]; journey: ScrollJourney } | null>(null);
   enabled.current = active;
   useLayoutEffect(() => { renderedCanvas.current = canvasCamera ?? initial; renderedZoom.current = camera.zoom; });
@@ -39,14 +40,14 @@ export function CardSurface({ chrome, id, active, deactivate, canvasOwnsPointer,
     const viewport = scroller.current!, content = plane.current!;
     return { view: { width: Math.max(1, viewport.clientWidth), height: Math.max(1, viewport.clientHeight) }, content: { width: Math.max(1, content.scrollWidth), height: Math.max(1, content.scrollHeight) } };
   }
-  function apply(next: Camera) {
-    if (scroller.current && plane.current) { const bounds = geometry(); next = clampContentCamera(next, bounds.view, bounds.content); }
+  function apply(next: Camera, measured?:ReturnType<typeof geometry>) {
+    if (scroller.current && plane.current) { const bounds = measured??geometry(); next = clampContentCamera(next, bounds.view, bounds.content); }
     if (next.x === current.current.x && next.y === current.current.y && next.zoom === current.current.zoom) return;
     const renderScale = navigation.current.request(next); current.current = next; store?.set(id, next);
     if (renderScale) { setCamera(next); setCommitRevision(navigation.current.revision); }
     else if (!navigation.current.pending && scroller.current) { scroller.current.scrollLeft = -next.x; scroller.current.scrollTop = -next.y; navigation.current.scrolled(scroller.current.scrollLeft, scroller.current.scrollTop); current.current = navigation.current.camera; store?.set(id, current.current); }
   }
-  function frame() { const body = scroller.current!, bounds = body.getBoundingClientRect(), currentCanvas = callbacks.current.getCanvasCamera?.(); return currentCanvas ? projectContentBounds(bounds, renderedCanvas.current, currentCanvas) : bounds; }
+  function frame() { const body = scroller.current!, bounds = body.getBoundingClientRect(), currentCanvas = callbacks.current.getCanvasCamera?.(); return currentCanvas ? projectContentBounds(bounds, callbacks.current.getRenderedCanvasCamera?.()??renderedCanvas.current, currentCanvas) : bounds; }
   function point(x: number, y: number) { const body = scroller.current!; return contentPoint({ x, y }, frame(), body.offsetWidth); }
   function visibleFrame(node: HTMLElement) {
     const viewport = scroller.current!, outer = frame(), outerScale = outer.width / viewport.offsetWidth;
@@ -132,11 +133,17 @@ export function CardSurface({ chrome, id, active, deactivate, canvasOwnsPointer,
   useLayoutEffect(() => {
     if(!renderActive)return;
     const viewport = scroller.current!, content = plane.current!;
-    const measure = () => { const width = viewport.clientWidth + 'px'; if (content.style.width !== width) content.style.width = width; const bounds = geometry(); traceInput('geometry', [traceSurface.current, Number(enabled.current), bounds.view.width, bounds.view.height, bounds.content.width, bounds.content.height, current.current.zoom, viewport.scrollLeft, viewport.scrollTop]); setExtent(old => old.width === bounds.content.width && old.height === bounds.content.height ? old : bounds.content); apply(current.current); };
-    const observer = new ResizeObserver(measure); observer.observe(viewport); observer.observe(content); measure();
-    return () => observer.disconnect();
+    let widthFrame=0,alive=true;
+    const measure = () => {
+      if(!alive)return;const width=viewport.clientWidth+'px';
+      if(content.style.width!==width){if(!widthFrame)widthFrame=requestAnimationFrame(()=>{if(!alive)return;content.style.width=width;widthFrame=requestAnimationFrame(()=>{widthFrame=0;measure();});});return;}
+      const bounds=geometry();traceInput('geometry',()=>[traceSurface.current,Number(enabled.current),bounds.view.width,bounds.view.height,bounds.content.width,bounds.content.height,current.current.zoom,viewport.scrollLeft,viewport.scrollTop]);
+      setExtent(old=>old.width===bounds.content.width&&old.height===bounds.content.height?old:bounds.content);apply(current.current,bounds);
+    };
+    const observer=new ResizeObserver(measure);observer.observe(viewport);observer.observe(content);measure();
+    return()=>{alive=false;cancelAnimationFrame(widthFrame);observer.disconnect();};
   }, [renderActive]);
-  useLayoutEffect(() => { const viewport = scroller.current; if (viewport) { const target = navigation.current.pending ?? current.current; viewport.scrollLeft = -target.x; viewport.scrollTop = -target.y; navigation.current.committed(viewport.scrollLeft, viewport.scrollTop); current.current = navigation.current.camera; store?.set(id, current.current); const anchored = anchorCommit.current; anchorCommit.current = false; if (anchored) { const scale = frame().width / viewport.offsetWidth, dx = (current.current.x - target.x) * scale, dy = (current.current.y - target.y) * scale; if (dx || dy) callbacks.current.panPastEdge?.(dx, dy); } } }, [commitRevision, extent]);
+  useLayoutEffect(() => { const viewport = scroller.current; if (viewport) { if(!navigation.current.pending&&!anchorCommit.current&&originKnown.current&&current.current.x===0&&current.current.y===0){store?.set(id,current.current);return;} const target = navigation.current.pending ?? current.current; viewport.scrollLeft = -target.x; viewport.scrollTop = -target.y; navigation.current.committed(viewport.scrollLeft, viewport.scrollTop);originKnown.current=viewport.scrollLeft===0&&viewport.scrollTop===0; current.current = navigation.current.camera; store?.set(id, current.current); const anchored = anchorCommit.current; anchorCommit.current = false; if (anchored) { const scale = frame().width / viewport.offsetWidth, dx = (current.current.x - target.x) * scale, dy = (current.current.y - target.y) * scale; if (dx || dy) callbacks.current.panPastEdge?.(dx, dy); } } }, [commitRevision, extent]);
   useEffect(() => {
     const body = element.current; if (!body) return;
     const wheel = (event: WheelEvent) => {
@@ -236,12 +243,12 @@ export function CardSurface({ chrome, id, active, deactivate, canvasOwnsPointer,
     {id:'resetView' as const,label:'Reset card view',icon:<RotateCcw size={12}/>,run:()=>apply(initial)},
     {id:'deactivate' as const,label:'Deactivate card',icon:<Check size={13}/>,run:deactivate}
   ];
-  return <CardInteraction value={active}><div ref={element} className={['card-body card-surface',active?'card-active':''].join(' ')} data-card-surface={id} style={{paddingTop:nav.visible===false||bottom?16:46,paddingBottom:nav.visible!==false&&bottom?46:16}} onPointerDownCapture={down} onPointerMoveCapture={move} onPointerUpCapture={up} onPointerCancelCapture={up} onLostPointerCapture={lostCapture} onClickCapture={event=>{if(performance.now()<suppressClickUntil.current){event.preventDefault();event.stopPropagation();}}}>
+  return <CardInteraction value={active}><div ref={element} className={['card-body card-surface',active?'card-active':''].join(' ')} data-card-surface={id} data-preview={preview?'true':undefined} onScrollCapture={event=>{const target=event.target;if(target instanceof HTMLElement){const retained=target.scrollLeft!==0||target.scrollTop!==0;if(retained&&target.dataset.scrollRetained!=='true')target.dataset.scrollRetained='true';else if(!retained&&target.dataset.scrollRetained)delete target.dataset.scrollRetained;}}} style={{paddingTop:nav.visible===false||bottom?16:46,paddingBottom:nav.visible!==false&&bottom?46:16}} onPointerDownCapture={down} onPointerMoveCapture={move} onPointerUpCapture={up} onPointerCancelCapture={up} onLostPointerCapture={lostCapture} onClickCapture={event=>{if(performance.now()<suppressClickUntil.current){event.preventDefault();event.stopPropagation();}}}>
     {nav.visible!==false&&<div className="card-local-controls" data-control="navigation" data-control-placement={placement} role="toolbar" aria-label={nav.label||'Active card navigation'} title={nav.tooltip} style={{top:bottom?'auto':7,bottom:bottom?7:'auto',left:left?8:'auto',right:left?'auto':8,...controlStyle(nav)}}>{control(chrome,'caption').visible!==false&&<span>{chrome?.caption?.label||'Card'}</span>}{control(chrome,'scale').visible!==false&&<span title={chrome?.scale?.tooltip}>{chrome?.scale?.label||`${Math.round(camera.zoom*100)}%`}</span>}{navigationButtons.map(button=>{const spec=control(chrome,button.id,{appearance:'icon'});return spec.visible===false?null:<button key={button.id} data-control={button.id} disabled={!active} title={spec.tooltip??button.label} aria-label={spec.label||button.label} style={controlStyle(spec)} onClick={button.run}><ControlContent spec={spec} label={button.label} icon={button.icon}/></button>;})}</div>}
 
-    <div ref={scroller} className="card-content-scroll" inert={!active} tabIndex={active ? 0 : -1} onScroll={() => { if (!enabled.current || !scroller.current) return; if (navigation.current.scrolled(scroller.current.scrollLeft, scroller.current.scrollTop)) { current.current = navigation.current.camera; store?.set(id, current.current); } }}>
+    <div ref={scroller} className="card-content-scroll" data-scroll-retained={current.current.x!==0||current.current.y!==0?'true':undefined} inert={!active} tabIndex={active ? 0 : -1} onScroll={() => {originKnown.current=false; if (!enabled.current || !scroller.current) return; if (navigation.current.scrolled(scroller.current.scrollLeft, scroller.current.scrollTop)) { current.current = navigation.current.camera; store?.set(id, current.current); } }}>
       <div className="card-scroll-extent" style={{ width: extent.width * camera.zoom || undefined, height: extent.height * camera.zoom || undefined }}>
-        <div ref={plane} className="card-content-plane" inert={!active} style={{ transform: 'scale(' + camera.zoom + ')', transformOrigin: '0 0' }}>{children}</div>
+        <div ref={plane} className="card-content-plane" inert={!active} style={{ transform: camera.zoom===1?'none':'scale(' + camera.zoom + ')', transformOrigin: '0 0' }}>{children}</div>
       </div>
     </div>
   </div></CardInteraction>;

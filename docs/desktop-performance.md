@@ -50,15 +50,26 @@ Minimized native windows signal inactivity; hidden documents close their telemet
 stream and reconnect for current state when visible. Active captured gestures keep
 their existing continuity safeguards.
 
-At overview zoom, a card smaller than 240×160 screen pixels displays a lightweight
-summary. Detailed content remains retained and paused until zoom/focus restores a
-useful inspection size. Card cameras, drafts and component inspection state survive.
+Zoom retains the actual native views, including curves and grids; distance does
+not replace them with summaries. Below 240×160 screen pixels, source updates and
+readers pause while the last committed content stays painted. Card cameras,
+drafts and inspection state survive. Scrollports in these small previews use
+clipping without hundreds of independent scrolling layers; recorded scroll
+offsets survive returning to inspection size.
+
+Canvas gestures update the world transform directly. React camera reconciliation,
+culling and new content consumption wait until the gesture settles. The separate
+decorative grid moves with its own transform. Explicit presentation overrides use
+stable attribute flags rather than CSS substring selectors on ancestor styles.
+Inactive charts batch opaque vector marks; activating the card restores individual
+point titles and inspection targets. Curves scale with the rest of the view.
 
 Browser DOM rendering uses its UI thread. Per-card native pop-outs already own
 independent host processes and private WebView profiles. Provider ingestion/query
 work runs through configured connectors. The measured fixes here were a bounded
 number-formatter cache and visibility suppression; no unbounded thread-per-card
-pool or extra rendering layer is introduced.
+pool is introduced. The native debugger can capture bounded JavaScript profiles
+and non-image rendering timelines through the trusted desktop bridge.
 
 ## Millions of observations
 
@@ -107,7 +118,7 @@ format/precision combinations and never caches values or affixes.
 | Baseline viewport | 210.2 ms | 359.3 ms | 6 visible cards, 48 components |
 | Updated viewport | 143.4 ms | 295.0 ms | Same supplied workload; 32% lower median |
 | Updated nested cards | 95.8 ms | 261.0 ms | 4 visible nested cards, 32 components; 100 retained sources |
-| Updated overview | 75.3 ms | 162.0 ms | All 100 summaries; 0 active detail components |
+| Historical summary overview | 75.3 ms | 162.0 ms | Superseded rendering behavior; not current far-zoom acceptance |
 
 The original 100 nested-card run exhausted the default Node heap before measurement;
 its failure is retained. These are Node 24/happy-dom React development measurements,
@@ -124,7 +135,11 @@ excluded connector process startup, HTTP, browser rendering and an hour-long soa
 The measured rate exceeds a millions-per-hour input target; it is not sustained
 production or end-to-end certification.
 
-Reproduce with `pnpm exec tsx scripts/bench-card-updates.ts` using
+The old summary overview numbers do not describe the retained full views now used
+at far zoom. Native desktop zoom and sustained-load qualification must be measured
+separately with the scoped [component debugger](component-debugging.md).
+
+Reproduce the headless update cases with `pnpm exec tsx scripts/bench-card-updates.ts` using
 `AV_BENCH_SCENARIO=viewport|nested|overview`, and
 `python -B scripts/bench-data-provider.py --output .task/data-bench --points 1000000`. Run the finite passes separately
 from compilers and other profilers. Keep output directories, source identities,

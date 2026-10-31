@@ -10,7 +10,7 @@ import type { Camera } from '../shared/viewport.ts';
 const dom = new Window({ url: 'http://localhost/', settings: { disableIframePageLoading: true, enableJavaScriptEvaluation: false } });
 for (const key of ['window', 'document', 'HTMLElement', 'Element', 'Node', 'DOMRect', 'Event', 'CustomEvent', 'MouseEvent', 'PointerEvent'] as const)
   Object.defineProperty(globalThis, key, { configurable: true, value: key === 'window' ? dom : dom[key] });
-Object.assign(globalThis, { getComputedStyle: dom.getComputedStyle.bind(dom), IS_REACT_ACT_ENVIRONMENT: true, ResizeObserver: class { observe() {} disconnect() {} } });
+Object.assign(globalThis, { getComputedStyle: dom.getComputedStyle.bind(dom), requestAnimationFrame:dom.requestAnimationFrame.bind(dom),cancelAnimationFrame:dom.cancelAnimationFrame.bind(dom), IS_REACT_ACT_ENVIRONMENT: true, ResizeObserver: class { observe() {} disconnect() {} } });
 const { createRoot } = await import('react-dom/client');
 const proto = dom.HTMLElement.prototype, capture = new Map<number, Element>();
 proto.setPointerCapture = function(id) { capture.set(id, this as unknown as Element); };

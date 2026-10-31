@@ -21,6 +21,11 @@ internal sealed class DesktopDiagnostics(string directory)
         if(profiling)throw new InvalidOperationException("A profile is already active.");
         profiling=true;var started=false;
         try{
+            var id=Guid.NewGuid().ToString("D");var root=Path.Combine(directory,"diagnostics");Directory.CreateDirectory(root);
+            // Refuse before recording when private CPU artifact retention is full.
+            if(Directory.EnumerateFiles(root,"*.cpuprofile").Take(16).Count()>=16)throw new InvalidOperationException("Retained profile limit reached; archive diagnostic evidence before collecting more.");
+            await using var timeline=new DesktopTimeline(core);
+            await timeline.Start();
             await core.CallDevToolsProtocolMethodAsync("Profiler.enable","{}");
             await core.CallDevToolsProtocolMethodAsync("Profiler.setSamplingInterval","{\"interval\":1000}");
             await core.CallDevToolsProtocolMethodAsync("Profiler.start","{}");started=true;
@@ -36,11 +41,10 @@ internal sealed class DesktopDiagnostics(string directory)
                 var frame=nodes[cost.Key]["callFrame"]!;var name=frame["functionName"]!.GetValue<string>();
                 top.Add(new JsonObject{["function"]=name[..Math.Min(name.Length,160)],["line"]=frame["lineNumber"]!.GetValue<int>(),["column"]=frame["columnNumber"]!.GetValue<int>(),["sampledMs"]=cost.Value/1000});
             }
-            var id=Guid.NewGuid().ToString("D");var root=Path.Combine(directory,"diagnostics");Directory.CreateDirectory(root);
-            // At most 16 profiles per private window profile; fail closed rather than grow indefinitely.
-            if(Directory.EnumerateFiles(root,"*.cpuprofile").Take(16).Count()>=16)throw new InvalidOperationException("Retained profile limit reached; archive diagnostic evidence before collecting more.");
             var bytes=System.Text.Encoding.UTF8.GetBytes(profile.ToJsonString());if(bytes.Length>16_777_216)throw new InvalidOperationException("Profile exceeded its retained byte limit.");await File.WriteAllBytesAsync(Path.Combine(root,id+".cpuprofile"),bytes);
-            return new JsonObject{["artifactId"]=id,["sha256"]=Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),["bytes"]=bytes.Length,["samples"]=samples.Count,["durationSeconds"]=seconds,["top"]=top,["scope"]="Renderer JavaScript samples; idle/GC included. Raw profile retained in the private native profile."};
+            var result=new JsonObject{["artifactId"]=id,["sha256"]=Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),["bytes"]=bytes.Length,["samples"]=samples.Count,["durationSeconds"]=seconds,["top"]=top,["scope"]="Renderer JavaScript samples; idle/GC included. Raw profile retained in the private native profile."};
+            foreach(var item in await timeline.Finish(root,id))result[item.Key]=item.Value?.DeepClone();
+            return result;
         }finally{if(started){try{await core.CallDevToolsProtocolMethodAsync("Profiler.stop","{}");}catch(Exception){}}profiling=false;}
     }
 }

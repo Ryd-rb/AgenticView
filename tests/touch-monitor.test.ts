@@ -1,5 +1,6 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { Window } from 'happy-dom';
 import { act, createElement } from 'react';
 import { App } from '../web/App.tsx';
@@ -338,7 +339,7 @@ test('Arrange all leaves standalone mode and frames acknowledged packed bounds b
   await act(async()=>{document.querySelector<HTMLButtonElement>('[aria-label="Arrange all cards"]')!.click();await new Promise<void>(resolve=>setImmediate(resolve));});
   assert.equal(view.host.querySelector('.world')!.classList.contains('has-maximized'),false);
   const expected=fitToViewport([packBounds],{width:1200,height:800});
-  assert.equal(view.host.querySelector<HTMLElement>('.world')!.style.transform,`translate(${expected.x}px, ${expected.y}px) scale(${expected.zoom})`);
+  assert.equal(view.host.querySelector<HTMLElement>('.world')!.style.transform.replace(' translateZ(0)',''),`translate(${expected.x}px, ${expected.y}px) scale(${expected.zoom})`);
  }finally{packBounds=undefined;await view.close();}
 });
 
@@ -346,7 +347,7 @@ test('selected-card zoom reaches 200 percent in the main view before content zoo
   const view = await mount();
   try {
     const outer = view.host.querySelector<HTMLElement>('.world')!, inner = view.host.querySelector<HTMLElement>('.card-content-plane')!;
-    const scale = (element: HTMLElement) => Number(/scale\(([^)]+)\)/.exec(element.style.transform)![1]);
+    const scale = (element: HTMLElement) => element.style.transform==='none'?1:Number(/scale\(([^)]+)\)/.exec(element.style.transform)![1]);
     const zoom = (factor: number) => { const event = new MouseEvent('wheel', { bubbles: true, cancelable: true, ctrlKey: true, clientX: 100, clientY: 100 }); for (const [key, value] of Object.entries({ deltaY: -Math.log(factor) / .0015, deltaX: 0, deltaMode: 0 })) Object.defineProperty(event, key, { value }); view.target.dispatchEvent(event); };
     assert.ok(scale(outer) < 2);
     await act(() => { zoom(2 / scale(outer)); });
@@ -494,12 +495,34 @@ test('table editors grow selected cards in both dimensions and defer geometry du
 });
 
 test('card shortcuts maximize the existing card, preserve local nodes and return to the original canvas geometry',async()=>{
- const state=snapshot();state.settings.cardShortcuts=[{id:'app',label:'Example app',cardId:'agent',chord:'Alt+1',mode:'maximize'}];const view=await mount(agent.layout,state);
+ const state=snapshot();state.agents.push({...agent,id:'sibling',agentId:'sibling',layout:{...agent.layout,x:700}});state.settings.cardShortcuts=[{id:'app',label:'Example app',cardId:'agent',chord:'Alt+1',mode:'maximize'}];const view=await mount(agent.layout,state);
+ const stylesheet=document.createElement('style');stylesheet.textContent=readFileSync(new URL('../web/styles.css',import.meta.url),'utf8');document.head.append(stylesheet);
  try{
-  const card=view.target.closest<HTMLElement>('[data-card-id]')!,surface=card.querySelector('[data-card-surface]'),geometry={left:card.style.left,top:card.style.top,width:card.style.width,height:card.style.height};
+  const card=view.target.closest<HTMLElement>('[data-card-id]')!,surface=card.querySelector('[data-card-surface]'),sibling=view.host.querySelector<HTMLElement>('[data-card-id="sibling"]')!,geometry={left:card.style.left,top:card.style.top,width:card.style.width,height:card.style.height};
   await act(()=>{const event=new KeyboardEvent('keydown',{key:'1',altKey:true,bubbles:true,cancelable:true});Object.defineProperty(event,'getModifierState',{value:()=>false});window.dispatchEvent(event);});
   assert.ok(card.classList.contains('is-maximized'));assert.equal(card.style.width,'1168px');assert.equal(card.style.height,'680px');assert.equal(card.querySelector('[data-card-surface]'),surface);assert.ok(card.classList.contains('is-active'));
+  assert.equal(getComputedStyle(sibling).visibility,'hidden','Retained sibling wrappers must not defeat maximize input/visibility isolation');
   await act(()=>window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true})));
   assert.ok(!card.classList.contains('is-maximized'));assert.deepEqual({left:card.style.left,top:card.style.top,width:card.style.width,height:card.style.height},geometry);assert.equal(card.querySelector('[data-card-surface]'),surface);
+  assert.notEqual(getComputedStyle(sibling).visibility,'hidden');assert.equal(view.host.querySelector('[data-card-id="sibling"]'),sibling);
+ }finally{stylesheet.remove();await view.close();}
+});
+
+
+test('far canvas zoom preserves native views and their local nodes without summary replacement',async()=>{
+ const initial=snapshot();initial.agents.push({...agent,id:'far',agentId:'far',name:'Far native view',layout:{...agent.layout,x:24000,y:12000}});
+ const view=await mount(agent.layout,initial);
+ try{
+  const card=view.host.querySelector<HTMLElement>('[data-card-id="agent"]')!,content=card.querySelector('[data-debug-component="content"]'),surface=card.querySelector('[data-card-surface]');
+  await act(()=>document.querySelector<HTMLButtonElement>('[aria-label="Fit all cards"]')!.click());await act(()=>flushFrames());
+  assert.equal(view.host.querySelectorAll('.card-overview').length,0);
+  assert.equal(card.querySelector('[data-card-surface]'),surface);assert.equal(card.querySelector('[data-debug-component="content"]'),content);
+  assert.ok(content?.textContent?.includes('Scrollable evidence'));assert.equal(card.getAttribute('data-card-detail'),'full');
+  assert.equal(view.host.querySelectorAll('[data-debug-component="content"]').length,2,'Far visible cards keep their native contents');
+  const world=view.host.querySelector<HTMLElement>('.world')!,zoom=()=>Number(world.style.transform.match(/scale\(([^)]+)\)/)![1]);
+  await act(()=>document.querySelector<HTMLButtonElement>('[aria-label="Workspace settings"]')!.click());
+  assert.equal(zoom(),.8,'Opening settings must update the imperative camera and rendered transform together');
+  await act(()=>document.querySelector<HTMLButtonElement>('[aria-label="Zoom in"]')!.click());
+  assert.ok(Math.abs(zoom()-.96)<1e-9,'Subsequent navigation must start from the settings camera');
  }finally{await view.close();}
 });

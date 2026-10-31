@@ -47,7 +47,7 @@ $sourceFiles = @(
     'src/AgenticView.Desktop/AgenticView.Desktop.csproj', 'src/AgenticView.Desktop/packages.lock.json',
     'src/AgenticView.Desktop/Program.cs', 'src/AgenticView.Desktop/DesktopOptions.cs',
     'src/AgenticView.Desktop/DesktopWindow.cs', 'src/AgenticView.Desktop/BridgePolicy.cs',
-    'src/AgenticView.Desktop/DesktopDiagnostics.cs', 'src/AgenticView.Desktop/BrandIcon.cs', 'src/AgenticView.Desktop/CardWindowSpec.cs', 'src/AgenticView.Desktop/PopOutLauncher.cs', 'src/AgenticView.Desktop/TaskbarIdentity.cs',
+    'src/AgenticView.Desktop/DesktopDiagnostics.cs', 'src/AgenticView.Desktop/DesktopTimeline.cs', 'src/AgenticView.Desktop/BrandIcon.cs', 'src/AgenticView.Desktop/CardWindowSpec.cs', 'src/AgenticView.Desktop/PopOutLauncher.cs', 'src/AgenticView.Desktop/TaskbarIdentity.cs',
     'src/AgenticView.Desktop/WindowIconSpec.cs', 'src/AgenticView.Desktop/WindowIconRenderer.cs', 'src/AgenticView.Desktop/CardWindowIcon.cs',
     'scripts/build-offline.ps1', 'docs/design.md', 'docs/offline-build.md', 'docs/protocol.md', 'docs/performance.md', 'docs/desktop.md', 'docs/native-components.md', 'docs/controls.md', 'docs/applications.md', 'examples/applications/service-console.agenticview.json', 'examples/connector/profile.example.json', 'examples/connector/row-service.py', 'docs/media/agenticview-demo.gif'
     'docs/sessions.md', 'examples/applications/agent-sessions.agenticview.json', 'examples/connector/sessions.example.json'

@@ -40,6 +40,19 @@ test('chart ceilings suppress viewer features and never unhide agent-hidden seri
   const staticHtml = renderChart(data, false); assert.equal((staticHtml.match(/<button/g)??[]).length,3); assert.equal((staticHtml.match(/disabled=""/g)??[]).length,3); assert.doesNotMatch(staticHtml, /data-series="1:Private display"/);
 });
 
+test('inactive charts batch opaque vector marks and restore point inspection on activation', () => {
+  for (const type of ['line', 'scatter', 'bar'] as const) {
+    const data = chart({ type, options: { markers: true, labels: true }, series: [{ name: 'Samples', points: Array.from({ length: 80 }, (_, x) => ({ x, y: x })) }] });
+    const before = JSON.stringify(data), inactive = renderChart(data, false), active = renderChart(data);
+    assert.match(inactive, /data-chart-marks="80"/);
+    assert.equal((inactive.match(/<title>/g) ?? []).length, 0);
+    assert.equal((active.match(/<title>/g) ?? []).length, 80);
+    assert.equal((inactive.match(/class="chart-point"/g) ?? []).length, 40);
+    assert.equal((active.match(/class="chart-point"/g) ?? []).length, 80);
+    assert.equal(JSON.stringify(data), before);
+  }
+});
+
 test('integrated native components retain their controls and only gate interaction on activation', () => {
   const component = componentSchema.parse({ id: 'chart', title: 'Chart', kind: 'chart', data: chart({ options: { features: { dataTable: true, seriesToggle: true } } }) });
   const render = (active: boolean) => renderToStaticMarkup(createElement(CardInteraction.Provider, { value: active }, createElement(ComponentView, { component, runId: 'synthetic', embeds: false })));

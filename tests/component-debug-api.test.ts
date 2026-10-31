@@ -98,3 +98,25 @@ test('debug history cap rejects new command identities while preserving exact re
     assert.equal((await json(await f.call('/api/debug/poll',secrets.viewerToken,body))).pollMs,5000);
   }finally{await client.close();await f.close();}
 });
+
+test('viewport diagnostics accept precise bounded zoom paths and preserve exact typed payloads',async()=>{
+  const f=await fixture(),client=await mcp(f);
+  try{
+    const a=await register(f,'viewport-debug'),clientId=randomUUID(),body={clientId,clientToken:proof,cardIds:[a.runId],visible:true,platform:'desktop'};
+    await json(await f.call('/api/debug/poll',secrets.viewerToken,body));
+    const catalog=await tool(client,'component_debug_catalog',{});assert.ok(catalog.operations.includes('viewport'));assert.match(catalog.commands.viewport,/0\.001\.\.16/);
+    const session=await tool(client,'component_debug_open',{...a,clientId,requestId:'viewport-lease',durationSeconds:30});
+    const invalid=[{},{zoom:0},{zoom:.0009},{zoom:16.001},{zoom:null},{zoom:'1'},{zoom:1,steps:0},{zoom:1,steps:121},{zoom:1,steps:1.5},{zoom:1,intervalMs:7},{zoom:1,intervalMs:101},{zoom:1,intervalMs:8.5},{zoom:1,anchorX:-.01},{zoom:1,anchorX:1.01},{zoom:1,anchorY:-.01},{zoom:1,anchorY:1.01},{zoom:1,anchorX:null},{zoom:1,selector:'body'},{zoom:1,componentId:'chart'},{zoom:1,mode:'fit'}];
+    invalid.push(...[0,31,1.5,null,'5'].map(profileSeconds=>({zoom:1,profileSeconds})) as any);
+    for(const [index,fields] of invalid.entries())await tool(client,'component_debug_command',{...a,sessionId:session.id,requestId:'invalid-viewport-'+index,command:{operation:'viewport',...fields}},true);
+    const valid=[{operation:'viewport',zoom:.001},{operation:'viewport',zoom:16,steps:120,intervalMs:100,anchorX:0,anchorY:1},{operation:'viewport',zoom:.75,steps:1,intervalMs:8,anchorX:1,anchorY:0},{operation:'viewport',zoom:1.25,anchorX:.333,anchorY:.875}];
+    valid.push({operation:'viewport',zoom:.5,profileSeconds:1} as any,{operation:'viewport',zoom:1,profileSeconds:30} as any);
+    for(const [index,command] of valid.entries()){
+      const request={...a,sessionId:session.id,requestId:'viewport-'+index,command};
+      const queued=await tool(client,'component_debug_command',request);assert.deepEqual(queued.command,command,'Optional fields stay omitted; no divergent server defaults');
+      assert.equal((await tool(client,'component_debug_command',request)).id,queued.id);
+      const claimed=(await json(await f.call('/api/debug/poll',secrets.viewerToken,body))).jobs[0];assert.equal(claimed.id,queued.id);assert.deepEqual(claimed.command,command);
+      await json(await f.call('/api/debug/complete',secrets.viewerToken,{clientId,clientToken:proof,commandId:queued.id,claimToken:claimed.claimToken,state:'succeeded',result:{zoom:command.zoom,synthetic:true}}));
+    }
+  }finally{await client.close();await f.close();}
+});

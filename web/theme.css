@@ -134,7 +134,8 @@ th,td { border-bottom-color: var(--border); }
 
 /* Readable at the normal canvas scale; retain fixed card and component bounds. */
 :root { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 16px; color: #e9ecf2; -webkit-font-smoothing: auto; }
-.world,.card-content-plane,.card-scroll-extent>.card-content-plane { will-change: auto; }
+.world { will-change: transform; }
+.card-content-plane,.card-scroll-extent>.card-content-plane { will-change: auto; }
 .agent-title strong { font-size: 16px; }.agent-title>span { font-size: 12px; color: #acb5c5; }
 .agent-context,.markdown { font-size: 14px; line-height: 1.6; color: #cdd3df; }
 .component h3 { font-size: 13px; color: #c1c9d8; }.component h3>svg { width: 13px; height: 13px; }

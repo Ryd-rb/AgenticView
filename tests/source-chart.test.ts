@@ -52,7 +52,7 @@ test('visible source queries are bounded, retain successful data on invalid resp
     await f.respond(1,completed({series:[{name:'Provider',points:[{x:0,y:-10},{x:500,y:100}]}],rawPoints:1_000_000}));assert.match(f.host.textContent!,/1,000,000 raw points · 2 displayed/);assert.match(f.host.textContent!,/Provider/);
     await f.tick();assert.equal(f.requests.length,3);assert.match(f.host.textContent!,/Provider/,'Last success remains available while next query is pending');
     await f.respond(2,completed({series:[{name:'Oversized',points:Array.from({length:33},(_,i)=>({x:i,y:i}))}],rawPoints:1000}));assert.match(f.host.querySelector('[role="alert"]')!.textContent!,/requested point limit/);assert.match(f.host.textContent!,/Provider/);assert.doesNotMatch(f.host.textContent!,/Oversized/);
-    await f.tick();const pending=f.requests.at(-1)!;assert.equal(pending.signal.aborted,false);await f.visibility(true);assert.equal(pending.signal.aborted,true);assert.equal(f.timers.size,0);assert.match(f.host.textContent!,/paused while hidden/);
+    await f.tick();const pending=f.requests.at(-1)!;assert.equal(pending.signal.aborted,false);await f.visibility(true);assert.equal(pending.signal.aborted,true);assert.equal(f.timers.size,0);assert.match(f.host.textContent!,/Chart queries paused/);
   }finally{await f.close();}
 });
 

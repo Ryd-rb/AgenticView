@@ -24,6 +24,12 @@ export function presentationStyle(value?: Presentation): CSSProperties {
   if(value.lineHeight!==undefined)style['--component-line-height']=String(value.lineHeight);if(style.fontWeight!==undefined)style['--component-font-weight']=String(style.fontWeight);if(style.fontFamily!==undefined)style['--component-font-family']=style.fontFamily;
   return style as CSSProperties;
 }
+/** Match explicit CSS variables without making every inline-style mutation a selector dependency. */
+export function presentationFlags(style:CSSProperties):string|undefined {
+  const flags=Object.entries(style).filter(([key,value])=>key.startsWith('--component-')&&value!==undefined&&value!==null).map(([key])=>key.slice('--component-'.length));
+  if(flags.some(flag=>flag==='control-padding'||flag.startsWith('control-padding-')))flags.push('control-padding-any');
+  return flags.length?flags.join(' '):undefined;
+}
 const numericPresentation=[['gap','Gap',0,64,.5],['rowGap','Row gap',0,64,.5],['columnGap','Column gap',0,64,.5],['controlHeight','Control height',28,96,1],['rowHeight','Row height',28,120,1],['borderWidth','Border width',0,8,.5],['borderRadius','Border radius',0,48,.5],['fontSize','Text size',10,32,1],['lineHeight','Line height',1,2.5,.1],['fontWeight','Font weight',100,900,1],['letterSpacing','Letter spacing',0,4,.1],['minWidth','Minimum width',0,2400,1],['maxWidth','Maximum width',0,2400,1],['minHeight','Minimum height',0,2400,1],['maxHeight','Maximum height',0,2400,1],['animationDurationMs','Animation duration',0,1000,1]] as const;
 function PresentationInput({value,disabled,change}:{value:unknown;disabled:boolean;change:(json:string)=>void}){
   const current=(value&&typeof value==='object'?value:{}) as Presentation;
