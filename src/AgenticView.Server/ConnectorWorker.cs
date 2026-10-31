@@ -33,6 +33,7 @@ public static class ConnectorWorker
         var sessionsTask=once?Task.CompletedTask:sessions.Run(sessionsStop.Token);
         try {
         do {
+            var acknowledgedWork=false;
             try {
                 var jobs=(await Post(client,$"/api/connectors/{id}/poll",token,new JsonObject(),cancellation)).AsArray();
                 foreach(var node in jobs) {
@@ -51,8 +52,11 @@ public static class ConnectorWorker
                     var acknowledged=false;
                     for(var attempt=0;attempt<3 && !acknowledged;attempt++) { try { await Post(client,$"/api/connectors/{id}/complete",token,completion,cancellation); acknowledged=true; } catch(HttpRequestException) when(attempt<2) { await Task.Delay(500,cancellation); } }
                 }
+                // Poll immediately only after the complete batch has been acknowledged.
+                // Empty polls and failed HTTP requests retain the idle/error backoff.
+                acknowledgedWork=jobs.Count>0;
             } catch(HttpRequestException) when(!once && !cancellation.IsCancellationRequested) { Console.Error.WriteLine("Hub unavailable; no new actions executed."); }
-            if(!once) await Task.Delay(1000,cancellation);
+            if(!once && !acknowledgedWork) await Task.Delay(1000,cancellation);
         } while(!once && !cancellation.IsCancellationRequested);
         } finally { sessionsStop.Cancel(); await sessionsTask; }
     }

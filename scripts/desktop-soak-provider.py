@@ -3,6 +3,7 @@ No UI driver, remote feed, operational action, shell or dynamic handler source.
 """
 import argparse, hashlib, http.client, importlib.util, json, math, threading, time
 from pathlib import Path
+from collections import deque
 from urllib.parse import urlparse
 
 def main():
@@ -23,7 +24,7 @@ def main():
     connection=http.client.HTTPConnection(url.hostname,url.port,timeout=10)
     registration=call(connection,'/api/connectors/register',credentials['ingestToken'],{'id':'soak-provider','name':'Finite synthetic soak provider','registrationKey':config['proof']})
     if config.get('startAtUtcMs',0)>time.time()*1000:time.sleep((config['startAtUtcMs']-time.time()*1000)/1000)
-    start=time.perf_counter();deadline=start+duration;errors=[];state={'ingestedPoints':0,'queries':0,'queryFailures':0,'startedUtcMs':int(time.time()*1000),'targetPointsPerHour':3600000};query_times=[]
+    start=time.perf_counter();deadline=start+duration;errors=[];state={'ingestedPoints':0,'queries':0,'queryFailures':0,'startedUtcMs':int(time.time()*1000),'targetPointsPerHour':3600000,'pollRequests':0,'idlePolls':0};query_times=deque(maxlen=4096);poll_times=deque(maxlen=4096);complete_times=deque(maxlen=4096)
     def ingest():
         store=module.Store(str(output/'synthetic.sqlite'),max_points=10_000_000)
         # A fresh test database is required: no destructive reset or overwrite.
@@ -45,7 +46,9 @@ def main():
     writer=threading.Thread(target=ingest);writer.start()
     try:
         while time.perf_counter()<deadline and not errors:
+            poll_started=time.perf_counter()
             jobs=call(connection,'/api/connectors/soak-provider/poll',registration['token'],{})
+            poll_times.append((time.perf_counter()-poll_started)*1000);state['pollRequests']+=1
             for job in jobs:
                 began=time.perf_counter();result=None;error=None
                 try:
@@ -57,12 +60,22 @@ def main():
                     else:raise ValueError('Handler is not allowlisted')
                     state['queries']+=1;query_times.append((time.perf_counter()-began)*1000)
                 except Exception as failure:state['queryFailures']+=1;error=type(failure).__name__
+                completion_started=time.perf_counter()
                 call(connection,'/api/connectors/soak-provider/complete',registration['token'],{'invocationId':job['id'],'claimToken':job['claimToken'],'state':'failed' if error else 'succeeded',**({'message':error} if error else {'result':result})})
-            time.sleep(min(.2,max(0,deadline-time.perf_counter())))
+                complete_times.append((time.perf_counter()-completion_started)*1000)
+            # Poll returns one claimed job; drain acknowledged work without an idle delay.
+            # Only an empty inbox backs off. Execution and completion remain serial.
+            if not jobs:
+                state['idlePolls']+=1
+                time.sleep(min(.2,max(0,deadline-time.perf_counter())))
     except Exception as failure:errors.append(type(failure).__name__+': '+str(failure)[:200])
     finally:
         writer.join(timeout=15);reader.close();connection.close()
-        query_times.sort();state.update({'durationSeconds':time.perf_counter()-start,'errors':errors,'queryP50Ms':query_times[len(query_times)//2] if query_times else None,'queryP95Ms':query_times[min(len(query_times)-1,int(len(query_times)*.95))] if query_times else None,'providerSha256':hashlib.sha256(source.read_bytes()).hexdigest(),'synthetic':True,'writerExited':not writer.is_alive()})
+        def timing(values):
+            ordered=sorted(values)
+            return {'samples':len(ordered),'p50Ms':ordered[len(ordered)//2] if ordered else None,'p95Ms':ordered[min(len(ordered)-1,int(len(ordered)*.95))] if ordered else None}
+        transport={'poll':timing(poll_times),'complete':timing(complete_times)};query_times=sorted(query_times)
+        state.update({'durationSeconds':time.perf_counter()-start,'errors':errors,'queryP50Ms':query_times[len(query_times)//2] if query_times else None,'queryP95Ms':query_times[min(len(query_times)-1,int(len(query_times)*.95))] if query_times else None,'providerSha256':hashlib.sha256(source.read_bytes()).hexdigest(),'transport':transport,'timingScope':'Most recent4096 observations per operation; query timing excludes HTTP; poll/complete include their HTTP roundtrip.','synthetic':True,'writerExited':not writer.is_alive()})
         (output/'provider-result.json').write_text(json.dumps(state,indent=2))
     if errors or writer.is_alive():raise SystemExit(1)
 
