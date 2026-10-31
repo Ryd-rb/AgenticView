@@ -525,6 +525,7 @@ test('far canvas zoom preserves native views and their local nodes without summa
   assert.equal(card.querySelector('[data-card-surface]'),surface);assert.equal(card.querySelector('[data-debug-component="content"]'),content);
   assert.ok(content?.textContent?.includes('Scrollable evidence'));assert.equal(card.getAttribute('data-card-detail'),'full');
   assert.equal(view.host.querySelectorAll('[data-debug-component="content"]').length,2,'Far visible cards keep their native contents');
+  assert.equal(view.host.querySelectorAll('.render-boundary[data-render-updates="false"]').length,0,'Visible full views keep readers live at distant zoom');
   const world=view.host.querySelector<HTMLElement>('.world')!,zoom=()=>Number(world.style.transform.match(/scale\(([^)]+)\)/)![1]);
   await act(()=>document.querySelector<HTMLButtonElement>('[aria-label="Workspace settings"]')!.click());
   assert.equal(zoom(),.8,'Opening settings must update the imperative camera and rendered transform together');
