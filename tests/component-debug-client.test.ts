@@ -43,7 +43,7 @@ test('inspected references preserve identity and reject renamed, replaced and cr
   const entries=await inspect(),entry=entries.find((e:any)=>e.name==='Series A'),button=document.querySelector('button')!;
   assert.deepEqual(Object.keys(entry.target),['ref']);assert.ok(entry.actions.includes('click'));
   assert.deepEqual((await inspect()).find((e:any)=>e.name==='Series A').target,entry.target);
-  assert.deepEqual(entries.find((e:any)=>e.name==='Secret').actions,[]);
+  assert.equal(entries.find((e:any)=>e.name==='Secret'),undefined);
   let clicks=0;button.addEventListener('click',()=>clicks++);await f.run({operation:'click',componentId:'chart',target:entry.target});assert.equal(clicks,1);
   button.setAttribute('aria-label','Renamed');await assert.rejects(f.run({operation:'click',componentId:'chart',target:entry.target}),/stale/);
   const fresh=(await inspect()).find((e:any)=>e.name==='Renamed');assert.notEqual(fresh.target.ref,entry.target.ref);
@@ -59,7 +59,7 @@ test('native inspection exposes dropdown choices and safe bounded grid scrolling
   root.innerHTML='<div class="control-grid" style="overflow-x:auto;overflow-y:auto"><table><tr><td>Observation</td></tr></table></div><button data-control="place">Place order</button>';
   const grid=root.querySelector<HTMLElement>('.control-grid')!;Object.defineProperties(grid,{scrollHeight:{value:900},clientHeight:{value:100}});let y=0;grid.scrollBy=options=>{y+=(options as ScrollToOptions).top??0;};
   const inspect=await f.run({operation:'inspect'}) as any,entries=inspect.components[0].targets;
-  assert.ok(entries.find((e:any)=>e.target&&e.actions.includes('scroll')));assert.deepEqual(entries.find((e:any)=>e.name==='Place order').actions,[]);
+  assert.ok(entries.find((e:any)=>e.target&&e.actions.includes('scroll')));assert.equal(entries.find((e:any)=>e.name==='Place order'),undefined);
   await f.run({operation:'scroll',componentId:'chart',target:entries.find((e:any)=>e.actions.includes('scroll')).target,x:0,y:200});assert.equal(y,200);
   root.dataset.debugKind='chart';root.innerHTML='<select aria-label="Interval"><option value="s">Seconds</option><option value="h" disabled>Hours</option></select>';
   const field=(await f.run({operation:'inspect'}) as any).components[0].targets[0];assert.ok(field.actions.includes('input'));assert.deepEqual(field.field.options,[{value:'s',label:'Seconds',disabled:false},{value:'h',label:'Hours',disabled:true}]);
@@ -94,5 +94,39 @@ test('metrics distinguish live provider receipts from paused/loading/fallback ch
  const f=await fixture();try{
   const now=Date.now();for(const state of ['ready','paused','loading','error','fallback','unexpected']){const chart=document.createElement('div');chart.className='source-chart';chart.dataset.sourceState=state;chart.textContent='private series label';if(state==='ready'||state==='paused')chart.dataset.sourceReceivedAt=String(now-500);document.body.append(chart);}
   const result=f.measurements.snapshot().sourceCharts;assert.equal(result.total,6);assert.equal(result.received,2);assert.deepEqual(result.states,{ready:1,paused:1,loading:1,error:1,fallback:1,unknown:1});assert.ok(result.oldestReceiptAgeMs!>=500);assert.equal(JSON.stringify(result).includes('private series label'),false);
+ }finally{await f.close();}
+});
+
+test('grid metrics count retained page rows separately from layout windows without exporting cell data',async()=>{
+ const f=await fixture();try{
+  for(const [retained,layout,ready] of [[100,15,true],[20,20,false],[-1,4,false]]){const table=document.createElement('table');table.dataset.tableWindowRetained=String(retained);table.dataset.tableWindowLayout=String(layout);table.dataset.tableWindowReady=String(ready);table.textContent='private cell value';document.body.append(table);}
+  const m=f.measurements.snapshot().tableWindows;assert.equal(m.total,3);assert.equal(m.windowed,1);assert.equal(m.retainedRows,120);assert.equal(m.layoutRows,35);assert.equal(m.invalid,1);assert.equal(JSON.stringify(m).includes('private cell value'),false);
+ }finally{await f.close();}
+});
+
+test('structure metrics group retained elements by known kind without exposing supplied DOM content',async()=>{
+ const f=await fixture();try{
+  const root=document.querySelector<HTMLElement>('[data-debug-run=one]')!;root.innerHTML='<svg><g><path/></g></svg><table><tbody><tr><td>private cell</td></tr></tbody></table><details><summary>Closed</summary><input value="private draft"></details>';
+  const other=document.createElement('section');other.dataset.debugComponent='x';other.dataset.debugKind='private unknown label';other.textContent='private content';document.body.append(other);
+  const m=f.measurements.snapshot().renderStructure;assert.equal(m.total,3);assert.equal(m.sampled,3);assert.equal(m.truncated,false);assert.equal(m.byKind.find(item=>item.kind==='chart')!.components,2);assert.equal(m.byKind.find(item=>item.kind==='chart')!.rows,1);assert.equal(m.byKind.find(item=>item.kind==='chart')!.svgElements,3);assert.equal(m.byKind.find(item=>item.kind==='other')!.components,1);assert.equal(JSON.stringify(m).includes('private'),false);
+ }finally{await f.close();}
+});
+
+test('geometry details are card-scoped and exclude retained table values',async()=>{
+ const f=await fixture();try{
+  for(const root of document.querySelectorAll<HTMLElement>('[data-debug-run]')){root.innerHTML='<div class="control-grid"><table data-table-window-ready="true" data-table-window-retained="100" data-table-window-layout="10" data-table-window-columns="12" data-table-window-layout-columns="4"><colgroup><col style="width:80.25px"></colgroup><tbody><tr aria-rowindex="2"><td>private cell</td></tr><tr aria-rowindex="3" style="display:none"><td>private hidden cell</td></tr></tbody></table></div>';}
+  const all=f.measurements.snapshot().tableWindows;assert.equal(all.details.length,0);assert.equal(all.retainedRows,200);
+  const m=(await f.run({operation:'metrics'}) as any).tableWindows;assert.equal(m.details.length,1);assert.equal(m.details[0].componentId,'chart');assert.equal(m.details[0].retainedColumns,12);assert.equal(m.details[0].layoutColumns,4);assert.deepEqual(m.details[0].columnWidths,[80.25]);assert.equal(m.details[0].firstRow,'2');assert.equal(m.details[0].lastRow,'2');assert.equal(JSON.stringify(m).includes('private'),false);
+ }finally{await f.close();}
+});
+
+test('inspection spends its target budget on safe visible controls after closed or denied content',async()=>{
+ const f=await fixture();try{
+  const root=document.querySelector<HTMLElement>('[data-debug-run=one]')!;root.innerHTML='';
+  for(let i=0;i<120;i++){const button=document.createElement('button');button.textContent='Closed settings '+i;button.style.display='none';root.append(button);}
+  const password=document.createElement('input');password.type='password';password.setAttribute('aria-label','Secret');root.append(password);
+  const button=document.createElement('button');button.textContent='Reachable';root.append(button);
+  const m=(await f.run({operation:'inspect'}) as any).components[0];assert.equal(m.targets.length,1);assert.equal(m.targets[0].name,'Reachable');assert.equal(m.targets[0].index,121);assert.ok(m.targets[0].actions.includes('click'));assert.equal(m.targets[0].visible,true);
+  await f.run({operation:'click',componentId:'chart',target:m.targets[0].target});
  }finally{await f.close();}
 });
