@@ -28,7 +28,7 @@ async function fixture(){
   globalThis.clearTimeout=((id:number)=>{if(!timers.delete(id))previous.clear(id);}) as typeof clearTimeout;
   globalThis.fetch=async(url,init)=>new Promise<Response>((resolve,reject)=>{const signal=init!.signal as AbortSignal;requests.push({url:String(url),body:init?.body?JSON.parse(String(init.body)):undefined,signal,resolve});signal.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError')),{once:true});});
   const {createRoot}=await import('react-dom/client'),host=document.createElement('div');document.body.append(host);const root=createRoot(host),settle=()=>new Promise<void>(resolve=>setImmediate(resolve));
-  const render=async(body:()=>ReactNode,manual=false,visible?:boolean,updates?:boolean)=>act(async()=>{root.render(createElement(CardInteraction.Provider,{value:manual},createElement(WindowControls),createElement(RenderBoundary,{id:'subject',children:body,...(visible===undefined?{}:{visible}),...(updates===undefined?{}:{updates})})));await settle();});
+  const render=async(body:()=>ReactNode,manual=false,visible?:boolean,updates?:boolean,revision?:string|number)=>act(async()=>{root.render(createElement(CardInteraction.Provider,{value:manual},createElement(WindowControls),createElement(RenderBoundary,{id:'subject',children:body,...(visible===undefined?{}:{visible}),...(updates===undefined?{}:{updates}),...(revision===undefined?{}:{revision})})));await settle();});
   const intersect=async(ratio:number,isIntersecting=ratio>0)=>act(async()=>{const target=host.querySelector('[data-render-id="subject"]')!;for(const observer of observers)if(observer.targets.has(target))observer.callback([{target,isIntersecting,intersectionRatio:ratio} as IntersectionObserverEntry],observer as unknown as IntersectionObserver);await settle();});
   const respond=async(index:number,body:unknown)=>act(async()=>{assert.ok(requests[index]);requests[index]!.resolve(new Response(JSON.stringify(body),{headers:{'Content-Type':'application/json'}}));await settle();});
   const native=async(state:string)=>act(async()=>{for(const callback of messages)callback({data:{type:'agenticview:window-state',state}});await settle();});
@@ -36,6 +36,37 @@ async function fixture(){
   const resize=async(blockSize:number)=>act(async()=>{const target=host.querySelector('[data-render-id="subject"]')!;for(const observer of resizers)if(observer.targets.has(target))observer.callback([{target,borderBoxSize:[{blockSize,inlineSize:100}]} as unknown as ResizeObserverEntry],observer as unknown as ResizeObserver);await settle();});
   return {host,dom,requests,timers,observers,resizers,messages,documentListeners,nativeListeners,render,intersect,respond,native,visibility,resize,close:async()=>{await act(async()=>{root.unmount();await settle();});assert.equal(documentListeners.size,0);assert.equal(nativeListeners.size,0);assert.equal(messages.size,0);assert.ok([...observers].every(observer=>observer.disconnected));assert.ok([...resizers].every(observer=>observer.disconnected));assert.equal(timers.size,0);globalThis.fetch=previous.fetch;globalThis.setTimeout=previous.set;globalThis.clearTimeout=previous.clear;Object.assign(globalThis,{IntersectionObserver:previous.io,ResizeObserver:previous.ro});await dom.happyDOM.close();}};
 }
+
+test('shell revisions never mount fresh inactive content, but refresh retained pose and authority without refreshing heavy content',async()=>{
+  const f=await fixture(),sources:string[]=[];let shellCalls=0,heavyCalls=0,mounts=0;
+  function Authority(){return createElement('button',{disabled:!useContext(CardInteraction)},'Scoped action');}
+  function Reader(){const ref=useRef<HTMLOutputElement>(null),reader=useElementActivity(ref,true,false),paint=useRenderActivity();return createElement('output',{ref,'data-reader':String(reader),'data-paint':String(paint)});}
+  function Heavy({source}:{source:string}){heavyCalls++;const [draft,setDraft]=useState('initial');useEffect(()=>{mounts++;},[]);useEffect(()=>{sources.push(source);},[source]);return createElement('div',null,createElement('strong',null,source),createElement('input',{'aria-label':'Retained shell draft',value:draft,onChange:(event:any)=>setDraft(event.target.value)}),createElement(Authority),createElement(Reader));}
+  function Shell({maximized,left,source,enabled,heavyUpdates}:{maximized:boolean;left:number;source:string;enabled:boolean;heavyUpdates:boolean}){shellCalls++;return createElement('article',{className:maximized?'is-maximized':'normal-shell',style:{position:'absolute',left}},createElement(CardInteraction.Provider,{value:enabled},createElement(RenderBoundary,{id:'heavy',visible:true,updates:heavyUpdates,children:()=>createElement(Heavy,{source})})));}
+  const body=(maximized:boolean,left:number,source:string,enabled:boolean,heavyUpdates=true)=>()=>createElement(Shell,{maximized,left,source,enabled,heavyUpdates});
+  try{
+    await f.render(body(true,10,'not mounted',true),false,false,false,0);
+    await f.render(body(false,90,'still not mounted',false),false,false,false,1);
+    assert.equal(shellCalls,0);assert.equal(heavyCalls,0);assert.equal(f.host.querySelector('article'),null,'A revision never creates a fresh inactive subtree');
+    await f.render(body(true,10,'initial',true),false,true,true,'maximized');
+    const article=f.host.querySelector<HTMLElement>('article')!,input=f.host.querySelector<HTMLInputElement>('input')!;
+    await act(async()=>{Object.getOwnPropertyDescriptor(f.dom.HTMLInputElement.prototype,'value')!.set!.call(input,'unsaved shell draft');input.dispatchEvent(new Event('input',{bubbles:true}));});
+    const beforeHeavy=heavyCalls,beforeShell=shellCalls;
+    await f.render(body(false,90,'inactive source',false),false,false,false,'normal-1');
+    assert.equal(shellCalls,beforeShell+1);assert.equal(heavyCalls,beforeHeavy);assert.equal(f.host.querySelector('article'),article);assert.equal(article.className,'normal-shell');assert.equal(article.style.left,'90px');assert.equal(f.host.querySelector<HTMLButtonElement>('article button')!.disabled,true,'Retained shell revisions revoke stale input authority');
+    assert.equal(f.host.querySelector('strong')!.textContent,'initial');assert.deepEqual(sources,['initial']);assert.equal(f.host.querySelector('output')!.getAttribute('data-reader'),'false');assert.equal(f.host.querySelector('output')!.getAttribute('data-paint'),'false');
+    await f.render(body(true,999,'same-revision source',true),false,false,false,'normal-1');
+    assert.equal(shellCalls,beforeShell+1,'Unchanged revision keeps inactive shell cached');assert.equal(article.style.left,'90px');assert.equal(article.className,'normal-shell');
+    await f.render(body(false,140,'another inactive source',false),false,false,false,'normal-2');
+    assert.equal(shellCalls,beforeShell+2);assert.equal(heavyCalls,beforeHeavy);assert.equal(article.style.left,'140px');assert.equal(f.host.querySelector('input'),input);assert.equal(input.value,'unsaved shell draft');assert.equal(mounts,1);
+    await f.render(body(false,140,'latest',true),false,true,true,'normal-2');
+    assert.equal(f.host.querySelector('article'),article);assert.equal(f.host.querySelector('input'),input);assert.equal(input.value,'unsaved shell draft');assert.deepEqual(sources,['initial','latest']);assert.equal(f.host.querySelector<HTMLButtonElement>('article button')!.disabled,false);assert.equal(f.host.querySelector('output')!.getAttribute('data-reader'),'true');assert.equal(mounts,1);
+    const beforeFrozen=heavyCalls;
+    await f.render(body(true,220,'frozen update source',false,false),false,true,false,'frozen-revision');
+    assert.equal(article.className,'is-maximized');assert.equal(article.style.left,'220px','Revision refresh also applies when visible but updates=false');assert.equal(f.host.querySelector('output')!.getAttribute('data-reader'),'false');
+    assert.equal(heavyCalls,beforeFrozen,'An inner boundary with updates=false stays frozen across a visible shell revision');assert.deepEqual(sources,['initial','latest']);assert.equal(input.value,'unsaved shell draft');
+  }finally{await f.close();}
+});
 
 test('retained views preserve natural CSS geometry after dezoom without transformed placeholders',async()=>{
   const f=await fixture();

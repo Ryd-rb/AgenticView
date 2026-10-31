@@ -77,6 +77,8 @@ try{
   try{
    if(steps%10===0){
     await command(card,{operation:'navigate',mode:'fit'});
+    const overview=await command(card,{operation:'metrics'});
+    if(overview.residentCards!==100||overview.paintEligibleCards!==100||overview.components!==900)throw new Error('Far-zoom native views are missing or not paint eligible.');
     const elapsed=(performance.now()-start)/1000,phase=!earlyProfiled?'early':!midProfiled&&elapsed>=config.durationSeconds/2?'mid':undefined;
     if(phase==='early')earlyProfiled=true;if(phase==='mid')midProfiled=true;
     for(const zoom of [1,.04]){
@@ -87,7 +89,7 @@ try{
    // Far retained views stay painted; explicit activation/maximization makes input targets eligible.
    await command(card,{operation:'navigate',mode:'maximize'});
    const clicked=await command(card,{operation:'click',componentId:'chart',target:{role:'button',name:steps%2?'Series 2':'Series 1'}});clicks++;clickedCards.add(card.index);latencies.push(clicked.dispatchToSecondFrameMs);
-   if(steps%3===0)await command(card,{operation:'metrics'});
+   if(steps%3===0){const metrics=await command(card,{operation:'metrics'});if(metrics.residentCards!==100||metrics.paintEligibleCards!==1)throw new Error('Maximized native card isolation regressed.');}
    if(steps%10===0)await command(card,{operation:'inspect',limit:12});
    consecutiveFailures=0;
   }catch(error){

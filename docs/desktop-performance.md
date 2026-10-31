@@ -63,6 +63,10 @@ decorative grid moves with its own transform. Explicit presentation overrides us
 stable attribute flags rather than CSS substring selectors on ancestor styles.
 Inactive charts batch opaque vector marks; activating the card restores individual
 point titles and inspection targets. Curves scale with the rest of the view.
+The browser may skip painting offscreen card boxes with `content-visibility:auto`;
+visible far-zoom cards remain eligible. Retained shells refresh layout, maximized
+state and input authority independently of frozen component bodies. Switching
+cards revokes the previous maximized presentation without losing local drafts.
 
 Browser DOM rendering uses its UI thread. Per-card native pop-outs already own
 independent host processes and private WebView profiles. Provider ingestion/query

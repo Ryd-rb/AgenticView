@@ -495,13 +495,19 @@ test('table editors grow selected cards in both dimensions and defer geometry du
 });
 
 test('card shortcuts maximize the existing card, preserve local nodes and return to the original canvas geometry',async()=>{
- const state=snapshot();state.agents.push({...agent,id:'sibling',agentId:'sibling',layout:{...agent.layout,x:700}});state.settings.cardShortcuts=[{id:'app',label:'Example app',cardId:'agent',chord:'Alt+1',mode:'maximize'}];const view=await mount(agent.layout,state);
+ const state=snapshot();state.agents.push({...agent,id:'sibling',agentId:'sibling',layout:{...agent.layout,x:700}});state.settings.cardShortcuts=[{id:'app',label:'Example app',cardId:'agent',chord:'Alt+1',mode:'maximize'},{id:'other',label:'Other app',cardId:'sibling',chord:'Alt+2',mode:'maximize'}];const view=await mount(agent.layout,state);
  const stylesheet=document.createElement('style');stylesheet.textContent=readFileSync(new URL('../web/styles.css',import.meta.url),'utf8');document.head.append(stylesheet);
  try{
   const card=view.target.closest<HTMLElement>('[data-card-id]')!,surface=card.querySelector('[data-card-surface]'),sibling=view.host.querySelector<HTMLElement>('[data-card-id="sibling"]')!,geometry={left:card.style.left,top:card.style.top,width:card.style.width,height:card.style.height};
   await act(()=>{const event=new KeyboardEvent('keydown',{key:'1',altKey:true,bubbles:true,cancelable:true});Object.defineProperty(event,'getModifierState',{value:()=>false});window.dispatchEvent(event);});
   assert.ok(card.classList.contains('is-maximized'));assert.equal(card.style.width,'1168px');assert.equal(card.style.height,'680px');assert.equal(card.querySelector('[data-card-surface]'),surface);assert.ok(card.classList.contains('is-active'));
   assert.equal(getComputedStyle(sibling).visibility,'hidden','Retained sibling wrappers must not defeat maximize input/visibility isolation');
+  await act(()=>{const event=new KeyboardEvent('keydown',{key:'2',altKey:true,bubbles:true,cancelable:true});Object.defineProperty(event,'getModifierState',{value:()=>false});window.dispatchEvent(event);});
+  assert.ok(sibling.classList.contains('is-maximized'));
+  assert.equal(view.host.querySelectorAll('.world-card.is-maximized').length,1,'Switching maximized cards must update retained inactive shells');
+  assert.equal(getComputedStyle(card).visibility,'hidden');assert.equal(card.style.width,geometry.width);assert.equal(card.querySelector('[data-card-surface]'),surface);
+  await act(()=>{const event=new KeyboardEvent('keydown',{key:'1',altKey:true,bubbles:true,cancelable:true});Object.defineProperty(event,'getModifierState',{value:()=>false});window.dispatchEvent(event);});
+  assert.equal(view.host.querySelectorAll('.world-card.is-maximized').length,1);assert.equal(getComputedStyle(sibling).visibility,'hidden');
   await act(()=>window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true})));
   assert.ok(!card.classList.contains('is-maximized'));assert.deepEqual({left:card.style.left,top:card.style.top,width:card.style.width,height:card.style.height},geometry);assert.equal(card.querySelector('[data-card-surface]'),surface);
   assert.notEqual(getComputedStyle(sibling).visibility,'hidden');assert.equal(view.host.querySelector('[data-card-id="sibling"]'),sibling);
