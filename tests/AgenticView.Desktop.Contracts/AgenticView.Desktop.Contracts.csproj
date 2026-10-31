@@ -4,6 +4,7 @@
     <Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../src/AgenticView.Desktop/DesktopTimelineSummary.cs" Link="DesktopTimelineSummary.cs" />
     <Compile Include="../../src/AgenticView.Desktop/DesktopOptions.cs" Link="DesktopOptions.cs" />
     <Compile Include="../../src/AgenticView.Desktop/BridgePolicy.cs" Link="BridgePolicy.cs" />
     <Compile Include="../../src/AgenticView.Desktop/CardWindowSpec.cs" Link="CardWindowSpec.cs" />

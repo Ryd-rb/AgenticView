@@ -46,7 +46,7 @@ internal sealed class DesktopDiagnostics(string directory)
             var bytes=System.Text.Encoding.UTF8.GetBytes(profile.ToJsonString());if(bytes.Length>16_777_216)throw new InvalidOperationException("Profile exceeded its retained byte limit.");await File.WriteAllBytesAsync(Path.Combine(root,id+".cpuprofile"),bytes);
             var result=new JsonObject{["artifactId"]=id,["sha256"]=Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),["bytes"]=bytes.Length,["samples"]=samples.Count,["durationSeconds"]=seconds,["top"]=top,["scope"]="Renderer JavaScript samples; idle/GC included. Raw profile retained in the private native profile."};
             foreach(var item in await timeline.Finish(root,id))result[item.Key]=item.Value?.DeepClone();
-            return result;
+            return DesktopTimelineSummary.Bound(result,40000,"top");
         }finally{if(started){try{await core.CallDevToolsProtocolMethodAsync("Profiler.stop","{}");}catch(Exception){}}profiling=false;}
     }
 }

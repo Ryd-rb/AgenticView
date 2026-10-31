@@ -140,4 +140,43 @@ foreach(var source in new[]{"https://other.invalid/","http://127.0.0.1:4318/","h
 }
 Check(policy.InitializationScript.Contains("nativeDebugControl:true",StringComparison.Ordinal)&&policy.InitializationScript.Contains("backgroundTesting:true",StringComparison.Ordinal),"Native capability bootstrap is missing");
 
-Console.WriteLine($"Passed {count} desktop URL and bridge security contracts.");
+
+
+var diagnosticSummary=DesktopTimelineSummary.Summarize("""
+{"traceEvents":[
+ {"name":"Layerize","ph":"X","dur":10000,"tdur":6000},
+ {"name":"Layerize","ph":"X","dur":3000},
+ {"name":"PaintArtifactCompositor::Update","ph":"X","dur":4000,"tdur":3500},
+ {"name":"Animation","ph":"b","pid":7,"id2":{"local":"a"},"args":{"data":{"name":"","nodeName":"DIV class='world'"}}},
+ {"name":"Animation","ph":"n","pid":7,"id2":{"local":"a"},"args":{"data":{"compositeFailed":65536}}},
+ {"name":"KeyframeModel","ph":"b","args":{"Name":"TransformAnimationCurve-0-9"}},
+ {"name":"KeyframeModel","ph":"b","args":{"Name":"FloatAnimationCurve-1-10"}},
+ {"name":"KeyframeModel","ph":4,"args":{"Name":"ignored"}},
+ {"name":"Layout","ph":"X","dur":-1},
+ {"name":"Paint","ph":"X","dur":1e309},
+ {"name":"Other","ph":"X","dur":10000}
+]}
+"""u8.ToArray());
+var layerizeSummary=diagnosticSummary["top"]!.AsArray().Single(n=>n!["name"]!.GetValue<string>()=="Layerize")!;
+Check(layerizeSummary["count"]!.GetValue<int>()==2&&layerizeSummary["totalMs"]!.GetValue<double>()==13,"Timeline wall costs lost complete events");
+Check(layerizeSummary["cpuSamples"]!.GetValue<int>()==1&&layerizeSummary["cpuTotalMs"]!.GetValue<double>()==6&&layerizeSummary["cpuMaxMs"]!.GetValue<double>()==6,"Thread CPU must retain its observed sample coverage");
+Check(diagnosticSummary["top"]!.AsArray().Count==2,"Unknown, malformed and nonfinite event costs must be excluded");
+Check(diagnosticSummary["controllingTransformStarts"]!.GetValue<int>()==1&&diagnosticSummary["controllingCompositorModelStarts"]!.AsObject().Count==2,"Controlling compositor model starts must preserve bounded names and distinguish transform targets");
+Check(diagnosticSummary["cameraAnimationTracks"]!.GetValue<int>()==1&&diagnosticSummary["cameraAnimationDecisions"]!.AsArray()[0]!["reasonBits"]!.GetValue<uint>()==65536,"Owned-node fallback must retain actual observed camera failure bits");
+Check(diagnosticSummary["matchedCompleteEvents"]!.GetValue<int>()==3,"Matched cost count must include all valid duplicate samples");
+var missingCpu=DesktopTimelineSummary.Summarize("""{"traceEvents":[{"name":"Paint","ph":"X","dur":2000,"tdur":"invalid"}]}"""u8.ToArray())["top"]!.AsArray()[0]!;
+Check(missingCpu["cpuTotalMs"] is null&&missingCpu["cpuSamples"]!.GetValue<int>()==0,"Missing CPU evidence must remain unknown, never zero");
+var budgetEvents=new System.Text.Json.Nodes.JsonArray();
+for(var i=0;i<128;i++)budgetEvents.Add(new System.Text.Json.Nodes.JsonObject{["name"]="LayoutInvalidationTracking",["args"]=new System.Text.Json.Nodes.JsonObject{["data"]=new System.Text.Json.Nodes.JsonObject{["reason"]=i+new string('\u754c',230)}}});
+for(var i=0;i<64;i++)budgetEvents.Add(new System.Text.Json.Nodes.JsonObject{["name"]="KeyframeModel",["ph"]="b",["args"]=new System.Text.Json.Nodes.JsonObject{["Name"]=new string('\u754c',145)+"-0-"+i}});
+budgetEvents.Add(new System.Text.Json.Nodes.JsonObject{["name"]="Animation",["ph"]="b",["id"]=1,["args"]=new System.Text.Json.Nodes.JsonObject{["data"]=new System.Text.Json.Nodes.JsonObject{["name"]="canvas-camera-x"}}});
+for(var i=0;i<512;i++)budgetEvents.Add(new System.Text.Json.Nodes.JsonObject{["name"]="Animation",["ph"]="n",["id"]=1,["args"]=new System.Text.Json.Nodes.JsonObject{["data"]=new System.Text.Json.Nodes.JsonObject{["compositeFailed"]=i}}});
+for(var i=0;i<50;i++)budgetEvents.Add(new System.Text.Json.Nodes.JsonObject{["name"]="AX"+i+new string('\u754c',145),["ph"]="X",["dur"]=12345,["tdur"]=12300});
+var budgetTrace=System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new System.Text.Json.Nodes.JsonObject{["traceEvents"]=budgetEvents});
+var budgetSummary=DesktopTimelineSummary.Summarize(budgetTrace);
+Check(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(budgetSummary).Length<=24000&&budgetSummary["summaryTruncated"]!.GetValue<bool>()&&budgetSummary["summaryOmittedEntries"]!.AsObject().Count>0,"Escaped Unicode and combined collections must fit the aggregate timeline byte budget with explicit omissions");
+Check(budgetSummary["controllingTransformStarts"]!.GetValue<int>()==64&&budgetSummary["eventCount"]!.GetValue<int>()==budgetEvents.Count,"Trimming summary detail must retain observed aggregate counts");
+var profileRows=new System.Text.Json.Nodes.JsonArray();for(var i=0;i<80;i++)profileRows.Add(new System.Text.Json.Nodes.JsonObject{["function"]=new string('\u754c',160),["sampledMs"]=1});
+var boundedProfile=DesktopTimelineSummary.Bound(new System.Text.Json.Nodes.JsonObject{["timeline"]=budgetSummary,["top"]=profileRows,["scope"]="Bounded metadata only"},40000,"top");
+Check(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(boundedProfile).Length<=40000&&boundedProfile["summaryOmittedEntries"]!["top"]!.GetValue<int>()>0,"Combined CPU and timeline summaries must leave room for viewport measurements in the MCP client budget");
+Console.WriteLine($"Passed {count} desktop configuration, bridge and timeline contracts.");
