@@ -36,8 +36,8 @@ internal static class PopOutLauncher
         var shortcut=Path.Combine(root,"Open card.lnk");PlainPath(shortcut);
         WriteShortcut(shortcut,executable,options,iconPath);
         File.WriteAllText(Path.Combine(root,"definition.json"),JsonSerializer.Serialize(new{url=options.Url.AbsoluteUri,cardId,title,appId=CardWindowSpec.AppId(options.Url,cardId),shortcut,profile=options.DataDirectory,runtime=app}));
-        var start=new ProcessStartInfo(executable){UseShellExecute=false,WorkingDirectory=app,CreateNoWindow=false,WindowStyle=ProcessWindowStyle.Normal};
-        foreach(var name in new[]{"AV_INGEST_KEY","AV_INGEST_TOKEN","AV_RUN_TOKEN","AV_PARENT_TOKEN","OPENAI_API_KEY","ANTHROPIC_API_KEY"})start.Environment.Remove(name);
+        // ShellExecute dispatches this fixed desktop executable with typed arguments, without a command interpreter or inherited CLI pipes.
+        var start=new ProcessStartInfo(executable){UseShellExecute=true,WorkingDirectory=app,WindowStyle=ProcessWindowStyle.Normal};
         foreach(var argument in CardWindowSpec.Arguments(options))start.ArgumentList.Add(argument);
         // A normal desktop process owns this process; it has no agent-job, cancellation or parent-close hook.
         using var child=Process.Start(start)??throw new IOException("Card process did not start.");

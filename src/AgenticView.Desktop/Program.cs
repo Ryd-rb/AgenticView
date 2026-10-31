@@ -27,10 +27,17 @@ internal static class Program
             if(options.CardId is not null)TaskbarIdentity.SetProcessIdentity(CardWindowSpec.AppId(options.Url,options.CardId));
             using var custody = new FileStream(Path.Combine(options.DataDirectory, "desktop.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
             ApplicationConfiguration.Initialize();
+            var threadFailed=false;
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+            Application.ThreadException+=(_,failure)=>{
+                Console.Error.WriteLine(JsonSerializer.Serialize(new{@event="desktop-thread-failed",error=failure.Exception.GetType().FullName,hresult=failure.Exception.HResult,stack=failure.Exception.StackTrace?[..Math.Min(failure.Exception.StackTrace.Length,8192)]}));
+                if(threadFailed)Environment.Exit(1);
+                threadFailed=true;Application.ExitThread();
+            };
             Console.WriteLine("{\"event\":\"desktop-starting\",\"bridgeVersion\":1}");
             Application.Run(new DesktopWindow(options));
             Console.WriteLine("{\"event\":\"desktop-closed\"}");
-            return 0;
+            return threadFailed?1:0;
         }
         catch (Exception exception)
         {
