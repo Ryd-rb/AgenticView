@@ -12,10 +12,11 @@ def analyze(manifest):
     read=lambda name:json.loads((directory/name).read_text())
     provider=read('provider-result.json');publisher=read('publisher-result.json');debug=read('debug-result.json')
     events=[json.loads(line) for line in (directory/'debug-events.jsonl').read_text().splitlines() if line]
-    samples=[]
+    samples=[];sampler_errors=[]
     for source in (directory/'resources').glob('*/samples.jsonl'):
         for line in source.read_text().splitlines():
             sample=json.loads(line);stamp=datetime.datetime.fromisoformat(sample['utc'].replace('Z','+00:00')).timestamp()*1000
+            if sample.get('type')=='error':sampler_errors.append({'stamp':stamp,**sample});continue
             if start<=stamp<=end:sample['stamp']=stamp;samples.append(sample)
     if not samples:raise ValueError('No resource samples cover the requested window')
     resources={}
@@ -34,10 +35,11 @@ def analyze(manifest):
     failures=[event for event in events if event['state']!='succeeded']
     result={'source':read('build-identity.json'),'window':{'startUtcMs':start,'endUtcMs':end,'requestedSeconds':config['durationSeconds'],'resourceSamples':len(samples)},'workload':read('workload.json'),'provider':provider,'publisher':publisher,'debug':debug,'database':{'retainedPoints':raw_count,'streams':stream_count,'bytes':(directory/'synthetic.sqlite').stat().st_size},'resources':resources,'clicks':{'count':len(clicks),'uniqueCards':len({event['cardIndex'] for event in clicks}),'dispatchToSecondFrameMs':quantiles([event['result']['dispatchToSecondFrameMs'] for event in clicks]),'dispatchMs':quantiles([event['result']['dispatchMs'] for event in clicks]),'mcpRoundTripMs':quantiles([event['roundTripMs'] for event in clicks])},'renderer':{'metricSamples':len(metrics),'rollingFrameP95Ms':quantiles([metric['frameP95Ms'] for metric in metrics]),'observedFrameMaxMs':max((metric['frameMaxMs'] or 0 for metric in metrics),default=0),'activeComponents':quantiles([metric['activeComponents'] for metric in metrics]),'mountedComponents':quantiles([metric['components'] for metric in metrics]),'jsHeapUsedBytes':quantiles([metric.get('native',{}).get('heap',{}).get('usedSize') for metric in metrics]),'counters':counters,'profiles':profiles},'failures':failures,'limitations':['Synthetic untrusted component clicks; no physical input or compositor presentation measurement.','rAF opportunities and cumulative renderer counters; rolling frame p95 values are not pooled per-frame quantiles.','CPU sampled for owned process trees; summed working sets include shared pages. Provider includes load/debug drivers.','Resource timestamps cover the hour; first/last CPU intervals can straddle its boundary by at most the polling interval.','Native card detail is visibility gated; all100cards are resident and visited, not simultaneously rendered as full-size cards.','Warmup cache growth is separated from late-window memory; private bytes alone do not establish a leak.']}
     expected=config['durationSeconds']*1000
+    result['samplerErrors']=sampler_errors
     result['zoom']={'gestures':len(viewports),'stepFrameP50Ms':quantiles([event['result']['stepFrameP50Ms'] for event in viewports]),'stepFrameP95Ms':quantiles([event['result']['stepFrameP95Ms'] for event in viewports]),'stepFrameMaxMs':quantiles([event['result']['stepFrameMaxMs'] for event in viewports]),'profiles':len(profiles),'scope':'Per-gesture frame opportunity quantiles; not pooled frames or compositor presentation.'}
     result['limitations'][4]='All100cards retain their real views at far zoom; clipped/small-view readers pause. Cards are activated sequentially for input.'
     result['accepted']=provider['ingestedPoints']>=expected and raw_count>=expected and provider['durationSeconds']>=config['durationSeconds']-.5 and publisher['durationSeconds']>=config['durationSeconds']-.5 and debug['durationSeconds']>=config['durationSeconds']-.5 and not provider['errors'] and not publisher['failures'] and not debug['failures'] and not failures and len({event['cardIndex'] for event in clicks})==100
-    result['accepted']=result['accepted'] and len(viewports)>=4 and stream_count==100 and len(samples)>=config['durationSeconds']//5-2
+    result['accepted']=result['accepted'] and len(viewports)>=4 and stream_count==100 and len(samples)>=config['durationSeconds']//5-2 and not any(start<=error['stamp']<=end for error in sampler_errors)
     (directory/'analysis.json').write_text(json.dumps(result,indent=2));return result
 
 if __name__=='__main__':

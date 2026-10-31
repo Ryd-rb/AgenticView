@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn,spawnSync } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtempSync,readFileSync,writeFileSync,existsSync,rmSync,readdirSync } from 'node:fs';
+import { mkdtempSync,readFileSync,writeFileSync,existsSync,rmSync,readdirSync,cpSync,mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join,resolve,dirname,basename } from 'node:path';
 
@@ -22,6 +22,11 @@ $temp=$Destination+'.next';@{schemaVersion=1;roots=$roots}|ConvertTo-Json -Depth
 `);
   const makeManifest=(root:number,provider=0)=>{const result=spawnSync(pwsh,['-NoProfile','-File',manifestScript,String(root),manifest,String(provider)],{windowsHide:true,encoding:'utf8',timeout:5000});assert.equal(result.status,0,result.stderr);};
   let sampler:ReturnType<typeof spawn>|undefined;
+  let completed=false;
+  const retain=()=>{
+    const destination=process.env.AV_PROCESS_SAMPLER_TEST_EVIDENCE;
+    if(destination){mkdirSync(destination,{recursive:true});cpSync(directory,join(destination,basename(directory)),{recursive:true});}
+  };
   try{
     for(let attempt=0;attempt<100&&!existsSync(childPidPath);attempt++)await new Promise(resolve=>setTimeout(resolve,20));
     assert.ok(parent.pid);const providerPid=Number(readFileSync(childPidPath,'utf8'));makeManifest(parent.pid);
@@ -32,7 +37,9 @@ $temp=$Destination+'.next';@{schemaVersion=1;roots=$roots}|ConvertTo-Json -Depth
     const first=JSON.parse(readFileSync(join(directory,run,'samples.jsonl'),'utf8').split('\n')[0]!);
     const observed=first.processes.find((entry:any)=>entry.pid===providerPid);assert.ok(observed);
     const updated=JSON.parse(readFileSync(manifest,'utf8'));updated.roots.push({pid:providerPid,executable:observed.executable,creationUtc:observed.creationUtc,role:'provider'});writeFileSync(manifest,JSON.stringify(updated));
-    const [code]=await samplerExit;assert.equal(code,0,stderr+stdout);
+    const [code]=await samplerExit;
+    writeFileSync(join(directory,'sampler-exit.json'),JSON.stringify({code,stdout,stderr},null,2));retain();
+    assert.equal(code,0,`Fixture retained at ${directory}\n${stderr}${stdout}`);
     const output=JSON.parse(stdout.trim()),summary=JSON.parse(readFileSync(output.summaryPath,'utf8'));
     assert.equal(summary.status,'completed');assert.ok(summary.elapsedSeconds>=9&&summary.elapsedSeconds<15);assert.ok(summary.sampleCount>=7&&summary.sampleCount<=10);
     const samples=readFileSync(output.samplesPath,'utf8').trim().split('\n').map(line=>JSON.parse(line));
@@ -52,9 +59,11 @@ $temp=$Destination+'.next';@{schemaVersion=1;roots=$roots}|ConvertTo-Json -Depth
     const rejected=spawnSync(pwsh,['-NoProfile','-File',resolve('scripts/measure-process-tree.ps1'),'-ManifestPath',manifest,'-OutputDirectory',directory,'-DurationSeconds','1','-IntervalSeconds','1'],{windowsHide:true,encoding:'utf8',timeout:5000});
     assert.equal(rejected.status,1,rejected.stderr);const rejectedSummary=JSON.parse(readFileSync(JSON.parse(rejected.stdout.trim()).summaryPath,'utf8'));
     assert.equal(rejectedSummary.status,'failed');assert.equal(rejectedSummary.sampleCount,0);assert.match(rejectedSummary.error,/mismatch/);
+    completed=true;
   }finally{
-    // All fixture programs have finite self-owned deadlines; preserve evidence on a timeout.
-    if(parent.exitCode!==null&&(!sampler||sampler.exitCode!==null)&&existsSync(receipt)){
+    retain();
+    // A failed assertion must never erase the diagnostic receipt or finite fixture.
+    if(completed&&parent.exitCode!==null&&(!sampler||sampler.exitCode!==null)&&existsSync(receipt)){
       assert.equal(dirname(resolve(directory)),resolve(tmpdir()));assert.ok(basename(directory).startsWith('agenticview-process-sampler-'));rmSync(directory,{recursive:true});
     }
   }

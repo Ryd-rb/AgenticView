@@ -102,7 +102,13 @@ try {
                 if(-not $knownRoots.ContainsKey([int]$root.pid)){throw 'New root is not running; cannot verify its identity.'}
                 $rootStates+=@{pid=$root.pid;role=$root.role;state='not-observed-exited'};continue
             }
-            if($null -eq $process.CreationDate -or -not (Matches $process $root)){throw 'Root executable or creation time mismatch; sampling stopped without adopting the replacement.'}
+            if($null -eq $process.CreationDate -or -not (Matches $process $root)){
+                # Retain the reason without command lines or paths; never adopt an unverifiable PID.
+                $birthMatches=$null -ne $process.CreationDate -and (Identity $process) -eq ([string]$root.pid+':'+[string]$root.creationMilliseconds)
+                $pathAvailable=-not [string]::IsNullOrEmpty([string]$process.ExecutablePath)
+                $pathMatches=[StringComparer]::OrdinalIgnoreCase.Equals([string]$process.ExecutablePath,$root.executable)
+                throw ('Root identity mismatch (pid={0}, previouslyVerified={1}, creationMatches={2}, executableAvailable={3}, executableMatches={4}); sampling stopped without adopting the replacement.' -f $root.pid,$knownRoots.ContainsKey([int]$root.pid),$birthMatches,$pathAvailable,$pathMatches)
+            }
             $knownRoots[[int]$root.pid]=$root;$owned[[int]$root.pid]=@{process=$process;rootPid=[int]$root.pid;role=$root.role}
             $rootStates+=@{pid=$root.pid;role=$root.role;state='verified'}
         }
