@@ -6,6 +6,8 @@ using AgenticView.Server;
 using Microsoft.Data.Sqlite;
 using System.Diagnostics;
 
+if(args.Contains("--invoke-allocation-probe")){Console.WriteLine(InvocationAllocationContracts.Probe(args.Contains("--assert-bounded")).ToJsonString());return 0;}
+
 if (args.Contains("--native-validation-probe"))
 {
     var inputs=JsonNode.Parse(Console.In.ReadToEnd())!.AsArray(); var results=new JsonArray();
@@ -280,6 +282,7 @@ var cases = new (string Name, Action Test)[]
     }))
 };
 cases = cases.Concat(ControlContracts.Cases()).ToArray();
+cases = cases.Append(("read invocation allocations do not clone unrelated heavy card data",(Action)(()=>InvocationAllocationContracts.Probe(true)))).ToArray();
 cases = cases.Append(("known webhook acknowledgements survive parent cancellation without replay",(Action)WebhookContracts.AcknowledgementSurvivesBodyCancellation)).ToArray();
 var failed=0;
 foreach(var (name, action) in cases) { try { action(); Console.WriteLine("PASS "+name); } catch(Exception error) { failed++; Console.Error.WriteLine("FAIL "+name+": "+error); } }

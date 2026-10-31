@@ -10,6 +10,7 @@ public sealed partial class ControlStore : IDisposable
 {
     private readonly object gate = new();
     private readonly SqliteConnection db;
+    private SqliteTransaction? dispatchTransaction;
     private readonly Hub hub;
     private readonly Secrets secrets;
     private static long Now => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -32,7 +33,15 @@ public sealed partial class ControlStore : IDisposable
         InitializeQuickText();
         InitializeComponentDebug();
     }
-    private SqliteCommand Command(string sql, params object[] values) { var c = db.CreateCommand(); c.CommandText = sql; for (var i=0;i<values.Length;i++) c.Parameters.AddWithValue("$p"+i,values[i]); return c; }
+    private SqliteCommand Command(string sql, params object[] values) { var c = db.CreateCommand(); c.Transaction=dispatchTransaction; c.CommandText = sql; for (var i=0;i<values.Length;i++) c.Parameters.AddWithValue("$p"+i,values[i]); return c; }
+    // Called under gate only. One FULL/WAL commit per logical dispatch operation;
+    // claims/results are returned only after that commit succeeds.
+    private T AtomicDispatch<T>(Func<T> action)
+    {
+        using var transaction=db.BeginTransaction();dispatchTransaction=transaction;
+        try{var result=action();transaction.Commit();return result;}
+        finally{dispatchTransaction=null;}
+    }
     private void Execute(string sql, params object[] values) { using var c=Command(sql,values); c.ExecuteNonQuery(); }
     private object? Scalar(string sql, params object[] values) { using var c=Command(sql,values); return c.ExecuteScalar(); }
     private static JsonObject Clone(JsonObject value) => (JsonObject)value.DeepClone();
@@ -129,13 +138,13 @@ public sealed partial class ControlStore : IDisposable
         lock(gate) {
             Sweep();
             using(var c=Command("SELECT digest,payload FROM invocations WHERE run_id=$p0 AND request_id=$p1",runId,request)) using(var reader=c.ExecuteReader()) if(reader.Read()) { if(reader.GetString(0)!=digest) throw new HubError(409,"Request ID already has different content."); return Public(Parse(reader.GetString(1))); }
-            if(hub.GetRun(runId) is null) throw new HubError(404,"Card unavailable. Restore its archive first.");
+            if(!hub.HasRun(runId)) throw new HubError(404,"Card unavailable. Restore its archive first.");
             var config=Configuration(runId); var action=((JsonArray)config["actions"]!).OfType<JsonObject>().FirstOrDefault(a=>Text(a,"id")==actionId) ?? throw new HubError(404,"Action unavailable.");
             if(Text(action,"kind")=="session") throw new HubError(400,"Use a session-launcher to create a draft before starting an agent session.");
             if(Text(input,"definitionVersion")!=Text(config,"version")) throw new HubError(409,"Action configuration changed. Reload and review it again.");
             if(Text(action,"confirmation").Length>0 && !ComponentValidator.Boolean(input,"confirmed")) throw new HubError(409,"This action requires explicit confirmation.");
             ValidateInput(action,values);
-            GridValidation.Action(hub.GetRun(runId)!,actionId,values);
+            hub.ValidateGridAction(runId,actionId,values);
             if(Convert.ToInt64(Scalar("SELECT COUNT(*) FROM invocations WHERE state IN ('queued','running')"))>=1000 || Convert.ToInt64(Scalar("SELECT COUNT(*) FROM invocations WHERE run_id=$p0 AND state IN ('queued','running')",runId))>=100) throw new HubError(429,"Action queue is full.");
             var id=Guid.NewGuid().ToString(); var target=Text(action,"target")=="agent"?"agent:"+runId:"connector:"+Text(action,"target");
             var job=Json.Object(new{id,runId,actionId,kind=Text(action,"kind"),handler=Text(action,"handler"),input=values,definitionVersion=Text(config,"version"),state="queued",createdAt=Now,confirmed=ComponentValidator.Boolean(input,"confirmed")});
@@ -153,7 +162,9 @@ public sealed partial class ControlStore : IDisposable
     {
         if(agent) hub.VerifyRun(id,token);
         lock(gate) {
-            if(!agent) { ConnectorAuth(id,token); var p=Parse((string)Scalar("SELECT payload FROM connectors WHERE id=$p0",id)!); p["lastSeen"]=Now; Execute("UPDATE connectors SET payload=$p0 WHERE id=$p1",Json.Text(p),id); }
+            if(!agent)ConnectorAuth(id,token);
+            return AtomicDispatch(()=>{
+            if(!agent) { var p=Parse((string)Scalar("SELECT payload FROM connectors WHERE id=$p0",id)!); p["lastSeen"]=Now; Execute("UPDATE connectors SET payload=$p0 WHERE id=$p1",Json.Text(p),id); }
             Sweep(); var target=(agent?"agent:":"connector:")+id; var result=new JsonArray();
             // One outstanding execution per consumer. Poll does not redeliver a claimed command.
             if(Convert.ToInt64(Scalar("SELECT COUNT(*) FROM invocations WHERE target=$p0 AND state='running'",target))>0) return result;
@@ -161,6 +172,7 @@ public sealed partial class ControlStore : IDisposable
                 var job=Parse(payload); job["state"]="running"; job["startedAt"]=Now; job["claimToken"]=Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(24)); Save(job); result.Add(Clone(job));
             }
             return result;
+            });
         }
     }
     public JsonObject Complete(string id,string token,bool agent,JsonObject input)
@@ -174,10 +186,13 @@ public sealed partial class ControlStore : IDisposable
             if(!Authentication.Equal(Text(job,"claimToken"),claim)) throw new HubError(403,"Invalid invocation claim.");
             var digest=Hash(Canonical(input)); if(job["completionDigest"] is not null) { if(Text(job,"completionDigest")!=digest) throw new HubError(409,"Completion already differs."); return Public(job); }
             if(Text(job,"state") is not ("running" or "unknown")) throw new HubError(409,"Invocation cannot complete.");
-            job["state"]=state; job["finishedAt"]=Now; job["result"]=input["result"]?.DeepClone(); job["error"]=input["error"]?.DeepClone(); job["completionDigest"]=digest; Budget(job); Save(job);
+            job["state"]=state; job["finishedAt"]=Now; job["result"]=input["result"]?.DeepClone(); job["error"]=input["error"]?.DeepClone(); job["completionDigest"]=digest; Budget(job);
+            return AtomicDispatch(()=>{
+            Save(job);
             // Read responses are disposable windows, not a persisted copy of an unbounded source log/database.
             Execute("DELETE FROM invocations WHERE run_id=$p0 AND state IN ('succeeded','failed','cancelled') AND json_extract(payload,'$.kind') IN ('logs','query','history') AND id NOT IN (SELECT id FROM invocations WHERE run_id=$p0 AND json_extract(payload,'$.kind') IN ('logs','query','history') ORDER BY created DESC,id DESC LIMIT 64)",Text(job,"runId"));
             return Public(job);
+            });
         }
     }
     private static JsonObject Public(JsonObject job) { var result=Clone(job); result.Remove("claimToken"); result.Remove("completionDigest"); return result; }

@@ -184,6 +184,16 @@ public sealed class Hub : IDisposable
         lock (gate) { if ((!runs.ContainsKey(id) && Scalar("SELECT id FROM archives WHERE id=$p0", id) is null) || !Equal(token, Token(id))) throw new HubError(403, "Invalid run credentials or unavailable run."); }
     }
     public JsonObject? GetRun(string id) { lock (gate) return runs.TryGetValue(id, out var run) ? Clone(run.View) : null; }
+    internal bool HasRun(string id) { lock(gate) return runs.ContainsKey(id); }
+    internal void ValidateGridAction(string id,string actionId,JsonObject input)
+    {
+        lock(gate){
+            if(!runs.TryGetValue(id,out var run))throw new HubError(404,"Card unavailable. Restore its archive first.");
+            // Validation only reads the owned view and clones its constraint overlays.
+            // Keep it under the Hub lock; no live card reference escapes to callers.
+            GridValidation.Action(run.View,actionId,input);
+        }
+    }
     internal string OwnedToken(string id) { lock (gate) { if (!runs.ContainsKey(id)) throw new HubError(404, "Card unavailable. Restore it first."); return Token(id); } }
     public JsonObject Cards(int offset, int limit)
     {
