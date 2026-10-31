@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Component } from '../shared/protocol.js';
 import type { MonitoringSnapshot } from '../shared/monitoring.js';
 import { ComponentView } from './Components.js';
+import {useDocumentActivity} from './RenderActivity.js';
 
 const numberFormatters = new Map<number, Intl.NumberFormat>();
 const number = (value: number, digits = 1) => { let formatter = numberFormatters.get(digits); if (!formatter) { formatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: digits }); numberFormatters.set(digits, formatter); } return formatter.format(value); };
@@ -10,9 +11,11 @@ const clockFormatter = new Intl.DateTimeFormat(undefined, { hour: '2-digit', min
 const clock = (value: number) => clockFormatter.format(value);
 
 export function MonitoringView() {
+  const active=useDocumentActivity();
   const [snapshot, setSnapshot] = useState<MonitoringSnapshot>(), [error, setError] = useState(''), [paused, setPaused] = useState(() => typeof document !== 'undefined' && document.visibilityState === 'hidden');
   const [windowSeconds, setWindowSeconds] = useState(300);
   useEffect(() => {
+    if(!active){setPaused(true);return;}setPaused(false);
     let disposed = false, timer: ReturnType<typeof setTimeout> | undefined, pending: AbortController | undefined;
     const hidden = () => document.visibilityState === 'hidden';
     const clearTimer = () => { if (timer !== undefined) clearTimeout(timer); timer = undefined; };
@@ -31,7 +34,7 @@ export function MonitoringView() {
     const visibility = () => { setPaused(hidden()); clearTimer(); if (hidden()) pending?.abort(); else void poll(); };
     document.addEventListener('visibilitychange', visibility); void poll();
     return () => { disposed = true; clearTimer(); pending?.abort(); document.removeEventListener('visibilitychange', visibility); };
-  }, []);
+  }, [active]);
   const native = (component: Component) => <ComponentView key={component.id} component={component} embeds={false} runId="monitoring" />;
   const history = snapshot?.history.filter(sample => sample.time > snapshot.sampledAt - windowSeconds * 1000).slice(-300) ?? [];
   const chart = (id: string, title: string, series: { name: string; field: 'updatesPerSecond' | 'batchesPerSecond' | 'bytesPerSecond' | 'active' | 'stale' | 'cpuPercent'; divisor?: number }[]) => native({ id, title, kind: 'chart', data: { type: 'line', xLabel: 'Server time', series: series.map(item => ({ name: item.name, points: history.map(sample => ({ x: clock(sample.time), y: sample[item.field] / (item.divisor ?? 1) })) })) } });

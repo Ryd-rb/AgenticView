@@ -22,6 +22,7 @@ export function popOutCard(cardId:string,title:string):Promise<void>{
   return new Promise((resolve,reject)=>{const requestId=crypto.randomUUID();const stop=()=>{clearTimeout(timer);bridge.removeEventListener('message',changed);};const changed=(event:{data:unknown})=>{const value=event.data as {type?:string;requestId?:string;ok?:boolean;message?:string};if(value?.type!=='agenticview:popout-result'||value.requestId!==requestId)return;stop();if(value.ok)resolve();else reject(new Error(value.message??'The independent window did not open.'));};const timer=setTimeout(()=>{stop();reject(new Error('Window launch was not acknowledged. Check the taskbar before trying again.'));},15000);bridge.addEventListener('message',changed);try{bridge.postMessage({type:'agenticview:popout',requestId,cardId,title:title.slice(0,160)});}catch(error){stop();reject(error);}});
 }
 export function windowCommand(action: 'minimize' | 'maximize' | 'close' | 'drag' | 'fullscreen') {
+  if(desktop().agenticViewDesktop?.version===1&&action==='minimize')window.dispatchEvent(new CustomEvent('agenticview:native-visibility',{detail:{visible:false}}));
   if (desktop().agenticViewDesktop?.version === 1) desktop().chrome?.webview?.postMessage({ type: 'agenticview:window', action });
 }
 export function WindowControls() {
@@ -29,7 +30,7 @@ export function WindowControls() {
   useEffect(() => {
     const bridge = desktop().chrome?.webview; if (!bridge || desktop().agenticViewDesktop?.version !== 1) return;
     setEnabled(true); document.documentElement.classList.add('desktop-host');
-    const changed = (event: { data: unknown }) => { const message = event.data as { type?: string; state?: WindowState }; if (message?.type === 'agenticview:window-state' && ['fullscreen', 'normal', 'minimized', 'maximized'].includes(message.state ?? '')) setState(message.state!); };
+    const changed = (event: { data: unknown }) => { const message = event.data as { type?: string; state?: WindowState }; if (message?.type === 'agenticview:window-state' && ['fullscreen', 'normal', 'minimized', 'maximized'].includes(message.state ?? '')){setState(message.state!);window.dispatchEvent(new CustomEvent('agenticview:native-visibility',{detail:{visible:message.state!=='minimized'}}));} };
     bridge.addEventListener('message', changed);
     return () => { bridge.removeEventListener('message', changed); document.documentElement.classList.remove('desktop-host'); };
   }, []);

@@ -110,7 +110,7 @@ export const settingsSchema = z.object({
   autoArchiveMinutes: z.number().int().min(1).max(525_600).nullable().default(5),
   archiveAfterCompletion: z.boolean().default(true),
   trustedEmbeds: z.boolean().default(true),
-  reducedMotion: z.boolean().default(false),
+  reducedMotion: z.boolean().default(true),
 });
 export type Settings = z.infer<typeof settingsSchema>;
 export type Stats = { active: number; stale: number; archived: number; updates: number; updatesPerSecond: number };

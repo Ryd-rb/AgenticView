@@ -37,13 +37,26 @@ public static class ComponentConfiguration
     }
     public static void Presentation(JsonObject value)
     {
-        Keys(value,"surface","color","background","borderColor","emphasis","align","density","fontSize");
+        Keys(value,"surface","color","background","borderColor","emphasis","align","density","fontSize","padding","margin","controlPadding","cellPadding","gap","rowGap","columnGap","controlHeight","rowHeight","borderWidth","borderRadius","lineHeight","fontWeight","fontFamily","letterSpacing","minWidth","maxWidth","minHeight","maxHeight","animation","animationDurationMs");
         if(value.ContainsKey("surface")) Choice(value,"surface",["default","plain"]);
         foreach(var key in new[]{"color","background","borderColor"}) if(value.ContainsKey(key) && !Regex.IsMatch(Text(value,key,7),"^#[0-9a-fA-F]{6}$",RegexOptions.CultureInvariant|RegexOptions.NonBacktracking)) Fail("Use a six-digit hex color.");
         if(value.ContainsKey("emphasis")) Choice(value,"emphasis",["normal","bold","muted"]);
         if(value.ContainsKey("align")) Choice(value,"align",["left","center","right"]);
         if(value.ContainsKey("density")) Choice(value,"density",["compact","comfortable","spacious"]);
-        if(value.ContainsKey("fontSize")) Number(value,"fontSize",12,24,true,true);
+        foreach(var key in new[]{"padding","margin","controlPadding","cellPadding"})if(value.ContainsKey(key))Spacing(value,key);
+        foreach(var key in new[]{"gap","rowGap","columnGap"})if(value.ContainsKey(key))Number(value,key,0,64);
+        if(value.ContainsKey("controlHeight"))Number(value,"controlHeight",28,96,true,true);if(value.ContainsKey("rowHeight"))Number(value,"rowHeight",28,120,true,true);
+        if(value.ContainsKey("borderWidth"))Number(value,"borderWidth",0,8);if(value.ContainsKey("borderRadius"))Number(value,"borderRadius",0,48);
+        if(value.ContainsKey("fontSize")) Number(value,"fontSize",10,32,true,true);if(value.ContainsKey("lineHeight"))Number(value,"lineHeight",1,2.5);if(value.ContainsKey("fontWeight"))Number(value,"fontWeight",100,900,true,true);
+        if(value.ContainsKey("fontFamily"))Choice(value,"fontFamily",["system","mono","serif"]);if(value.ContainsKey("letterSpacing"))Number(value,"letterSpacing",0,4);
+        foreach(var key in new[]{"minWidth","maxWidth","minHeight","maxHeight"})if(value.ContainsKey(key))Number(value,key,0,2400,true,true);
+        foreach(var pair in new[]{("minWidth","maxWidth"),("minHeight","maxHeight")})if(value.ContainsKey(pair.Item1)&&value.ContainsKey(pair.Item2)&&Number(value,pair.Item1)>Number(value,pair.Item2))Fail("Presentation minimum exceeds maximum.");
+        if(value.ContainsKey("animation"))Choice(value,"animation",["none","subtle"]);if(value.ContainsKey("animationDurationMs"))Number(value,"animationDurationMs",0,1000,true,true);
+    }
+    private static void Spacing(JsonObject value,string key)
+    {
+        if(value[key] is JsonObject edges){Keys(edges,"top","right","bottom","left");foreach(var edge in edges)Number(edges,edge.Key,0,96);}
+        else Number(value,key,0,96);
     }
     private static void Effect(JsonObject effect)
     {

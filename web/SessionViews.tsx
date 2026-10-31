@@ -2,6 +2,7 @@ import { useCallback, useContext, useEffect, useRef, useState, type FormEvent, t
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { CardInteraction } from './CardInteraction.js';
+import {useElementActivity} from './RenderActivity.js';
 
 // Vite bundles this asset for the browser; direct Node semantic imports have no CSS loader.
 if (import.meta.env?.MODE) void import('./session-views.css');
@@ -25,18 +26,7 @@ async function json<T>(path: string, signal: AbortSignal, body?: Body): Promise<
   if (!response.ok) throw new Error(`Session request failed (${response.status}): ${short((value as { error?: string })?.error ?? response.statusText)}`);
   return value as T;
 }
-function useVisible(ref: RefObject<HTMLDivElement | null>) {
-  const [visible, setVisible] = useState(() => typeof document !== 'undefined' && document.visibilityState !== 'hidden');
-  useEffect(() => {
-    let intersects = true;
-    const update = () => setVisible(intersects && document.visibilityState !== 'hidden');
-    const observer = typeof IntersectionObserver === 'undefined' ? undefined : new IntersectionObserver(entries => { intersects = entries[0]?.isIntersecting ?? true; update(); });
-    if (ref.current) observer?.observe(ref.current);
-    document.addEventListener('visibilitychange', update); update();
-    return () => { observer?.disconnect(); document.removeEventListener('visibilitychange', update); };
-  }, [ref]);
-  return visible;
-}
+const useVisible=useElementActivity;
 function useExplicitPost(enabled: boolean) {
   const enabledRef = useRef(enabled), alive = useRef(true), pending = useRef<AbortController | undefined>(undefined);
   const intent = useRef<{ path: string; signature: string; body: Body } | undefined>(undefined);

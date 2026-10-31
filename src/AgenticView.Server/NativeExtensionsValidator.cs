@@ -45,7 +45,12 @@ public static class NativeExtensionsValidator
     }
     public static void ValidateChart(JsonObject data)
     {
-        Keys(data, "type", "series", "xLabel", "yLabel", "options"); Choice(data, "type", Types, "line"); Text(data, "xLabel", 100, false); Text(data, "yLabel", 100, false);
+        Keys(data, "type", "series", "xLabel", "yLabel", "options", "source"); Choice(data, "type", Types, "line"); Text(data, "xLabel", 100, false); Text(data, "yLabel", 100, false);
+        if(data.ContainsKey("source")){
+            var source=Object(data["source"]);Keys(source,"readAction","windowMs","from","to","maxPoints","pollMs");Id(source,"readAction");Number(source,"windowMs",1000,86_400_000,false,true);Number(source,"maxPoints",32,2048,false,true);Number(source,"pollMs",250,60_000,false,true);
+            foreach(var key in new[]{"from","to"})Number(source,key,0,8_640_000_000_000_000,false,true);
+            if(source.ContainsKey("from")!=source.ContainsKey("to")||source.ContainsKey("from")&&Number(source,"to")<=Number(source,"from"))Fail("Supply both ordered time bounds or omit both for a rolling window.");
+        }
         var ids = new HashSet<string>(StringComparer.Ordinal); var numeric = true;
         foreach (var node in Array(data, "series", 12))
         {

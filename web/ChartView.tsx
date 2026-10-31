@@ -31,7 +31,7 @@ function sampled<T>(points: T[]): T[] {
 }
 
 /** Local interactions change inspection only; supplied telemetry is never mutated. */
-export function ChartView({ data, manual = true }: { data: ChartData; manual?: boolean }) {
+export function ChartView({ data, manual = true,sampledByProvider=false }: { data: ChartData; manual?: boolean;sampledByProvider?:boolean }) {
   const legendSpec=useControl('legend'),dataSpec=useControl('dataTable'),paginationSpec=useControl('pagination');
   const [hidden, setHidden] = useState<Set<string>>(new Set()), [table, setTable] = useState(dataSpec.initiallyOpen??false), [page, setPage] = useState(0);
   const clipId = `plot-${useId().replace(/:/g, '')}`, options = data.options, xAxis = options?.xAxis, yAxis = options?.yAxis;
@@ -73,7 +73,7 @@ export function ChartView({ data, manual = true }: { data: ChartData; manual?: b
             </g>;
           })}
           {visible.map(({ series, index, key: seriesKey }) => {
-            const color = series.color ?? palette[index % palette.length], points = sampled(series.points), type = series.type ?? data.type, path = points.map(p => `${x(p.x)},${y(p.y)}`).join(' '), marker = series.marker ?? (options?.markers || type === 'scatter' ? 'circle' : 'none');
+            const color = series.color ?? palette[index % palette.length], points = sampledByProvider?series.points:sampled(series.points), type = series.type ?? data.type, path = points.map(p => `${x(p.x)},${y(p.y)}`).join(' '), marker = series.marker ?? (options?.markers || type === 'scatter' ? 'circle' : 'none');
             const bars = visible.filter(item => (item.series.type ?? data.type) === 'bar'), barIndex = bars.findIndex(item => item.key === seriesKey), width = Math.max(.75, Math.min(28, 440 / Math.max(1, categories.length || points.length) / Math.max(1, bars.length)));
             return <g key={seriesKey} data-series={seriesKey}>
               {type === 'area' && points.length > 0 && <polygon points={`${x(points[0].x)},${base} ${path} ${x(points.at(-1)!.x)},${base}`} fill={color} fillOpacity=".16" />}

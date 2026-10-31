@@ -1,0 +1,11 @@
+{
+  "id":"synthetic-series-provider",
+  "name":"Synthetic bounded time-series provider",
+  "url":"http://127.0.0.1:4317/",
+  "registrationKey":"replace-with-a-private-random-recovery-key-before-registering",
+  "handlers":{
+    "series-range":{"type":"process","kind":"query","executable":"python","arguments":["time-series-service.py","--database","synthetic-series.sqlite","--operation","read_range","--stream","synthetic"],"input":"json-stdin","output":"json"},
+    "series-rows":{"type":"process","kind":"query","executable":"python","arguments":["time-series-service.py","--database","synthetic-series.sqlite","--operation","read_rows"],"input":"json-stdin","output":"json"},
+    "series-append":{"type":"process","kind":"edit","executable":"python","arguments":["time-series-service.py","--database","synthetic-series.sqlite","--operation","append","--max-points","10000000","--retention","reject"],"input":"json-stdin","output":"json"}
+  }
+}

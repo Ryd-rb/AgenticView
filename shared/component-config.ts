@@ -7,8 +7,19 @@ export const configScalar = z.union([z.string().max(16384), z.number().finite(),
 export const conditionAtomSchema = z.strictObject({ field: fieldPath, op: z.enum(['eq','ne','in','not-in','gt','gte','lt','lte','contains','starts-with','empty','not-empty']), value: configScalar.optional(), values: z.array(configScalar).max(100).optional() }).superRefine((rule,ctx)=>{if(['in','not-in'].includes(rule.op) && !rule.values)ctx.addIssue({code:'custom',message:'This operator requires values'});if(!['in','not-in','empty','not-empty'].includes(rule.op) && !Object.hasOwn(rule,'value'))ctx.addIssue({code:'custom',message:'This operator requires value'});});
 export const conditionSchema = z.strictObject({ all: z.array(conditionAtomSchema).max(32).optional(), any: z.array(conditionAtomSchema).max(32).optional(), none: z.array(conditionAtomSchema).max(32).optional() });
 export type Condition = z.infer<typeof conditionSchema>;
-export const colorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/);
-export const presentationSchema = z.strictObject({ surface: z.enum(['default','plain']).optional(), color: colorSchema.optional(), background: colorSchema.optional(), borderColor: colorSchema.optional(), emphasis: z.enum(['normal','bold','muted']).optional(), align: z.enum(['left','center','right']).optional(), density: z.enum(['compact','comfortable','spacious']).optional(), fontSize: z.number().int().min(12).max(24).optional() });
+export const colorSchema = z.string().length(7).regex(/^#[0-9a-fA-F]{6}$/);
+const spacingValue=z.number().finite().min(0).max(96);
+export const spacingSchema=z.union([spacingValue,z.strictObject({top:spacingValue.optional(),right:spacingValue.optional(),bottom:spacingValue.optional(),left:spacingValue.optional()})]);
+export type Spacing=z.infer<typeof spacingSchema>;
+export const presentationSchema = z.strictObject({
+  surface:z.enum(['default','plain']).optional(),color:colorSchema.optional(),background:colorSchema.optional(),borderColor:colorSchema.optional(),emphasis:z.enum(['normal','bold','muted']).optional(),align:z.enum(['left','center','right']).optional(),density:z.enum(['compact','comfortable','spacious']).optional(),
+  padding:spacingSchema.optional(),margin:spacingSchema.optional(),controlPadding:spacingSchema.optional(),cellPadding:spacingSchema.optional(),
+  gap:z.number().finite().min(0).max(64).optional(),rowGap:z.number().finite().min(0).max(64).optional(),columnGap:z.number().finite().min(0).max(64).optional(),
+  controlHeight:z.number().int().min(28).max(96).optional(),rowHeight:z.number().int().min(28).max(120).optional(),borderWidth:z.number().finite().min(0).max(8).optional(),borderRadius:z.number().finite().min(0).max(48).optional(),
+  fontSize:z.number().int().min(10).max(32).optional(),lineHeight:z.number().finite().min(1).max(2.5).optional(),fontWeight:z.number().int().min(100).max(900).optional(),fontFamily:z.enum(['system','mono','serif']).optional(),letterSpacing:z.number().finite().min(0).max(4).optional(),
+  minWidth:z.number().int().min(0).max(2400).optional(),maxWidth:z.number().int().min(0).max(2400).optional(),minHeight:z.number().int().min(0).max(2400).optional(),maxHeight:z.number().int().min(0).max(2400).optional(),
+  animation:z.enum(['none','subtle']).optional(),animationDurationMs:z.number().int().min(0).max(1000).optional(),
+}).superRefine((value,ctx)=>{for(const [min,max] of [['minWidth','maxWidth'],['minHeight','maxHeight']] as const)if(value[min]!==undefined&&value[max]!==undefined&&value[min]!>value[max]!)ctx.addIssue({code:'custom',message:`${min} must not exceed ${max}`});});
 export const effectSchema = z.strictObject({ label: z.string().max(160).optional(), tooltip: z.string().max(2000).optional(), visible: z.boolean().optional(), presentation: presentationSchema.optional() });
 export const configurationSchema = z.strictObject({
   controls:controlMapSchema.optional(),

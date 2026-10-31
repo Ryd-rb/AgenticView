@@ -17,10 +17,12 @@ export const chartOptionsSchema = z.strictObject({
   annotations: z.array(annotation).max(32).refine(unique, 'Annotation IDs must be unique').optional(),
   features: z.strictObject({ seriesToggle: z.boolean().optional(), dataTable: z.boolean().optional() }).optional(),
 });
+const chartInstant=z.number().finite().int().min(0).max(8_640_000_000_000_000);
+export const chartSourceSchema=z.strictObject({readAction:id,windowMs:z.number().int().min(1000).max(86_400_000).optional(),from:chartInstant.optional(),to:chartInstant.optional(),maxPoints:z.number().int().min(32).max(2048).optional(),pollMs:z.number().int().min(250).max(60_000).optional()}).superRefine((source,ctx)=>{if((source.from===undefined)!==(source.to===undefined)||source.from!==undefined&&source.to!<=source.from)ctx.addIssue({code:'custom',message:'Supply both ordered time bounds or omit both for a rolling window'});});
 export const chartDataSchema = z.strictObject({
   type: z.enum(['line', 'area', 'bar', 'scatter']).default('line'),
   series: z.array(z.strictObject({ name: z.string().max(100), id: id.optional(), type: z.enum(['line', 'area', 'bar', 'scatter']).optional(), color: color.optional(), dash: z.enum(['solid', 'dashed', 'dotted']).optional(), width: number.min(1).max(6).optional(), marker: z.enum(['none', 'circle', 'square', 'diamond']).optional(), hidden: z.boolean().optional(), points: z.array(z.strictObject({ x: z.union([z.string().max(100), number]), y: number, label: z.string().max(160).optional() })).max(2048) })).max(12),
-  xLabel: z.string().max(100).optional(), yLabel: z.string().max(100).optional(), options: chartOptionsSchema.optional(),
+  xLabel: z.string().max(100).optional(), yLabel: z.string().max(100).optional(), options: chartOptionsSchema.optional(), source:chartSourceSchema.optional(),
 }).superRefine((data, ctx) => {
   const ids = data.series.filter(s => s.id !== undefined).map(s => s.id);
   if (new Set(ids).size !== ids.length) ctx.addIssue({ code: 'custom', message: 'Series IDs must be unique' });
@@ -58,9 +60,14 @@ export function matchesChartCondition(value: number, condition?: ChartCondition)
   if (!condition) return true;
   switch (condition.operator) { case 'lt': return value < condition.value; case 'lte': return value <= condition.value; case 'gt': return value > condition.value; case 'gte': return value >= condition.value; case 'eq': return value === condition.value; case 'between': return value >= condition.value && value <= condition.upper!; }
 }
+const nativeFormatters=new Map<string,Intl.NumberFormat>();
 export function formatNativeNumber(value: number, format?: NumberFormat): string {
   const percent = format?.style === 'percent';
-  const rendered = new Intl.NumberFormat('en', { style: percent ? 'percent' : 'decimal', notation: format?.style === 'compact' ? 'compact' : 'standard', maximumFractionDigits: format?.decimals ?? 2, minimumFractionDigits: format?.decimals }).format(value);
+  const style=percent?'percent':format?.style==='compact'?'compact':'number',decimals=format?.decimals;
+  const valid=decimals===undefined||Number.isInteger(decimals)&&decimals>=0&&decimals<=8,key=style+':'+(decimals??'auto');
+  let formatter=valid?nativeFormatters.get(key):undefined;
+  if(!formatter){formatter=new Intl.NumberFormat('en',{style:percent?'percent':'decimal',notation:style==='compact'?'compact':'standard',maximumFractionDigits:decimals??2,minimumFractionDigits:decimals});if(valid)nativeFormatters.set(key,formatter);}
+  const rendered = formatter.format(value);
   return `${format?.prefix ?? ''}${rendered}${format?.suffix ?? ''}`;
 }
 /** Normalize before subtraction so finite extreme domains cannot overflow. */

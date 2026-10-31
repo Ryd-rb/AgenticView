@@ -1,0 +1,37 @@
+/* Explicit typed overrides only. Absent variables leave each native component's defaults intact. */
+.component[data-origin=native]>.component-configured[style*="--component-font-size:"] :where(div,section,form,fieldset,input,select,textarea,button,summary,td,th,label,p,small,strong,b,span,li,dt,dd,pre,code,h4){font-size:var(--component-font-size)}
+.component[data-origin=native]>.component-configured[style*="--component-line-height:"] :where(div,section,form,fieldset,input,select,textarea,button,summary,td,th,label,p,small,strong,b,span,li,dt,dd,pre,code,h4){line-height:var(--component-line-height)}
+.component[data-origin=native]>.component-configured[style*="--component-font-family:"] :where(div,section,form,fieldset,input,select,textarea,button,summary,td,th,label,p,small,strong,b,span,li,dt,dd,pre,code,h4){font-family:var(--component-font-family)}
+.component[data-origin=native]>.component-configured[style*="--component-font-weight:"] :where(input,select,textarea,button,summary,td,th,label,p,small,strong,b,span,li,dt,dd,pre,code,h4){font-weight:var(--component-font-weight)}
+.component[data-origin=native]>.component-configured[style*="--component-letter-spacing:"] :where(input,select,textarea,button,summary,td,th,label,p,small,strong,b,span,li,dt,dd,pre,code,h4){letter-spacing:var(--component-letter-spacing)}
+
+/* Gap only affects native layout containers; SVG coordinates and virtual row offsets are untouched. */
+.component[data-origin=native]>.component-configured[style*="--component-gap:"] :where(div,section,form,dl,ul,ol,fieldset,nav){gap:var(--component-gap)}
+.component[data-origin=native]>.component-configured[style*="--component-row-gap:"] :where(div,section,form,dl,ul,ol,fieldset,nav){row-gap:var(--component-row-gap)}
+.component[data-origin=native]>.component-configured[style*="--component-column-gap:"] :where(div,section,form,dl,ul,ol,fieldset,nav){column-gap:var(--component-column-gap)}
+
+/* Checkbox, radio and range retain native geometry; every configured control target stays at least 28px. */
+.component[data-origin=native]>.component-configured[style*="--component-control-padding"] :is(button,select,textarea,input:not([type=checkbox],[type=radio],[type=range])){min-height:var(--component-control-height,28px)}
+.component[data-origin=native]>.component-configured[style*="--component-control-height:"] :is(button,select,input:not([type=checkbox],[type=radio],[type=range])){height:var(--component-control-height);min-height:var(--component-control-height)}
+.component[data-origin=native]>.component-configured[style*="--component-control-height:"] textarea{min-height:var(--component-control-height)}
+.component[data-origin=native]>.component-configured[style*="--component-control-padding:"] :is(button,select,textarea,input:not([type=checkbox],[type=radio],[type=range])){padding:var(--component-control-padding)}
+.component[data-origin=native]>.component-configured[style*="--component-control-padding-top:"] :is(button,select,textarea,input:not([type=checkbox],[type=radio],[type=range])){padding-top:var(--component-control-padding-top)}
+.component[data-origin=native]>.component-configured[style*="--component-control-padding-right:"] :is(button,select,textarea,input:not([type=checkbox],[type=radio],[type=range])){padding-right:var(--component-control-padding-right)}
+.component[data-origin=native]>.component-configured[style*="--component-control-padding-bottom:"] :is(button,select,textarea,input:not([type=checkbox],[type=radio],[type=range])){padding-bottom:var(--component-control-padding-bottom)}
+.component[data-origin=native]>.component-configured[style*="--component-control-padding-left:"] :is(button,select,textarea,input:not([type=checkbox],[type=radio],[type=range])){padding-left:var(--component-control-padding-left)}
+.component[data-origin=native]>.component-configured[style*="--component-border-width:"] :is(button,select,textarea,input:not([type=checkbox],[type=radio],[type=range])){border-width:var(--component-border-width)}
+.component[data-origin=native]>.component-configured[style*="--component-border-radius:"] :is(button,select,textarea,input:not([type=checkbox],[type=radio],[type=range])){border-radius:var(--component-border-radius)}
+
+.component[data-origin=native]>.component-configured[style*="--component-cell-padding:"] :is(td,th){padding:var(--component-cell-padding)}
+.component[data-origin=native]>.component-configured[style*="--component-cell-padding-top:"] :is(td,th){padding-top:var(--component-cell-padding-top)}
+.component[data-origin=native]>.component-configured[style*="--component-cell-padding-right:"] :is(td,th){padding-right:var(--component-cell-padding-right)}
+.component[data-origin=native]>.component-configured[style*="--component-cell-padding-bottom:"] :is(td,th){padding-bottom:var(--component-cell-padding-bottom)}
+.component[data-origin=native]>.component-configured[style*="--component-cell-padding-left:"] :is(td,th){padding-left:var(--component-cell-padding-left)}
+/* Real table rows can resize; virtual logs keep their JavaScript-owned row height/offset contract. */
+.component[data-origin=native]>.component-configured[style*="--component-row-height:"] :is(td,th){height:var(--component-row-height)}
+@media(pointer:coarse){.component[data-origin=native]>.component-configured:is([style*="--component-control-padding"],[style*="--component-control-height:"]) :is(button,select,textarea,input:not([type=checkbox],[type=radio],[type=range])){min-height:max(44px,var(--component-control-height,28px))}}
+
+.presentation-editor .presentation-spacing{min-width:120px;max-width:180px}.presentation-editor .presentation-spacing details{padding:4px 0}.presentation-editor input[type=number]{width:125px;max-width:100%}
+
+/* Virtual row line boxes and their children share the JavaScript offset metric. */
+.component[data-origin=native] .component-configured :is(.log-row,.control-log-row)[style*="line-height:"]>*{line-height:inherit}

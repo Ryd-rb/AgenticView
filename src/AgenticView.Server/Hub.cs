@@ -491,7 +491,7 @@ public sealed class Hub : IDisposable
         var stale = raw.ContainsKey("staleSeconds") ? (int)ComponentValidator.Number(raw, "staleSeconds", 15, 86400, true, true) : 45;
         int? archive = !raw.ContainsKey("autoArchiveMinutes") ? 5 : raw["autoArchiveMinutes"] is null ? null : (int)ComponentValidator.Number(raw, "autoArchiveMinutes", 1, 525600, true, true);
         var shortcuts=raw["cardShortcuts"]?.DeepClone(); if(raw.ContainsKey("cardShortcuts")) CardShortcuts.Validate(shortcuts);
-        return new JsonObject { ["cardShortcuts"]=shortcuts??new JsonArray(), ["staleSeconds"] = stale, ["autoArchiveMinutes"] = archive, ["archiveAfterCompletion"] = ComponentValidator.Boolean(raw, "archiveAfterCompletion", true), ["trustedEmbeds"] = ComponentValidator.Boolean(raw, "trustedEmbeds", true), ["reducedMotion"] = ComponentValidator.Boolean(raw, "reducedMotion") };
+        return new JsonObject { ["cardShortcuts"]=shortcuts??new JsonArray(), ["staleSeconds"] = stale, ["autoArchiveMinutes"] = archive, ["archiveAfterCompletion"] = ComponentValidator.Boolean(raw, "archiveAfterCompletion", true), ["trustedEmbeds"] = ComponentValidator.Boolean(raw, "trustedEmbeds", true), ["reducedMotion"] = ComponentValidator.Boolean(raw, "reducedMotion",true) };
     }
     public JsonObject SetSettings(JsonObject raw) { lock (gate) { var next = NormalizeSettings(raw); Execute("INSERT INTO settings VALUES(1,$p0) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload", Serialize(next)); settings = next; settingsDirty = true; revision++; return Clone(next); } }
     public JsonObject Archive(string id)

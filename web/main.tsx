@@ -11,4 +11,6 @@ import './control-views.css';
 import './application-library.css';
 import './component-config.css';
 import './linked-workbench.css';
+import './component-presentation.css';
+import './motion.css';
 createRoot(document.getElementById('root')!).render(<React.StrictMode><App /></React.StrictMode>);

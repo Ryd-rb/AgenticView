@@ -12,10 +12,12 @@ import { DataTable } from './DataTable.js';
 import { NativeView } from './NativeViews.js';
 import { ControlView } from './ControlViews.js';
 import { configureCollection, resolveConfiguration } from '../shared/component-config.js';
-import { ComponentSettings, presentationStyle } from './ComponentSettings.js';
+import { ComponentSettings, presentationStyle,NativePresentation,useNativeRowMetrics } from './ComponentSettings.js';
 import { SessionView } from './SessionViews.js';
 import { ExecutionWorkbench } from './ExecutionWorkbench.js';
 import { LinkedWorkbench } from './LinkedWorkbench.js';
+import { RenderBoundary } from './RenderActivity.js';
+import {SourceChart} from './SourceChart.js';
 import { control } from '../shared/control-presentation.js';
 import { ComponentControls, ControlContainer, ControlContent, controlStyle } from './ControlPresentation.js';
 
@@ -27,8 +29,8 @@ function Sparkline({ values }: { values: number[] }) {
   return <svg className="sparkline" viewBox="0 0 200 44" role="img" aria-label={`${values.length} historical values`}><polyline points={values.map((v, i) => `${i / Math.max(values.length - 1, 1) * 200},${40 - (v - min) / span * 36}`).join(' ')} fill="none" stroke="currentColor" strokeWidth="2" vectorEffect="non-scaling-stroke" /></svg>;
 }
 function Logs({ entries }: { entries: Extract<Component, { kind: 'logs' }>['data']['entries'] }) {
-  const [scroll, setScroll] = useState(0); const row = 30, height = 210, start = Math.max(0, Math.floor(scroll / row) - 3), end = Math.min(entries.length, start + 16);
-  return <div className="logs" style={{ height }} onScroll={e => setScroll(e.currentTarget.scrollTop)} tabIndex={0} aria-label={`${entries.length} log entries`}><div style={{ height: entries.length * row, position: 'relative' }}><div style={{ position: 'absolute', top: start * row, left: 0, right: 0 }}>{entries.slice(start, end).map((e, i) => <div className={`log-row ${e.level}`} style={{ height: row }} key={start + i} title={e.message}><time>{e.time || '·'}</time><b>{e.level}</b><span>{e.message}</span></div>)}</div></div></div>;
+  const [scroll, setScroll] = useState(0),metrics=useNativeRowMetrics(30,9,2); const row = metrics.height, height = 210, start = Math.max(0, Math.floor(scroll / row) - 3), end = Math.min(entries.length, start + 16);
+  return <div className="logs" style={{ height }} onScroll={e => setScroll(e.currentTarget.scrollTop)} tabIndex={0} aria-label={`${entries.length} log entries`}><div style={{ height: entries.length * row, position: 'relative' }}><div style={{ position: 'absolute', top: start * row, left: 0, right: 0 }}>{entries.slice(start, end).map((e, i) => <div className={`log-row ${e.level}`} style={{...metrics.style, height: row }} key={start + i} title={e.message}><time style={{lineHeight:metrics.style.lineHeight}}>{e.time || '·'}</time><b style={{lineHeight:metrics.style.lineHeight}}>{e.level}</b><span style={{lineHeight:metrics.style.lineHeight}}>{e.message}</span></div>)}</div></div></div>;
 }
 function Embed({ data, enabled, runId, componentId }: { data: Extract<Component, { kind: 'embed' }>['data']; enabled: boolean; runId: string; componentId: string }) {
   const frame = useRef<HTMLIFrameElement>(null), port = useRef<MessagePort | null>(null), loads = useRef(0);
@@ -55,7 +57,9 @@ function Tree({ nodes }: { nodes: Extract<Component, { kind: 'tree' }>['data']['
   const branch = (parent: string | undefined, seen: Set<string>, depth: number): React.ReactNode => depth > 12 ? <small>Further levels omitted</small> : <ul className="data-tree">{nodes.filter(n => n.parentId === parent || parent === undefined && n.parentId && !ids.has(n.parentId)).map(n => <li key={n.id}><span>{n.label}</span>{n.detail && <small>{n.detail}</small>}{!seen.has(n.id) && branch(n.id, new Set([...seen, n.id]), depth + 1)}</li>)}</ul>;
   return branch(undefined, new Set(), 0);
 }
-export const ComponentView = memo(function ComponentView({ component: original, embeds, runId, updatedAt, taskTimes }: { component: Component; embeds: boolean; runId: string; updatedAt?: number; taskTimes?: TaskTiming[] }) {
+type ComponentViewProps={ component: Component; embeds: boolean; runId: string; updatedAt?: number; taskTimes?: TaskTiming[] };
+export const ComponentView=memo(function ComponentView(props:ComponentViewProps){if(resolveConfiguration(props.component.configuration,props.component.data).visible===false)return null;return <RenderBoundary>{()=> <ComponentBody {...props}/>}</RenderBoundary>;});
+const ComponentBody = memo(function ComponentBody({ component: original, embeds, runId, updatedAt, taskTimes }: ComponentViewProps) {
   const active = useContext(CardInteraction);
   const configuration = resolveConfiguration(original.configuration, original.data);
   const controls=configuration.controls;
@@ -70,7 +74,7 @@ export const ComponentView = memo(function ComponentView({ component: original, 
     case 'action-panel': case 'log-stream': case 'data-grid': body = <ControlView component={c} runId={runId} />; break;
     case 'session-launcher': case 'agent-session': body = <SessionView component={c} runId={runId} embeds={embeds} />; break;
     case 'metric': body = <div className={`metric tone-${c.data.tone ?? 'neutral'}`}><div><strong>{stringify(c.data.value)}</strong><span>{c.data.unit}</span></div>{c.data.change && <small>{c.data.change}</small>}{!!c.data.history?.length && <Sparkline values={c.data.history} />}</div>; break;
-    case 'chart': body = <ChartView data={c.data} manual={active} />; break;
+    case 'chart': body = c.data.source?<SourceChart data={c.data} runId={runId} manual={active}/>:<ChartView data={c.data} manual={active} />; break;
     case 'stepper': case 'bullet': case 'accordion': body=<AdditionalView component={c} manual={active}/>; break;
     case 'table': body = c.data.sourceAction ? <ControlView component={{kind:'data-grid',data:{readAction:c.data.sourceAction,columns:c.data.columns,pageSize:c.data.pageSize}}} runId={runId} /> : <DataTable data={c.data} />; break;
     case 'markdown': body = <TaskMarkdown text={c.data.text} tasks={taskTimes} updatedAt={updatedAt} />; break;
@@ -93,10 +97,10 @@ export const ComponentView = memo(function ComponentView({ component: original, 
   const origin=plain&&header.visible===false?<span className="component-origin-mark" role="img" aria-label="Built-in component" title="Built-in component"><LayoutGrid size={9} aria-hidden="true"/></span>:<span className={`component-origin ${custom ? 'custom' : 'native'}`} title={custom ? 'Agent-authored HTML and scripts in an isolated document' : 'Built-in typed component rendered by AgenticView'}>{custom ? 'Custom view' : 'Built-in'}</span>;
   const configureAbove=configure.placement==='header'||configure.placement?.startsWith('top-'), configureAllowed=!!original.configuration?.manualFields?.length&&configure.visible!==false&&(configureAbove||footer.visible!==false);
   const settings=configureAllowed?<ControlContainer spec={configure}><ComponentSettings component={original} runId={runId}/></ControlContainer>:null;
-  return <ComponentControls value={controls}><section className={`component component-${c.kind} ${custom ? 'is-custom' : isTaskList(c) ? 'is-plan' : ''}`} data-origin={custom ? 'custom' : 'native'} data-surface={plain?'plain':undefined} data-density={!custom?configuration.presentation.density:undefined} aria-label={title.label||configuration.label||c.title||c.kind} title={configuration.tooltip}>
+  return <ComponentControls value={controls}><section className={`component component-${c.kind} ${custom ? 'is-custom' : isTaskList(c) ? 'is-plan' : ''}`} data-component-animation={custom?'none':configuration.presentation.animation??'none'} style={{'--component-motion-duration':(configuration.presentation.animationDurationMs??120)+'ms'} as React.CSSProperties} data-origin={custom ? 'custom' : 'native'} data-surface={plain?'plain':undefined} data-density={!custom?configuration.presentation.density:undefined} aria-label={title.label||configuration.label||c.title||c.kind} title={configuration.tooltip}>
     {header.visible!==false?<h3 data-control="header" title={header.tooltip}><Icon size={12}/>{title.visible!==false&&<span className="component-title" data-control="title" title={title.tooltip}>{title.label??configuration.label??(c.title||c.kind)}</span>}{origin}{times.visible!==false&&updatedAt!==undefined&&<time className="component-time" data-control="times" dateTime={new Date(updatedAt).toISOString()} title={times.tooltip??`Updated: ${exactTime(updatedAt)}`}>{compactTime(updatedAt)}</time>}</h3>:plain?origin:<div className="component-origin-line" data-header-hidden="true">{origin}</div>}
     {configureAbove&&settings}{configuration.description&&<p className="component-description">{configuration.description}</p>}
     {configuration.collapsed!==undefined&&collapse.visible!==false&&<button type="button" data-control="collapse" data-control-variant={collapse.variant} disabled={!active} aria-label={collapse.label??(expanded?'Collapse component':'Expand component')} title={collapse.tooltip} style={controlStyle(collapse)} aria-expanded={expanded} onClick={()=>setCollapsed(!expanded)}><ControlContent spec={collapse} label={expanded?'Collapse component':'Expand component'} icon={<ChevronDown size={14}/>}/></button>}
-    {expanded&&<div className="component-configured" style={presentationStyle(configuration.presentation)}>{body}</div>}{!configureAbove&&settings}
+    {expanded&&<div className="component-configured" style={presentationStyle(configuration.presentation)}><NativePresentation.Provider value={configuration.presentation}>{body}</NativePresentation.Provider></div>}{!configureAbove&&settings}
   </section></ComponentControls>;
 });

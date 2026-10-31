@@ -1,0 +1,163 @@
+{
+  "schemaVersion": 1,
+  "id": "high-rate-data",
+  "version": "1.0.0",
+  "name": "High-rate data explorer",
+  "description": "Provider-backed charts and paged grids over synthetic high-volume history. Bind a configured data connector; no trading actions.",
+  "permanent": true,
+  "icon": "database",
+  "windowIcon": {
+    "icon": "chart",
+    "color": "#74d4c8",
+    "background": "#101722"
+  },
+  "componentLayout": {
+    "mode": "vertical",
+    "gap": 6
+  },
+  "bindings": [
+    {
+      "id": "data",
+      "label": "Time-series data provider",
+      "description": "Allowlisted connector exposing series-range and series-rows query handlers."
+    }
+  ],
+  "actions": [
+    {
+      "id": "range",
+      "label": "Read numeric range",
+      "kind": "query",
+      "target": "data",
+      "handler": "series-range",
+      "fields": [
+        {
+          "key": "from",
+          "label": "From UTC milliseconds",
+          "type": "number",
+          "required": true,
+          "min": 0,
+          "max": 8640000000000000
+        },
+        {
+          "key": "to",
+          "label": "To UTC milliseconds",
+          "type": "number",
+          "required": true,
+          "min": 0,
+          "max": 8640000000000000
+        },
+        {
+          "key": "maxPoints",
+          "label": "Points per series",
+          "type": "number",
+          "required": true,
+          "min": 32,
+          "max": 2048
+        }
+      ]
+    },
+    {
+      "id": "rows",
+      "label": "Read source rows",
+      "kind": "query",
+      "target": "data",
+      "handler": "series-rows"
+    }
+  ],
+  "components": [
+    {
+      "id": "about",
+      "title": "Bounded high-volume views",
+      "kind": "markdown",
+      "data": {
+        "text": "The connector retains raw history. This chart reads a bounded numeric range, and the grid requests at most 200 rows per page. Readers pause offscreen. Synthetic data only."
+      }
+    },
+    {
+      "id": "history",
+      "title": "One-hour numeric window",
+      "configuration": {
+        "presentation": {
+          "surface": "plain",
+          "padding": 4,
+          "gap": 4,
+          "animation": "none"
+        },
+        "manualFields": [
+          "data.source",
+          "configuration.presentation"
+        ]
+      },
+      "kind": "chart",
+      "data": {
+        "type": "line",
+        "series": [],
+        "options": {
+          "xAxis": {
+            "includeZero": false
+          },
+          "yAxis": {
+            "includeZero": false
+          },
+          "markers": false
+        },
+        "source": {
+          "readAction": "range",
+          "windowMs": 3600000,
+          "maxPoints": 512,
+          "pollMs": 1500
+        }
+      }
+    },
+    {
+      "id": "rows",
+      "title": "Paged raw observations",
+      "configuration": {
+        "presentation": {
+          "surface": "plain",
+          "padding": 4,
+          "cellPadding": {
+            "top": 2,
+            "right": 6,
+            "bottom": 2,
+            "left": 6
+          },
+          "rowHeight": 28,
+          "fontSize": 12,
+          "animation": "none"
+        },
+        "manualFields": [
+          "configuration.presentation"
+        ]
+      },
+      "kind": "data-grid",
+      "data": {
+        "readAction": "rows",
+        "pageSize": 100,
+        "columns": [
+          {
+            "key": "id",
+            "label": "Sequence"
+          },
+          {
+            "key": "stream",
+            "label": "Stream"
+          },
+          {
+            "key": "timestamp",
+            "label": "UTC milliseconds"
+          },
+          {
+            "key": "value",
+            "label": "Value"
+          }
+        ]
+      }
+    }
+  ],
+  "layout": {
+    "width": 1200,
+    "height": 1100,
+    "sizing": "content"
+  }
+}

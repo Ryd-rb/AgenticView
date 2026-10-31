@@ -31,7 +31,7 @@ class ControlledIntersectionObserver {
   static all = new Set<ControlledIntersectionObserver>();
   readonly targets = new Set<Element>();
   constructor(private readonly callback: IntersectionObserverCallback) { ControlledIntersectionObserver.all.add(this); }
-  observe(target: Element) { this.targets.add(target); }
+  observe(target: Element) { this.targets.add(target);if(target.classList.contains('render-boundary'))this.callback([{target,isIntersecting:true,intersectionRatio:1} as IntersectionObserverEntry],this as unknown as IntersectionObserver); }
   unobserve(target: Element) { this.targets.delete(target); }
   disconnect() { this.targets.clear(); ControlledIntersectionObserver.all.delete(this); }
   static visibility(target: Element, intersecting: boolean, ratio = intersecting ? 1 : 0) {

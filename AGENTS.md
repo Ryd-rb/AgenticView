@@ -118,6 +118,13 @@
   connector allowlists, with bounded intervals, cancellation and explicit failures.
 - Use readable working text and strong contrast without increasing fixed card
   dimensions. Avoid forced bitmap layers that soften text under nested transforms.
+- Target professional desktop-suite workflows with measured performance. Keep
+  native spacing, typography and surfaces precisely configurable; animations are
+  opt-in and disabled by default. Retain local state while suspending offscreen
+  rendering/readers, and consume current data on return. Keep raw high-rate history
+  in configured providers; page grids and query bounded chart envelopes. Validate
+  100 cards with many heavy components and million-point data passes; distinguish
+  headless work, storage throughput, browser paint and desktop-framework comparisons.
 - Reuse unchanged agent branches and telemetry state; navigation and stats updates
   must not rebuild every card. Keep asset compression/caching separate from SSE.
 - Support a dedicated Windows fullscreen window with no system title bar and

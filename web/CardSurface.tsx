@@ -5,6 +5,7 @@ import { Check, Minus, Plus, RotateCcw } from 'lucide-react';
 import { ContentNavigation, clampContentCamera, contentPoint, minimumContentZoom, projectContentBounds } from '../shared/interaction.js';
 import { TouchViewport, zoomAt, type Camera } from '../shared/viewport.js';
 import { CardInteraction } from './CardInteraction.js';
+import {useRenderActivity} from './RenderActivity.js';
 import { scrollAncestors, scrollThrough } from './scrollChain.js';
 import { ScrollJourney, revealScrollDelta, type ScrollStage } from '../shared/scroll-journey.js';
 import { inputRegion, traceInput } from './InputTrace.js';
@@ -19,6 +20,7 @@ export function CardSurface({ chrome, id, active, deactivate, canvasOwnsPointer,
   onInteractionChange?: (active: boolean) => void;
   store?: Map<string, Camera>; children: React.ReactNode;
 }) {
+  const renderActive=useRenderActivity();
   const [camera, setCamera] = useState<Camera>(() => store?.get(id) ?? initial), [extent, setExtent] = useState({ width: 0, height: 0 });
   const [commitRevision, setCommitRevision] = useState(0);
   const element = useRef<HTMLDivElement>(null), scroller = useRef<HTMLDivElement>(null), plane = useRef<HTMLDivElement>(null), current = useRef(camera), enabled = useRef(active);
@@ -128,11 +130,12 @@ export function CardSurface({ chrome, id, active, deactivate, canvasOwnsPointer,
     return outer;
   }
   useLayoutEffect(() => {
+    if(!renderActive)return;
     const viewport = scroller.current!, content = plane.current!;
     const measure = () => { const width = viewport.clientWidth + 'px'; if (content.style.width !== width) content.style.width = width; const bounds = geometry(); traceInput('geometry', [traceSurface.current, Number(enabled.current), bounds.view.width, bounds.view.height, bounds.content.width, bounds.content.height, current.current.zoom, viewport.scrollLeft, viewport.scrollTop]); setExtent(old => old.width === bounds.content.width && old.height === bounds.content.height ? old : bounds.content); apply(current.current); };
     const observer = new ResizeObserver(measure); observer.observe(viewport); observer.observe(content); measure();
     return () => observer.disconnect();
-  }, []);
+  }, [renderActive]);
   useLayoutEffect(() => { const viewport = scroller.current; if (viewport) { const target = navigation.current.pending ?? current.current; viewport.scrollLeft = -target.x; viewport.scrollTop = -target.y; navigation.current.committed(viewport.scrollLeft, viewport.scrollTop); current.current = navigation.current.camera; store?.set(id, current.current); const anchored = anchorCommit.current; anchorCommit.current = false; if (anchored) { const scale = frame().width / viewport.offsetWidth, dx = (current.current.x - target.x) * scale, dy = (current.current.y - target.y) * scale; if (dx || dy) callbacks.current.panPastEdge?.(dx, dy); } } }, [commitRevision, extent]);
   useEffect(() => {
     const body = element.current; if (!body) return;

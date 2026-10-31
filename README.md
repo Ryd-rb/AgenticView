@@ -41,7 +41,9 @@ C# · .NET 10 · React · MIT
 
 - **Compose compact GUIs.** Plain native surfaces and inline layouts support small
   icon actions, text fields, dropdowns, toggles and grids without decorated subcards.
-  See [compact configuration](docs/configurable-components.md#compact-native-guis).
+  Tune precise spacing, typography and borders; animations are opt-in. See
+  [compact configuration](docs/configurable-components.md#compact-native-guis) and
+  [desktop performance](docs/desktop-performance.md).
 - **Link grids and charts.** A generic native hierarchy supports configured entity
   types, columns, numeric curves and event associations. The compact forex example
   configures a strategy/order/trade hierarchy with bid/ask prices and status events,
@@ -62,7 +64,9 @@ C# · .NET 10 · React · MIT
 - **Keep an application.** Permanent cards outlive their creating agent. Follow
   bounded log tails or page through millions of source rows. Generic add/edit/delete
   callbacks send full rows to your scripts or services; persistence and history
-  belong to your adapter. See [application cards and controls](docs/controls.md).
+  belong to your adapter. Provider-backed charts query bounded numeric envelopes
+  over raw high-rate history. See [application cards and controls](docs/controls.md)
+  and the [high-rate example](examples/applications/high-rate-data.agenticview.json).
 - **Share the application.** Agents can keep versioned `.agenticview.json`
   definitions in their own repositories. Import them through an agent or the
   settings card, binding reusable controls to local workers. Definitions exclude

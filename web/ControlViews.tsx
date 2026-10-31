@@ -1,7 +1,8 @@
 import { useCallback, useContext, useEffect, useRef, useState, type ButtonHTMLAttributes, type FormEvent, type ReactNode, type RefObject } from 'react';
 import { cellRules, coerceGridChanges, evaluatePrecedence, type GridData as ConfiguredGridData, type PrecedenceResult } from '../shared/grid-config.js';
-import { presentationStyle } from './ComponentSettings.js';
+import { presentationStyle,useNativeRowMetrics } from './ComponentSettings.js';
 import { CardInteraction } from './CardInteraction.js';
+import {useElementActivity} from './RenderActivity.js';
 import { Check, X, Filter, RefreshCw, Plus, Pencil, Trash2, History, ListChecks, Columns3, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { ControlId, ControlPresentation } from '../shared/control-presentation.js';
 import type { Component } from '../shared/protocol.js';
@@ -49,31 +50,22 @@ function wait(ms: number, signal: AbortSignal) {
     signal.addEventListener('abort', stop, { once: true });
   });
 }
-function useVisibility(ref: RefObject<HTMLDivElement | null>) {
-  const [visible, setVisible] = useState(() => typeof document !== 'undefined' && document.visibilityState !== 'hidden');
-  useEffect(() => {
-    let intersects = true;
-    const update = () => setVisible(intersects && document.visibilityState !== 'hidden');
-    const observer = typeof IntersectionObserver === 'undefined' ? undefined : new IntersectionObserver(entries => { intersects = entries[0]?.isIntersecting ?? true; update(); });
-    if (ref.current) observer?.observe(ref.current);
-    document.addEventListener('visibilitychange', update); update();
-    return () => { observer?.disconnect(); document.removeEventListener('visibilitychange', update); };
-  }, [ref]);
-  return visible;
-}
+const useVisibility=useElementActivity;
 type Review = { action: Action; input: Record<string, unknown>; resolve: (confirmed: boolean) => void };
-function useControls(runId: string, enabled: boolean, visible: boolean) {
+export function useControls(runId: string, enabled: boolean, visible: boolean) {
   const [config, setConfig] = useState<Configuration>(), [error, setError] = useState(''), [busy, setBusy] = useState(false);
   const [configurationRevision, setConfigurationRevision] = useState(0);
   const [review, setReview] = useState<Review>(), [last, setLast] = useState<Invocation>();
   const controller = useRef<AbortController | undefined>(undefined), enabledRef = useRef(enabled), configRef = useRef(config);
-  const visibleRef = useRef(visible), selectionRequired = useRef(true);
+  const visibleRef = useRef(visible), selectionRequired = useRef(true),loadedConfiguration=useRef<string|undefined>(undefined);
   enabledRef.current = enabled; visibleRef.current = visible; configRef.current = config;
   useEffect(() => {
-    const request = new AbortController(); setConfig(undefined); setError('');
-    void json<Configuration>(baseUrl(runId), request.signal).then(value => { if (!request.signal.aborted) setConfig(value); }).catch(failure => { if (!request.signal.aborted) setError(message(failure)); });
+    if(!visible)return;
+    const key=runId+':'+configurationRevision;if(loadedConfiguration.current===key&&configRef.current)return;
+    const request = new AbortController();setConfig(undefined);setError('');
+    void json<Configuration>(baseUrl(runId), request.signal).then(value => { if (!request.signal.aborted){loadedConfiguration.current=key;setConfig(value);} }).catch(failure => { if (!request.signal.aborted) setError(message(failure)); });
     return () => request.abort();
-  }, [runId, configurationRevision]);
+  }, [runId, configurationRevision,visible]);
   useEffect(() => {
     if (!enabled && selectionRequired.current) controller.current?.abort();
   }, [enabled]);
@@ -213,8 +205,8 @@ function LogStream({ data, controls, enabled, visible }: { data: Extract<Control
     void poll();
     return () => { disposed = true; if (timer !== undefined) clearTimeout(timer); controls.cancel(); };
   }, [visible, paused, controls.config, controls.invoke, controls.cancel, data.actionId, delay, filter, level, limit]);
-  const rowHeight = 30, start = Math.max(0, Math.floor(scroll / rowHeight) - 3), end = Math.min(entries.length, start + 16);
-  return <><div className="control-toolbar"><button type="button" disabled={!enabled} onClick={() => setPaused(value => !value)}>{paused ? 'Resume' : 'Pause'}</button>{filterSpec.visible!==false&&<><input aria-label={filterSpec.label||'Filter logs'} placeholder="Filter logs" title={filterSpec.tooltip} value={filter} disabled={!enabled} maxLength={500} onChange={event => setFilter(event.target.value)} /><select aria-label="Log level" disabled={!enabled} value={level} onChange={event => setLevel(event.target.value)}><option value="">All levels</option>{['trace', 'debug', 'info', 'warn', 'error', 'fatal'].map(value => <option key={value}>{value}</option>)}</select></>}</div>{captionSpec.visible!==false&&<p className="control-caption" role="status" title={captionSpec.tooltip}>{captionSpec.label?captionSpec.label+' · ':''}{!visible ? 'Paused while hidden' : paused ? 'Paused' : 'Following'} · {entries.length} rows · {meta}</p>}<div className="control-log" ref={viewport} tabIndex={enabled ? 0 : -1} aria-label="Live log entries" onScroll={event => setScroll(event.currentTarget.scrollTop)}><div style={{ height: entries.length * rowHeight, position: 'relative' }}><div style={{ position: 'absolute', top: start * rowHeight, left: 0, right: 0 }}>{entries.slice(start, end).map((entry, index) => <div key={start + index} className={`control-log-row level-${['warn', 'error', 'fatal', 'debug', 'trace', 'info'].includes(entry.level ?? '') ? entry.level : 'info'}`}><time title={entry.time}>{entry.time ?? '—'}</time><span>{entry.level ?? 'info'}</span><span title={entry.message}>{entry.message}</span></div>)}</div></div></div></>;
+  const metrics=useNativeRowMetrics(30,12,8),rowHeight=metrics.height, start = Math.max(0, Math.floor(scroll / rowHeight) - 3), end = Math.min(entries.length, start + 16);
+  return <><div className="control-toolbar"><button type="button" disabled={!enabled} onClick={() => setPaused(value => !value)}>{paused ? 'Resume' : 'Pause'}</button>{filterSpec.visible!==false&&<><input aria-label={filterSpec.label||'Filter logs'} placeholder="Filter logs" title={filterSpec.tooltip} value={filter} disabled={!enabled} maxLength={500} onChange={event => setFilter(event.target.value)} /><select aria-label="Log level" disabled={!enabled} value={level} onChange={event => setLevel(event.target.value)}><option value="">All levels</option>{['trace', 'debug', 'info', 'warn', 'error', 'fatal'].map(value => <option key={value}>{value}</option>)}</select></>}</div>{captionSpec.visible!==false&&<p className="control-caption" role="status" title={captionSpec.tooltip}>{captionSpec.label?captionSpec.label+' · ':''}{!visible ? 'Paused while hidden' : paused ? 'Paused' : 'Following'} · {entries.length} rows · {meta}</p>}<div className="control-log" ref={viewport} tabIndex={enabled ? 0 : -1} aria-label="Live log entries" onScroll={event => setScroll(event.currentTarget.scrollTop)}><div style={{ height: entries.length * rowHeight, position: 'relative' }}><div style={{ position: 'absolute', top: start * rowHeight, left: 0, right: 0 }}>{entries.slice(start, end).map((entry, index) => <div key={start + index} style={{...metrics.style,height:rowHeight}} className={`control-log-row level-${['warn', 'error', 'fatal', 'debug', 'trace', 'info'].includes(entry.level ?? '') ? entry.level : 'info'}`}><time style={{lineHeight:metrics.style.lineHeight}} title={entry.time}>{entry.time ?? '—'}</time><span style={{lineHeight:metrics.style.lineHeight}}>{entry.level ?? 'info'}</span><span style={{lineHeight:metrics.style.lineHeight}} title={entry.message}>{entry.message}</span></div>)}</div></div></div></>;
 }
 type Row = Record<string, Scalar>;
 type GridData = Extract<ControlComponent, { kind: 'data-grid' }>['data'];
