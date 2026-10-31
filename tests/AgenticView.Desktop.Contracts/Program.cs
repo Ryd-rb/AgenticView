@@ -94,4 +94,39 @@ Check(!policy.TryReadDiagnostic(options.Url.AbsoluteUri,options.Url.AbsoluteUri,
 foreach(var bad in new[]{"null","[]","{}","42","{",diagnostic.Replace("profile","Runtime.evaluate"),diagnostic.Replace("30","31"),diagnostic.Replace("30","0"),diagnostic.Replace("30","1.5"),diagnostic.Replace("30","null"),diagnostic.Replace("30","\"1\""),diagnostic.Replace("\"profile\"","42"),diagnostic.Replace("\"operation\":","\"unknown\":true,\"operation\":"),diagnostic.Replace("\"profile\"","\"profile\",\"operation\":\"profile\""),new string('x',513)})Check(!policy.TryReadDiagnostic(options.Url.AbsoluteUri,options.Url.AbsoluteUri,bad,out _,out _,out _),"Malformed or unbounded native diagnostic accepted");
 Check(!policy.TryReadDiagnostic("about:srcdoc",options.Url.AbsoluteUri,diagnostic,out _,out _,out _),"Custom frame diagnostic accepted");
 Check(!policy.TryReadDiagnostic(options.Url.AbsoluteUri,"https://other.invalid/",diagnostic,out _,out _,out _),"Diagnostic navigation race accepted");
+
+// These are parser/bridge contracts only: no window, renderer, image or native input is created.
+Check(!options.StartMinimized&&options.BackgroundTestHostSeconds==0,"Ordinary desktop launch silently enables hidden testing");
+Check(DesktopOptions.Parse(["--start-minimized"]).StartMinimized,"Explicit minimized startup rejected");
+foreach(var duration in new[]{1,300,7200}){
+    var hidden=DesktopOptions.Parse(["--start-minimized","--background-test-host",duration.ToString(System.Globalization.CultureInfo.InvariantCulture)]);
+    Check(hidden.StartMinimized&&hidden.BackgroundTestHostSeconds==duration,"Bounded hidden-host lifetime or minimized intent lost");
+}
+Check(DesktopOptions.Parse(["--background-test-host","1"]).BackgroundTestHostSeconds==1,"Explicit hidden host requires an unrelated minimized flag");
+Check(DesktopOptions.Parse(["--windowed","--start-minimized","--card-id","synthetic-card"]).StartMinimized,"Standalone/minimized flags conflict");
+foreach(var duration in new[]{"0","-1","7201","2147483648","1.5","NaN","Infinity","1e3","","--diagnose"})Reject(["--background-test-host",duration]);
+Reject(["--background-test-host"]);Reject(["--start-minimized","true"]);
+var debugClientId="00000000-0000-4000-8000-000000000001";
+var debugClientProof=new string('a',32);
+var debugRegistration=JsonSerializer.Serialize(new{type="agenticview:debug-client",clientId=debugClientId,clientToken=debugClientProof,cardIds=new[]{"synthetic-card","nested:child","run.2"}});
+Check(policy.TryReadDebugClient(options.Url.AbsoluteUri,options.Url.AbsoluteUri,debugRegistration,out var nativeRegistration)&&nativeRegistration.ClientId==debugClientId&&nativeRegistration.ClientToken==debugClientProof&&nativeRegistration.CardIds.SequenceEqual(new[]{"synthetic-card","nested:child","run.2"}),"Trusted native debug registration loses identity, proof or advertised scope");
+Check(policy.TryReadDebugClient(options.Url.AbsoluteUri,options.Url.AbsoluteUri,JsonSerializer.Serialize(new{type="agenticview:debug-client",clientId=debugClientId,clientToken=new string('b',256),cardIds=Array.Empty<string>()}),out var emptyRegistration)&&emptyRegistration.CardIds.Length==0,"Empty advertised scope or maximum proof rejected");
+var maxScope=Enumerable.Range(0,512).Select(i=>"synthetic-"+i).ToArray();
+Check(policy.TryReadDebugClient(options.Url.AbsoluteUri,options.Url.AbsoluteUri,JsonSerializer.Serialize(new{type="agenticview:debug-client",clientId=debugClientId,clientToken=debugClientProof,cardIds=maxScope}),out var boundedRegistration)&&boundedRegistration.CardIds.Length==512,"Maximum bounded scope rejected");
+foreach(var badScope in new[]{new[]{"duplicate","duplicate"},new[]{""},new[]{"__proto__"},new[]{"constructor"},new[]{"prototype"},new[]{"../escape"},new[]{"a b"},new[]{"card\n"},new[]{new string('x',101)},Enumerable.Range(0,513).Select(i=>"card-"+i).ToArray()})
+    Check(!policy.TryReadDebugClient(options.Url.AbsoluteUri,options.Url.AbsoluteUri,JsonSerializer.Serialize(new{type="agenticview:debug-client",clientId=debugClientId,clientToken=debugClientProof,cardIds=badScope}),out _),"Unsafe, duplicate or unbounded advertised native scope accepted");
+foreach(var bad in new[]{"{}","[]","null","{",new string('x',65537),debugRegistration.Replace("agenticview:debug-client","agenticview:debug-native"),debugRegistration.Replace(debugClientId,"invalid"),debugRegistration.Replace(debugClientProof,new string('a',31)),debugRegistration.Replace(debugClientProof,new string('a',257)),debugRegistration.Replace(debugClientProof,"proof with spaces and shell $(script)"),debugRegistration.Replace("\"clientToken\":","\"unknown\":true,\"clientToken\":"),debugRegistration.Replace("\"clientToken\":","\"clientToken\":null,\"clientToken\":"),debugRegistration.Replace("\"clientId\":\""+debugClientId+"\"","\"clientId\":42"),debugRegistration.Replace("\"clientToken\":\""+debugClientProof+"\"","\"clientToken\":null"),debugRegistration.Replace("\"cardIds\":[","\"cardIds\":[42,")})
+    Check(!policy.TryReadDebugClient(options.Url.AbsoluteUri,options.Url.AbsoluteUri,bad,out _),"Malformed native debug registration accepted");
+var debugStop=JsonSerializer.Serialize(new{type="agenticview:debug-client-stop",clientId=debugClientId});
+Check(policy.TryReadDebugStop(options.Url.AbsoluteUri,options.Url.AbsoluteUri,debugStop,out var stoppedClientId)&&stoppedClientId==debugClientId,"Trusted client-scoped stop rejected");
+foreach(var bad in new[]{"{}","[]","null","{",new string('x',257),debugStop.Replace(debugClientId,"not-a-uuid"),debugStop.Replace("agenticview:debug-client-stop","agenticview:window"),debugStop.Replace("\"clientId\":","\"unknown\":true,\"clientId\":"),debugStop.Replace("\"clientId\":\""+debugClientId+"\"","\"clientId\":42"),debugStop.Replace("\"clientId\":\""+debugClientId+"\"","\"clientId\":null"),debugStop.Replace("\"clientId\":","\"clientId\":null,\"clientId\":"),debugRegistration})
+    Check(!policy.TryReadDebugStop(options.Url.AbsoluteUri,options.Url.AbsoluteUri,bad,out _),"Malformed or registration-bearing stop accepted");
+foreach(var source in new[]{"https://other.invalid/","http://127.0.0.1:4318/","http://127.0.0.1:4317/api/embeds/card/view","about:srcdoc","data:text/html,test","http://user:private@127.0.0.1:4317/","http://127.0.0.1:4317/?private=value"}){
+    Check(!policy.TryReadDebugClient(source,options.Url.AbsoluteUri,debugRegistration,out _),"Untrusted native registration source accepted");
+    Check(!policy.TryReadDebugStop(source,options.Url.AbsoluteUri,debugStop,out _),"Untrusted native stop source accepted");
+    Check(!policy.TryReadDebugClient(options.Url.AbsoluteUri,source,debugRegistration,out _),"Registration crossed navigation authority boundary");
+    Check(!policy.TryReadDebugStop(options.Url.AbsoluteUri,source,debugStop,out _),"Stop crossed navigation authority boundary");
+}
+Check(policy.InitializationScript.Contains("nativeDebugControl:true",StringComparison.Ordinal)&&policy.InitializationScript.Contains("backgroundTesting:true",StringComparison.Ordinal),"Native capability bootstrap is missing");
+
 Console.WriteLine($"Passed {count} desktop URL and bridge security contracts.");

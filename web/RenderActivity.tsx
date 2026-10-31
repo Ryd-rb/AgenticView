@@ -1,14 +1,10 @@
 import {createContext,useContext,useEffect,useLayoutEffect,useRef,useState,type ReactNode,type RefObject} from 'react';
 
 const Activity=createContext(true),Readers=createContext(true);
-let nativeVisible=true,lastDocument:Document|undefined;
-export function useDocumentActivity(){
-  if(typeof document!=='undefined'&&lastDocument!==document){lastDocument=document;nativeVisible=true;}
-  const [visible,setVisible]=useState(()=>typeof document==='undefined'||document.visibilityState!=='hidden'&&nativeVisible);
-  useEffect(()=>{const update=()=>setVisible(document.visibilityState!=='hidden'&&nativeVisible);const native=(event:Event)=>{nativeVisible=(event as CustomEvent).detail?.visible!==false;update();};document.addEventListener('visibilitychange',update);window.addEventListener('agenticview:native-visibility',native);update();return()=>{document.removeEventListener('visibilitychange',update);window.removeEventListener('agenticview:native-visibility',native);};},[]);
-  return visible;
-}
+import {useDocumentActivity} from './DocumentActivity.js';
+export {useDocumentActivity} from './DocumentActivity.js';
 export function useRenderActivity(){return useContext(Activity);}
+export function useRenderUpdates(){const active=useRenderActivity(),readers=useContext(Readers),documentActive=useDocumentActivity();return active&&readers&&documentActive;}
 export function useElementActivity(ref:RefObject<HTMLElement|null>,initiallyVisible=true,observe=true,visibilityOnly=false){
   const inherited=useRenderActivity(),readers=useContext(Readers),documentActive=useDocumentActivity();
   const [intersects,setIntersects]=useState(()=>typeof IntersectionObserver==='undefined'||initiallyVisible);

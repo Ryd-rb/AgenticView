@@ -30,7 +30,24 @@ public sealed class BridgePolicy(Uri document, string? cardId = null, string? fo
 
     public string InitializationScript => "if(window===window.top&&location.origin===" +
         JsonSerializer.Serialize(document.GetLeftPart(UriPartial.Authority)) + "&&location.pathname===" +
-        JsonSerializer.Serialize(document.AbsolutePath) + "&&location.search===''){Object.defineProperty(window,'agenticViewDesktop',{value:Object.freeze({version:1,platform:'windows',popOut:true,windowIcons:true,debugging:true,cardId:"+JsonSerializer.Serialize(cardId)+",focusCardId:"+JsonSerializer.Serialize(focusCardId)+"}),writable:false,configurable:false});}";
+        JsonSerializer.Serialize(document.AbsolutePath) + "&&location.search===''){Object.defineProperty(window,'agenticViewDesktop',{value:Object.freeze({version:1,platform:'windows',popOut:true,windowIcons:true,debugging:true,nativeDebugControl:true,backgroundTesting:true,cardId:"+JsonSerializer.Serialize(cardId)+",focusCardId:"+JsonSerializer.Serialize(focusCardId)+"}),writable:false,configurable:false});}";
+
+    public bool TryReadDebugClient(string source,string currentSource,string json,out NativeDebugRegistration registration)
+    {
+        registration=new("","",[]);if(!IsTrustedDocument(source)||!IsTrustedDocument(currentSource)||json.Length>65536)return false;
+        try{using var doc=JsonDocument.Parse(json,new JsonDocumentOptions{MaxDepth=4});var root=doc.RootElement;
+            if(root.ValueKind!=JsonValueKind.Object||root.EnumerateObject().Count()!=4||root.EnumerateObject().Select(x=>x.Name).Distinct().Count()!=4||root.EnumerateObject().Any(x=>x.Name is not("type" or "clientId" or "clientToken" or "cardIds"))||root.GetProperty("type").GetString()!="agenticview:debug-client")return false;
+            var id=root.GetProperty("clientId").GetString();var proof=root.GetProperty("clientToken").GetString();if(!Guid.TryParseExact(id,"D",out _)||proof is null||proof.Length is <32 or >256||proof.Any(c=>!char.IsAsciiLetterOrDigit(c)&&c is not('-' or '_')))return false;
+            var ids=root.GetProperty("cardIds");if(ids.ValueKind!=JsonValueKind.Array||ids.GetArrayLength()>512)return false;var seen=new HashSet<string>();
+            foreach(var item in ids.EnumerateArray()){if(item.ValueKind!=JsonValueKind.String||item.GetString() is not{} value||value.Length is <1 or >100||value.Any(c=>!char.IsAsciiLetterOrDigit(c)&&c is not('_' or '.' or ':' or '-'))||value is "__proto__" or "prototype" or "constructor"||!seen.Add(value))return false;}
+            registration=new(id!,proof,seen.ToArray());return true;
+        }catch(Exception error)when(error is JsonException or InvalidOperationException or KeyNotFoundException){return false;}
+    }
+    public bool TryReadDebugStop(string source,string currentSource,string json,out string clientId)
+    {
+        clientId="";if(!IsTrustedDocument(source)||!IsTrustedDocument(currentSource)||json.Length>256)return false;
+        try{using var doc=JsonDocument.Parse(json);var root=doc.RootElement;if(root.ValueKind!=JsonValueKind.Object||root.EnumerateObject().Count()!=2||root.GetProperty("type").GetString()!="agenticview:debug-client-stop"||!Guid.TryParseExact(root.GetProperty("clientId").GetString(),"D",out var id))return false;clientId=id.ToString();return true;}catch(Exception error)when(error is JsonException or InvalidOperationException or KeyNotFoundException){return false;}
+    }
 
     public bool TryReadDiagnostic(string source,string currentSource,string json,out string id,out string operation,out int seconds)
     {
@@ -83,3 +100,5 @@ public sealed class BridgePolicy(Uri document, string? cardId = null, string? fo
         try{using var message=JsonDocument.Parse(json,new JsonDocumentOptions{MaxDepth=4});var root=message.RootElement;if(root.ValueKind!=JsonValueKind.Object||root.EnumerateObject().Count()!=4||root.EnumerateObject().Select(property=>property.Name).Distinct(StringComparer.Ordinal).Count()!=4||!root.TryGetProperty("type",out var type)||type.GetString()!="agenticview:window-icon"||!root.TryGetProperty("cardId",out var target)||target.GetString()!=cardId||!root.TryGetProperty("requestId",out var request)||!Guid.TryParseExact(request.GetString(),"D",out _)||!root.TryGetProperty("windowIcon",out var value))return false;spec=WindowIconSpec.Parse(value);requestId=request.GetString()!;return true;}catch(JsonException){return false;}catch(InvalidOperationException){return false;}catch(ArgumentException){return false;}
     }
 }
+
+public sealed record NativeDebugRegistration(string ClientId,string ClientToken,string[] CardIds);

@@ -110,7 +110,7 @@ test('viewport diagnostics accept precise bounded zoom paths and preserve exact 
     invalid.push(...[0,31,1.5,null,'5'].map(profileSeconds=>({zoom:1,profileSeconds})) as any);
     for(const [index,fields] of invalid.entries())await tool(client,'component_debug_command',{...a,sessionId:session.id,requestId:'invalid-viewport-'+index,command:{operation:'viewport',...fields}},true);
     const valid=[{operation:'viewport',zoom:.001},{operation:'viewport',zoom:16,steps:120,intervalMs:100,anchorX:0,anchorY:1},{operation:'viewport',zoom:.75,steps:1,intervalMs:8,anchorX:1,anchorY:0},{operation:'viewport',zoom:1.25,anchorX:.333,anchorY:.875}];
-    valid.push({operation:'viewport',zoom:.5,profileSeconds:1} as any,{operation:'viewport',zoom:1,profileSeconds:30} as any);
+    valid.push({operation:'viewport',zoom:.5,profileSeconds:1,profileRestartCamera:true} as any,{operation:'viewport',zoom:1,profileSeconds:30} as any);
     for(const [index,command] of valid.entries()){
       const request={...a,sessionId:session.id,requestId:'viewport-'+index,command};
       const queued=await tool(client,'component_debug_command',request);assert.deepEqual(queued.command,command,'Optional fields stay omitted; no divergent server defaults');

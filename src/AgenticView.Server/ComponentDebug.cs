@@ -19,7 +19,7 @@ public sealed partial class ControlStore
             """);
         // A claimed operation may already have executed. Restart never puts it back in a queue.
         foreach(var job in DebugRows("SELECT payload FROM debug_commands WHERE state='running'")) {job["state"]="unknown";job["error"]="Server restarted after claim; operation is not replayed.";DebugSaveCommand(job);}
-        foreach(var session in DebugRows("SELECT payload FROM debug_sessions"))if(Text(session,"state")=="closed")DebugCloseSession(session,Text(session,"reason"));
+        foreach(var session in DebugRows("SELECT payload FROM debug_sessions")){if(Text(session,"state")=="closed")DebugCloseSession(session,Text(session,"reason"));if(session["background"] is JsonObject&&Text(session,"state")=="open"){session["backgroundAck"]=null;DebugSaveSession(session);}}
     }
     private List<JsonObject> DebugRows(string sql,params object[] values){var rows=new List<JsonObject>();using var command=Command(sql,values);using var reader=command.ExecuteReader();while(reader.Read())rows.Add(Parse(reader.GetString(0)));return rows;}
     private JsonObject DebugSession(string id)=>Scalar("SELECT payload FROM debug_sessions WHERE id=$p0",id) is string value?Parse(value):throw new HubError(404,"Debug session unavailable.");
@@ -48,7 +48,7 @@ public sealed partial class ControlStore
         var id=DebugClientId(input);var proof=ComponentValidator.Text(input,"clientToken",256,true,32);
         if(Scalar("SELECT proof FROM debug_clients WHERE id=$p0",id) is not string stored||!Authentication.Equal(stored,Hash(proof)))throw new HubError(403,"Invalid debug client proof.");return id;
     }
-    public static JsonObject ComponentDebugCatalog()=>Json.Object(new{operations=DebugOperations,styleProperties=DebugProperties,commands=new{inspect="{operation:'inspect',componentId?:id,includeText?:boolean,limit?:integer1..100}",styles="{operation:'styles',componentId:id,target?:Target,properties?:knownCSSNames[0..32]}",click="{operation:'click'|'doubleClick'|'focus',componentId:id,target:Target}",input="{operation:'input',componentId:id,target:Target,value:string<=2000}",key="{operation:'key',componentId:id,target:Target,key:Enter|Space|Escape|ArrowUp|ArrowDown|ArrowLeft|ArrowRight|Home|End|Tab}",scroll="{operation:'scroll',componentId:id,target?:Target,x:finite(-100000..100000),y:finite(-100000..100000)}",navigate="{operation:'navigate',mode:focus|maximize|canvas|fit}",viewport="{operation:'viewport',zoom:finite0.001..16,steps?:integer1..120,intervalMs?:integer8..100,anchorX?:finite0..1,anchorY?:finite0..1,profileSeconds?:integer1..30}",metrics="{operation:'metrics'}",profile="{operation:'profile',durationSeconds:integer1..30}",layers="{operation:'layers'}"},target="Prefer {ref: inspectedReference}; alternatively strict {role?:string<=80,name?:string<=160,index?:integer0..99}. Never mix forms; no selectors.",limits=new{clients=DebugClientCap,sessions=DebugSessionCap,commandsPerSession=DebugSessionCommandCap,commandsGlobal=DebugCommandCap,resultBytes=65536,clientTtlSeconds=120,claimSeconds=90,maxLeaseSeconds=7200,maxProfileSeconds=30},scope="Own-run, proof-bound native component debugging only. No custom frames, operational actions, scripts, arbitrary selectors, URLs, screenshots or external UI automation. Frontend enforces allowed native controls and input authority. Hard history caps reject new requests rather than evict retry identities."});
+    public static JsonObject ComponentDebugCatalog()=>Json.Object(new{operations=DebugOperations,styleProperties=DebugProperties,commands=new{inspect="{operation:'inspect',componentId?:id,includeText?:boolean,limit?:integer1..100}",styles="{operation:'styles',componentId:id,target?:Target,properties?:knownCSSNames[0..32]}",click="{operation:'click'|'doubleClick'|'focus',componentId:id,target:Target}",input="{operation:'input',componentId:id,target:Target,value:string<=2000}",key="{operation:'key',componentId:id,target:Target,key:Enter|Space|Escape|ArrowUp|ArrowDown|ArrowLeft|ArrowRight|Home|End|Tab}",scroll="{operation:'scroll',componentId:id,target?:Target,x:finite(-100000..100000),y:finite(-100000..100000)}",navigate="{operation:'navigate',mode:focus|maximize|canvas|fit}",viewport="{operation:'viewport',zoom:finite0.001..16,steps?:integer1..120,intervalMs?:integer8..100,anchorX?:finite0..1,anchorY?:finite0..1,profileSeconds?:integer1..30,profileRestartCamera?:boolean(false)}",metrics="{operation:'metrics'}",profile="{operation:'profile',durationSeconds:integer1..30}",layers="{operation:'layers'}"},target="Prefer {ref: inspectedReference}; alternatively strict {role?:string<=80,name?:string<=160,index?:integer0..99}. Never mix forms; no selectors.",limits=new{clients=DebugClientCap,sessions=DebugSessionCap,commandsPerSession=DebugSessionCommandCap,commandsGlobal=DebugCommandCap,resultBytes=65536,clientTtlSeconds=120,claimSeconds=90,maxLeaseSeconds=7200,maxProfileSeconds=30,backgroundWidthMin=320,backgroundHeightMin=240,backgroundDimensionMax=4096,backgroundLeasesPerClient=1},scope="Own-run, proof-bound native component debugging only. No custom frames, operational actions, scripts, arbitrary selectors, URLs, screenshots or external UI automation. Frontend enforces allowed native controls and input authority. Hard history caps reject new requests rather than evict retry identities."});
     private static void DebugValidateCommand(JsonObject command)
     {
         Budget(command,16384);ComponentValidator.Choice(command,"operation",DebugOperations);var operation=Text(command,"operation");
@@ -58,7 +58,7 @@ public sealed partial class ControlStore
             "input"=>["operation","componentId","target","value"],
             "key"=>["operation","componentId","target","key"],
             "scroll"=>["operation","componentId","target","x","y"],
-            "viewport"=>["operation","zoom","steps","intervalMs","anchorX","anchorY","profileSeconds"],
+            "viewport"=>["operation","zoom","steps","intervalMs","anchorX","anchorY","profileSeconds","profileRestartCamera"],
             "navigate"=>["operation","mode"],"profile"=>["operation","durationSeconds"],"metrics" or "layers"=>["operation"],
             _=>["operation","componentId","target"]};
         ComponentConfiguration.Keys(command,keys);
@@ -79,6 +79,7 @@ public sealed partial class ControlStore
             case "scroll":ComponentValidator.Number(command,"x",-100000,100000,true);ComponentValidator.Number(command,"y",-100000,100000,true);break;
             case "navigate":ComponentValidator.Choice(command,"mode",["focus","maximize","canvas","fit"]);break;
             case "viewport":
+                if(command.ContainsKey("profileRestartCamera")){ComponentValidator.Boolean(command,"profileRestartCamera");if(!command.ContainsKey("profileSeconds"))throw new HubError(400,"profileRestartCamera requires profileSeconds and recreates camera timelines only after native tracing acknowledges start.");}
                 if(command.ContainsKey("profileSeconds"))ComponentValidator.Number(command,"profileSeconds",1,30,true,true);
                 ComponentValidator.Number(command,"zoom",.001,16,true);
                 if(command.ContainsKey("steps"))ComponentValidator.Number(command,"steps",1,120,true,true);
@@ -122,22 +123,22 @@ public sealed partial class ControlStore
     }
     public JsonObject ComponentDebugPoll(JsonObject input)
     {
-        Budget(input,65536);ComponentConfiguration.Keys(input,"clientId","clientToken","cardIds","visible","platform");var id=DebugClientId(input);var proof=ComponentValidator.Text(input,"clientToken",256,true,32);if(!input.ContainsKey("visible"))throw new HubError(400,"visible is required.");var visible=ComponentValidator.Boolean(input,"visible");ComponentValidator.Choice(input,"platform",["desktop","browser"]);var cards=ComponentValidator.Array(input,"cardIds",512);var seen=new HashSet<string>();foreach(var card in cards){var value=ComponentValidator.Id(new JsonObject{["id"]=card?.DeepClone()},"id");if(!seen.Add(value))throw new HubError(400,"Duplicate debug card ID.");}
+        Budget(input,65536);ComponentConfiguration.Keys(input,"clientId","clientToken","cardIds","visible","platform","backgroundTesting","background");DebugValidateBackgroundPoll(input);var id=DebugClientId(input);var proof=ComponentValidator.Text(input,"clientToken",256,true,32);if(!input.ContainsKey("visible"))throw new HubError(400,"visible is required.");var visible=ComponentValidator.Boolean(input,"visible");ComponentValidator.Choice(input,"platform",["desktop","browser"]);var cards=ComponentValidator.Array(input,"cardIds",512);var seen=new HashSet<string>();foreach(var card in cards){var value=ComponentValidator.Id(new JsonObject{["id"]=card?.DeepClone()},"id");if(!seen.Add(value))throw new HubError(400,"Duplicate debug card ID.");}
         lock(gate){
             DebugSweep();
             if(Scalar("SELECT proof FROM debug_clients WHERE id=$p0",id) is string old){if(!Authentication.Equal(old,Hash(proof)))throw new HubError(403,"Invalid debug client proof.");}
             else {if(Convert.ToInt64(Scalar("SELECT COUNT(*) FROM debug_clients"))>=DebugClientCap)throw new HubError(409,"Debug client history cap reached.");Execute("INSERT INTO debug_clients VALUES($p0,$p1,$p2)",id,Hash(proof),Json.Text(Json.Object(new{id,cardIds=cards,visible,platform=Text(input,"platform"),lastSeen=Now})));}
-            var client=Json.Object(new{id,cardIds=cards,visible,platform=Text(input,"platform"),lastSeen=Now});Execute("UPDATE debug_clients SET payload=$p0 WHERE id=$p1",Json.Text(client),id);DebugSweep();
+            var client=Json.Object(new{id,cardIds=cards,visible,platform=Text(input,"platform"),lastSeen=Now});client["backgroundTesting"]=input["backgroundTesting"]?.DeepClone()??JsonValue.Create(false);DebugBackgroundAck(id,input);Execute("UPDATE debug_clients SET payload=$p0 WHERE id=$p1",Json.Text(client),id);DebugSweep();
             var sessions=DebugRows("SELECT payload FROM debug_sessions WHERE client_id=$p0",id).Where(session=>Text(session,"state")=="open").ToList();
-            foreach(var session in sessions.Where(session=>!seen.Contains(Text(session,"runId"))).ToList()){DebugCloseSession(session,"Run no longer advertised by debug client.");sessions.Remove(session);}
+            foreach(var session in sessions.Where(session=>!seen.Contains(Text(session,"runId"))||session["background"] is JsonObject&&(Text(client,"platform")!="desktop"||client["backgroundTesting"]?.GetValue<bool>()!=true)).ToList()){DebugCloseSession(session,"Run no longer advertised by debug client.");sessions.Remove(session);}
             var jobs=new JsonArray();
             var hasRunning=DebugRows("SELECT payload FROM debug_commands WHERE state='running'").Any(job=>sessions.Any(session=>Text(session,"id")==Text(job,"sessionId")));
-            if(visible&&!hasRunning){foreach(var job in DebugRows("SELECT payload FROM debug_commands WHERE state='queued' ORDER BY created,id")){
-                if(!sessions.Any(session=>Text(session,"id")==Text(job,"sessionId")))continue;
+            if(!hasRunning){foreach(var job in DebugRows("SELECT payload FROM debug_commands WHERE state='queued' ORDER BY created,id")){
+                var lease=sessions.FirstOrDefault(session=>Text(session,"id")==Text(job,"sessionId"));if(lease is null||!DebugCanClaim(lease,visible))continue;
                 job["state"]="running";job["claimedAt"]=Now;job["deadline"]=Now+90000;job["claimToken"]=Convert.ToHexStringLower(System.Security.Cryptography.RandomNumberGenerator.GetBytes(24));DebugSaveCommand(job);
                 jobs.Add(Json.Object(new{id=Text(job,"id"),sessionId=Text(job,"sessionId"),runId=Text(job,"runId"),command=job["command"]!.DeepClone(),claimToken=Text(job,"claimToken"),deadline=job["deadline"]!.GetValue<long>()}));break;
             }}
-            return new JsonObject{["jobs"]=jobs,["sessions"]=new JsonArray(sessions.Select(session=>(JsonNode)Json.Object(new{id=Text(session,"id"),runId=Text(session,"runId"),expiresAt=session["expiresAt"]!.GetValue<long>()})).ToArray()),["pollMs"]=sessions.Count==0?5000:250};
+            return new JsonObject{["jobs"]=jobs,["sessions"]=new JsonArray(sessions.Select(session=>(JsonNode)DebugPollSession(session)).ToArray()),["pollMs"]=sessions.Count==0?5000:250};
         }
     }
     public JsonObject ComponentDebugComplete(JsonObject input)

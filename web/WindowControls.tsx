@@ -30,7 +30,7 @@ export function WindowControls() {
   useEffect(() => {
     const bridge = desktop().chrome?.webview; if (!bridge || desktop().agenticViewDesktop?.version !== 1) return;
     setEnabled(true); document.documentElement.classList.add('desktop-host');
-    const changed = (event: { data: unknown }) => { const message = event.data as { type?: string; state?: WindowState }; if (message?.type === 'agenticview:window-state' && ['fullscreen', 'normal', 'minimized', 'maximized'].includes(message.state ?? '')){setState(message.state!);window.dispatchEvent(new CustomEvent('agenticview:native-visibility',{detail:{visible:message.state!=='minimized'}}));} };
+    const changed = (event: { data: unknown }) => { const message = event.data as { type?: string; state?: WindowState;visible?:boolean;active?:boolean;sessionId?:string;expiresAt?:number;physicalVisible?:boolean }; if (message?.type === 'agenticview:window-state' && ['fullscreen', 'normal', 'minimized', 'maximized'].includes(message.state ?? '')){setState(message.state!);window.dispatchEvent(new CustomEvent('agenticview:native-visibility',{detail:{visible:message.visible??message.state!=='minimized'}}));}else if(message?.type==='agenticview:debug-background'){window.dispatchEvent(new CustomEvent('agenticview:native-visibility',{detail:{visible:message.physicalVisible===true,background:{active:message.active===true,sessionId:message.sessionId,expiresAt:message.expiresAt}}}));} };
     bridge.addEventListener('message', changed);
     return () => { bridge.removeEventListener('message', changed); document.documentElement.classList.remove('desktop-host'); };
   }, []);

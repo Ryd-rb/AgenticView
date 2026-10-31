@@ -72,3 +72,20 @@ test('viewport diagnostics retain ordered bounded frame gaps and report actual s
   assert.equal(result.steps,3);assert.equal(result.stepFrameMs.length,3);assert.equal(result.firstStepMs,result.stepFrameMs[0]);assert.equal(result.lastStepMs,result.stepFrameMs.at(-1));assert.equal(result.stepFrameP99Ms,Math.max(...result.stepFrameMs));assert.equal(calls[0].phase,'begin');assert.equal(calls.at(-2).phase,'end');assert.equal(zoom,1);
  }finally{await f.close();}
 });
+
+test('camera profiling restart is opt-in and waits for the native started acknowledgement',async()=>{
+ const f=await fixture();try{
+  const listeners=new Set<(event:{data:any})=>void>();
+  Object.defineProperty(window,'chrome',{configurable:true,value:{webview:{addEventListener:(_type:string,fn:any)=>listeners.add(fn),removeEventListener:(_type:string,fn:any)=>listeners.delete(fn),postMessage:(message:any)=>{setImmediate(()=>{for(const fn of [...listeners])fn({data:{type:'agenticview:debug-native-started',requestId:message.requestId}});for(const fn of [...listeners])fn({data:{type:'agenticview:debug-native-started',requestId:message.requestId}});for(const fn of [...listeners])fn({data:{type:'agenticview:debug-native-result',requestId:message.requestId,ok:true,result:{available:true}}});});}}}});
+  for(const requested of [false,true]){let profiles=0;const result=await executeDebugCommand('one',{operation:'viewport',zoom:1,steps:3,intervalMs:8,profileSeconds:1,...(requested?{profileRestartCamera:true}:{})},(_id,_mode,view)=>{if(view?.phase==='profile')profiles++;return {zoom:.5,x:0,y:0};},f.measurements) as any;assert.equal(profiles,requested?1:0);assert.equal(result.profileRestartedCamera,requested);assert.equal(listeners.size,0);}
+ }finally{await f.close();}
+});
+
+test('stopping a viewport during its timed wait cancels pending movement and releases the camera hold',async()=>{
+ const f=await fixture(),controller=new AbortController(),calls:any[]=[];
+ try{
+  const pending=executeDebugCommand('one',{operation:'viewport',zoom:1,steps:120,intervalMs:100},(_id,_mode,view)=>{calls.push(view);return {zoom:.1,x:0,y:0};},f.measurements,controller.signal);
+  setTimeout(()=>controller.abort(),10);await assert.rejects(pending,{name:'AbortError'});
+  assert.deepEqual(calls.map(c=>c?.phase),['begin','end']);assert.equal(calls.some(c=>c?.zoom!==undefined),false);
+ }finally{await f.close();}
+});

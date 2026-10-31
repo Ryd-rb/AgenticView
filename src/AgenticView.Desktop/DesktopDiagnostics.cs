@@ -9,7 +9,7 @@ namespace AgenticView.Desktop;
 internal sealed class DesktopDiagnostics(string directory)
 {
     private bool profiling;
-    public async Task<JsonObject> Capture(CoreWebView2 core,string operation,int seconds)
+    public async Task<JsonObject> Capture(CoreWebView2 core,string operation,int seconds,Action? onStarted=null)
     {
         if(operation=="layers")return await DesktopLayers.Capture(core);
         if(operation=="metrics"){
@@ -30,6 +30,7 @@ internal sealed class DesktopDiagnostics(string directory)
             await core.CallDevToolsProtocolMethodAsync("Profiler.enable","{}");
             await core.CallDevToolsProtocolMethodAsync("Profiler.setSamplingInterval","{\"interval\":1000}");
             await core.CallDevToolsProtocolMethodAsync("Profiler.start","{}");started=true;
+            onStarted?.Invoke();
             await Task.Delay(TimeSpan.FromSeconds(seconds));
             var raw=await core.CallDevToolsProtocolMethodAsync("Profiler.stop","{}");started=false;
             if(raw.Length>16_777_216)throw new InvalidOperationException("Profile exceeded its retained byte limit.");

@@ -143,6 +143,9 @@
   window for previews and review. After every delivered update, force-reopen it
   with `scripts/start-desktop.ps1 -Replace`, even for an unchanged build, and verify
   visible readiness. Open a browser only when explicitly requested.
+- Explicit, time-limited MCP diagnostic sessions may render/test minimized or hidden
+  native windows; normal hidden windows remain idle. Label offscreen measurements
+  and never equate them with physical display or hardware click latency.
 - Do not create or run automated image, screenshot, pixel, golden, or framebuffer
   tests. Verify meaningful rendering behavior through non-image contracts; visual
   review is manual.

@@ -171,3 +171,41 @@ collection adds overhead; retained profile windows identify sampled periods.
 native world cards. Eligibility checks CSS visibility, opacity and browser
 offscreen paint skipping; it is not a pixel capture or compositor-present count.
 Component counts distinguish mounted, logically active and reader-updating views.
+
+### Finite tests in minimized or hidden native windows
+
+Use `ui_test_open` with explicit installation `operatorToken` (viewer authority),
+`cardId`, optional `clientId`/`componentId`, `durationSeconds` (1–7200, default300),
+and offscreen `width`/`height` (320–4096 / 240–4096, defaults1920×1080).
+A fresh desktop client must advertise native background-testing capability.
+Run credentials alone cannot enable this mode; browser clients cannot acquire it.
+The returned private `debugId`, targets and copyable calls use the ordinary guided
+workflow. Exact action retries retain the same `requestId`; uncertain work is never replayed.
+
+`ui_test_status(debugId)` distinguishes starting, running, stopping, stopped and
+failed. It includes expiry, configured size, physical visibility and the last native
+acknowledgment. Rendering here is offscreen/emulated; frame timings are not proof
+of physical screen/compositor presentation. The HWND is not shown or restored.
+
+`ui_close(debugId)` cancels queued work and marks claimed work unknown, then returns
+stopping until native reports inactive. Follow `ui_test_status` until stop is
+acknowledged; failure details remain available. Expiry also closes the lease.
+Only one unacknowledged background lease is allowed per client. An active acknowledgment
+must identify the same session before hidden commands can be claimed. A server
+restart clears active readiness, never requeues claimed commands, and requires a
+fresh native acknowledgment. Normal hidden-idle behavior and ordinary visible-only
+`ui_open` remain unchanged. Native profile work already started may finish within
+its bounded duration while stopping.
+
+A separate finite hidden host can be started from an offline published build:
+
+```powershell
+./scripts/start-desktop-test.ps1 -ViewerKeyFile <private-local-key-file> -LifetimeSeconds 600
+```
+
+It uses a separate profile, never replaces an existing desktop window, and exits at
+the stated deadline. Choose a test lease shorter than the remaining host lifetime.
+Use `ui_guide` with `goal:"test"` for copyable MCP steps. The desktop keeps a native
+control poll alive while page rendering is paused; the private HttpOnly session
+cookie stays in native HTTP handling, outside page scripts. The native controller
+uses a logical offscreen viewport and fixed focus emulation only during the lease.

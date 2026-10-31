@@ -27,7 +27,7 @@ public sealed partial class ControlStore
                 DebugSweep();var clients=((JsonArray)ComponentDebugClients(runId,runToken)["clients"]!).OfType<JsonObject>().Where(c=>c["visible"]!.GetValue<bool>()).OrderByDescending(c=>c["lastSeen"]!.GetValue<long>()).ToArray();
                 if(clients.Length==0)throw new HubError(409,"No fresh visible client advertises this run. Open the card in the native viewer, then retry ui_open.");
                 var clientId=Text(clients[0],"clientId");
-                var session=DebugRows("SELECT payload FROM debug_sessions WHERE run_id=$p0 AND client_id=$p1",runId,clientId).FirstOrDefault(s=>Text(s,"state")=="open"&&s["easy"] is JsonObject easy&&Text(easy,"componentId")== (componentId??""));
+                var session=DebugRows("SELECT payload FROM debug_sessions WHERE run_id=$p0 AND client_id=$p1",runId,clientId).FirstOrDefault(s=>Text(s,"state")=="open"&&s["background"] is null&&s["easy"] is JsonObject easy&&Text(easy,"componentId")== (componentId??""));
                 if(session is null){session=ComponentDebugOpen(runId,runToken,clientId,"easy-"+Guid.NewGuid().ToString(),300);session["easy"]=Json.Object(new{componentId=componentId??"",nextActionId=Guid.NewGuid().ToString(),targets=new JsonArray()});DebugSaveSession(session);}
                 capability=EasyCapability(Text(session,"id"));
                 var job=EasyQueue(session,"open-"+Guid.NewGuid().ToString(),Json.Object(new{operation="navigate",mode="maximize"}));job["easyThenInspect"]=true;DebugSaveCommand(job);commandId=Text(job,"id");
@@ -125,7 +125,7 @@ public sealed partial class ControlStore
     }
     public JsonObject UiClose(string debugId)
     {
-        try{lock(gate){var session=EasySession(debugId);ComponentDebugClose(Text(session,"runId"),hub.OwnedToken(Text(session,"runId")),Text(session,"id"));return Json.Object(new{state="closed",message="Debugging closed. Queued commands cancelled; claimed commands are never replayed."});}}
+        try{lock(gate){var session=EasySession(debugId);ComponentDebugClose(Text(session,"runId"),hub.OwnedToken(Text(session,"runId")),Text(session,"id"));if(session["background"] is JsonObject)return UiTestStatus(debugId);return Json.Object(new{state="closed",message="Debugging closed. Queued commands cancelled; claimed commands are never replayed."});}}
         catch(HubError error){return EasyError(error);}
     }
 }

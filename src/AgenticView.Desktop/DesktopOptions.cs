@@ -1,6 +1,6 @@
 namespace AgenticView.Desktop;
 
-public sealed record DesktopOptions(Uri Url, string DataDirectory, bool Diagnose, string? ViewerKeyFile = null, string? CardId = null, string? CardName = null, bool Windowed = false, bool OpenCard = false, string? FocusCardId = null)
+public sealed record DesktopOptions(Uri Url, string DataDirectory, bool Diagnose, string? ViewerKeyFile = null, string? CardId = null, string? CardName = null, bool Windowed = false, bool OpenCard = false, string? FocusCardId = null, bool StartMinimized=false, int BackgroundTestHostSeconds=0)
 {
     public static DesktopOptions Parse(string[] args)
     {
@@ -8,7 +8,7 @@ public sealed record DesktopOptions(Uri Url, string DataDirectory, bool Diagnose
         var data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AgenticView", "Desktop");
         var diagnose = false;
         string? viewerKeyFile = null;
-        string? cardId=null,cardName=null,focusCardId=null;var windowed=false;var openCard=false;
+        string? cardId=null,cardName=null,focusCardId=null;var windowed=false;var openCard=false;var startMinimized=false;var testHostSeconds=0;
         for (var index = 0; index < args.Length; index++)
         {
             switch (args[index])
@@ -20,9 +20,11 @@ public sealed record DesktopOptions(Uri Url, string DataDirectory, bool Diagnose
                 case "--card-id": cardId=CardWindowSpec.ValidateId(Value(args,ref index,true));break;
                 case "--card-name": cardName=CardWindowSpec.ValidateName(Value(args,ref index,true));break;
                 case "--windowed": windowed=true;break;
+                case "--start-minimized":startMinimized=true;break;
+                case "--background-test-host":if(!int.TryParse(Value(args,ref index),out testHostSeconds)||testHostSeconds is <1 or >7200)throw new ArgumentException("Background test host lifetime must be1..7200seconds.");break;
                 case "--open-card":openCard=true;break;
                 case "--focus-card":focusCardId=CardWindowSpec.ValidateId(Value(args,ref index,true));break;
-                default: throw new ArgumentException("Supported options: --url, --data-dir, --viewer-key-file, --card-id, --card-name, --windowed, --open-card, --focus-card, --diagnose.");
+                default: throw new ArgumentException("Supported options: --url, --data-dir, --viewer-key-file, --card-id, --card-name, --windowed, --open-card, --focus-card, --start-minimized, --background-test-host, --diagnose.");
             }
         }
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
@@ -42,7 +44,7 @@ public sealed record DesktopOptions(Uri Url, string DataDirectory, bool Diagnose
         if(cardName is not null&&cardId is null)throw new ArgumentException("A card name requires a card identifier.");
         if(openCard&&cardId is null)throw new ArgumentException("Opening a card requires a card identifier.");
         if(focusCardId is not null&&cardId is not null)throw new ArgumentException("Choose a canvas focus or a standalone card.");
-        return new(uri, fullPath, diagnose, viewerKeyFile, cardId, cardName, windowed||cardId is not null,openCard,focusCardId);
+        return new(uri, fullPath, diagnose, viewerKeyFile, cardId, cardName, windowed||cardId is not null,openCard,focusCardId,startMinimized,testHostSeconds);
     }
 
     public static string ValidateViewerKeyFile(string path)

@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 namespace AgenticView.Server;
 
 [JsonConverter(typeof(JsonStringEnumConverter<UiGuideGoal>))]
-public enum UiGuideGoal { start, create, style, data, debug, windows, templates }
+public enum UiGuideGoal { start, create, style, data, debug, test, windows, templates }
 
 /// <summary>Static onboarding only: no hub, credentials, I/O, or tool execution.</summary>
 public static class UiGuide
@@ -13,13 +13,13 @@ public static class UiGuide
     private static JsonObject Publish(object component)=>Call("agent_publish",new{runId="<runId>",runToken="<runToken>",sequence=1,operations=new[]{new{op="upsert",component}}},"Writes a display component. Sequence1 is ONLY for a fresh run with no prior publish; otherwise use the retained last sequence+1. Full upserts replace the same component ID.");
     public static JsonObject Read(UiGuideGoal goal=UiGuideGoal.start)
     {
-        if(!Enum.IsDefined(goal))throw new HubError(400,"Choose goal: start, create, style, data, debug, windows, templates.");
+        if(!Enum.IsDefined(goal))throw new HubError(400,"Choose goal: start, create, style, data, debug, test, windows, templates.");
         var page=goal switch{
             UiGuideGoal.start=>Page("Choose one small next task",[],[
                 "New monitoring card: create. Existing card appearance: style. Charts/grids/providers: data.",
-                "Inspect/click safe native controls: debug. Windows icons/pop-outs: windows. Reuse an authored application: templates.",
+                "Inspect/click safe native controls: debug. Hidden/minimized tests: test. Windows icons/pop-outs: windows. Reuse an authored application: templates.",
                 "MCP connection authentication is separate from card ownership. Registration returns private runId/runToken; a viewer/operator key grants broader authority only when explicitly supplied."],
-                Call("ui_guide",new{goal="create"},"Read-only guidance"),[],["create","style","data","debug","windows","templates"]),
+                Call("ui_guide",new{goal="create"},"Read-only guidance"),[],["create","style","data","debug","test","windows","templates"]),
             UiGuideGoal.create=>Page("Create a card, then publish its plan",["Configured authenticated MCP connection","Your retained requestId and private random registrationKey (32+ characters); generate privately outside this guide"],[
                 "Read component_catalog to choose a native component. Register once; retain the request identity/proof for exact retry.",
                 "Save returned runId/runToken privately. Publish a Markdown plan FIRST. For child agents also pass parentId/parentToken; never invent them.",
@@ -53,6 +53,14 @@ public static class UiGuide
                     Call("ui_action",new{debugId="<debugId>",requestId="<nextActionId>",action="click",targetRef="<inspectedRef>"},"Injects only an inspection-advertised safe native action"),
                     Call("ui_wait",new{debugId="<debugId>",commandId="<commandId>"},"Reads/waits for the existing command, never queues a replacement"),
                     Call("ui_close",new{debugId="<debugId>"},"Closes the debug lease; uncertain claimed work is not replayed")],["data","windows"]),
+            UiGuideGoal.test=>Page("Run a finite test while the native window stays hidden",["Explicit operator/viewer key, target cardId, and an authenticated current desktop client","For a separate hidden host: scripts/start-desktop-test.ps1 with private viewer-key-file and finite lifetime"],[
+                "Ordinary hidden windows stay idle. ui_test_open requests a finite native rendering lease at an explicit logical viewport without showing or restoring the OS window.",
+                "Follow nextCall and returned target refs just like ui_open. Pending commands use ui_wait; ui_test_status reports native start/stop acknowledgments and expiry.",
+                "Metrics label background-test mode, physicalVisible and logical viewport. They measure offscreen render opportunities and synthetic input, never physical display presentation or human click latency.",
+                "Call ui_close, then ui_test_status until stopAcknowledged:true. Expiry also stops the native override independently of page timers. A failed native start is explicit; never silently fall back to ordinary hidden measurements."],
+                Call("ui_test_open",new{operatorToken="<operatorToken>",cardId="<cardId>",durationSeconds=300,width=1920,height=1080},"Starts an operator-authorized bounded offscreen test; does not restore the window"),[
+                    Call("ui_test_status",new{debugId="<debugId>"},"Reads native readiness, expiry and stop acknowledgment"),
+                    Call("ui_close",new{debugId="<debugId>"},"Ends the lease; follow status until native rendering is inactive")],["debug","data"]),
             UiGuideGoal.windows=>Page("Configure native window icons and understand pop-outs",["Your runId/runToken","Dedicated native desktop for pop-out windows and native icon receipts"],[
                 "card_style.windowIcon configures a catalog pictograph and optional #RRGGBB colors; no file paths, images, URLs or scripts. Header icon and Windows icon are independent.",
                 "Read card_window_icon_status after configuring. Configuration acknowledgement alone does not prove an open Windows process applied the icon.",

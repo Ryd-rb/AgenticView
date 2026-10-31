@@ -12,7 +12,7 @@ test('goal guide is bounded, read-only and references actual tools with all requ
     await client.connect(new StreamableHTTPClientTransport(new URL('/mcp', f.url), { requestInit: { headers: { Authorization: `Bearer ${secrets.ingestToken}` } } }));
     const tools = (await client.listTools()).tools, names = new Map(tools.map(tool => [tool.name, tool]));
     const guideTool = names.get('ui_guide'); assert.ok(guideTool); assert.equal(guideTool.annotations?.readOnlyHint, true);
-    const before = await snapshot(), goals = ['start', 'create', 'style', 'data', 'debug', 'windows', 'templates'];
+    const before = await snapshot(), goals = ['start', 'create', 'style', 'data', 'debug', 'test', 'windows', 'templates'];
     for (const goal of goals) {
       const response = await client.callTool({ name: 'ui_guide', arguments: { goal } }); assert.ok(!response.isError, JSON.stringify(response));
       const guide = response.structuredContent as any; assert.equal(guide.goal, goal); assert.equal(guide.readOnly, true); assert.equal(guide.executesTools, false);
