@@ -5,6 +5,8 @@ import { act, createElement } from 'react';
 import { ControlView, type ControlComponent } from '../web/ControlViews.tsx';
 import { CardInteraction } from '../web/CardInteraction.ts';
 import { ComponentControls } from '../web/ControlPresentation.tsx';
+import {NativePresentation} from '../web/ComponentSettings.tsx';
+import type {Presentation as ComponentPresentation} from '../shared/component-config.ts';
 import type { ControlMap } from '../shared/control-presentation.ts';
 
 type Request = { url: string; signal: AbortSignal; body?: Record<string, any>; resolve: (response: Response) => void };
@@ -15,7 +17,7 @@ const config = { version: 'synthetic-v1', application: { name: 'Synthetic app' }
   { id: 'add', label: 'Add record', kind: 'edit', confirmation: 'Add this record?' }, { id: 'delete', label: 'Delete record', kind: 'edit', confirmation: 'Delete this record?' }, { id: 'bulk', label: 'Bulk records', kind: 'edit', confirmation: 'Apply this callback to the selected records?' },
 ] };
 const complete = (actionId: string, result: object = {}, extra: object = {}) => ({ id: `invocation-${actionId}`, actionId, state: 'succeeded', createdAt: '2026-01-01T12:00:00Z', result, ...extra });
-async function fixture(component: ControlComponent, active = true, configuration: unknown = config, presentation: ControlMap = {}) {
+async function fixture(component: ControlComponent, active = true, configuration: unknown = config, presentation: ControlMap = {},setup?:(dom:Window)=>void) {
   const dom = new Window();
   for (const key of ['window', 'document', 'HTMLElement', 'Element', 'Node', 'Event', 'MouseEvent', 'HTMLInputElement', 'HTMLTextAreaElement', 'HTMLSelectElement'] as const) Object.defineProperty(globalThis, key, { configurable: true, value: key === 'window' ? dom : dom[key] });
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -36,10 +38,11 @@ async function fixture(component: ControlComponent, active = true, configuration
       signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
     });
   };
+  setup?.(dom);
   const { createRoot } = await import('react-dom/client'), host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
   const settle = () => new Promise<void>(resolve => setImmediate(resolve));
-  let currentComponent = component;
-  const render = async (selected: boolean, nextComponent = currentComponent) => act(async () => { currentComponent = nextComponent; root.render(createElement(CardInteraction.Provider, { value: selected }, createElement(ComponentControls.Provider, {value:presentation}, createElement(ControlView, { component: currentComponent, runId: 'synthetic/run' })))); await settle(); });
+  let currentComponent = component,currentSelected=active,nativePresentation:ComponentPresentation={};
+  const render = async (selected: boolean, nextComponent = currentComponent) => act(async () => { currentComponent = nextComponent;currentSelected=selected; root.render(createElement(NativePresentation.Provider,{value:nativePresentation},createElement(CardInteraction.Provider, { value: selected }, createElement(ComponentControls.Provider, {value:presentation}, createElement(ControlView, { component: currentComponent, runId: 'synthetic/run' }))))); await settle(); });
   const respond = async (index: number, body: unknown, status = 200) => act(async () => { requests[index]!.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })); await settle(); });
   const button = (label: string) => [...host.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent === label)!;
   const click = async (label: string) => act(async () => { const target = button(label); assert.ok(target, `button ${label} exists`); target.click(); await settle(); });
@@ -55,7 +58,7 @@ async function fixture(component: ControlComponent, active = true, configuration
   await render(active);
   assert.equal(requests[0]!.url, '/api/controls/synthetic%2Frun');
   await respond(0, configuration);
-  return { host, requests, timers, respond, render, button, click, toggle, tick, input,
+  return { host, requests, timers, respond, render,appearance:async(value:ComponentPresentation)=>{nativePresentation=value;await render(currentSelected);}, button, click, toggle, tick, input,
     visibility: async (value: boolean) => act(async () => { hidden = value; document.dispatchEvent(new Event('visibilitychange')); await settle(); }),
     close: async () => { await act(async () => { root.unmount(); await settle(); }); globalThis.fetch = original.fetch; globalThis.setTimeout = original.set; globalThis.clearTimeout = original.clear; await dom.happyDOM.close(); },
   };
@@ -252,7 +255,7 @@ test('local supplied rows stay bounded, page and sort locally without command ex
 
 test('wide readonly grids bound mounted cells while retaining row state and restore editable views',async()=>{
   const previous={raf:globalThis.requestAnimationFrame,caf:globalThis.cancelAnimationFrame,ro:globalThis.ResizeObserver};let frame=0;const frames=new Map<number,FrameRequestCallback>(),observers=new Set<object>();
-  class RO{constructor(_callback:ResizeObserverCallback){observers.add(this);}observe(){}unobserve(){}disconnect(){observers.delete(this);}}
+  class RO{constructor(readonly callback:ResizeObserverCallback){observers.add(this);}observe(){}unobserve(){}disconnect(){observers.delete(this);}}
   Object.assign(globalThis,{ResizeObserver:RO,requestAnimationFrame:(callback:FrameRequestCallback)=>{frames.set(++frame,callback);return frame;},cancelAnimationFrame:(id:number)=>frames.delete(id)});
   const component:ControlComponent={kind:'data-grid',data:{rows:Array.from({length:12},(_,row)=>Object.fromEntries(Array.from({length:12},(_,column)=>[`c${column}`,`r${row}c${column}`]))),pageSize:20,columns:Array.from({length:12},(_,index)=>({key:`c${index}`,label:`Column ${index}`}))}};
   const f=await fixture(component),dom=window as unknown as Window,originalRect=HTMLElement.prototype.getBoundingClientRect,computed=dom.getComputedStyle.bind(dom);
@@ -266,12 +269,12 @@ test('wide readonly grids bound mounted cells while retaining row state and rest
   Object.defineProperty(HTMLElement.prototype,'clientHeight',{configurable:true,get(){return this.classList.contains('control-grid')?120:0;}});Object.defineProperty(HTMLElement.prototype,'clientWidth',{configurable:true,get(){return this.classList.contains('control-grid')?250:0;}});
   const flush=async()=>act(async()=>{const pending=[...frames.values()];frames.clear();for(const callback of pending)callback(0);});
   try{
-    const fresh:ControlComponent={...component,data:{...component.data,rows:component.data.rows!.map(row=>({...row}))}};await f.render(true,fresh);
+    const fresh:ControlComponent={...component,data:{...component.data,rows:component.data.rows!.map(row=>({...row}))}};await f.render(true,fresh);await act(async()=>{for(const item of observers)(item as RO).callback([],item as unknown as ResizeObserver);});await flush();
     const table=f.host.querySelector('table')!,viewport=f.host.querySelector<HTMLElement>('.control-grid')!,cells=[...table.querySelectorAll<HTMLElement>('tbody [data-table-window-column]')],rows=[...table.querySelectorAll<HTMLElement>('tbody tr[data-table-window-row]')];
     assert.equal(table.getAttribute('data-table-window-ready'),'true');assert.equal(table.getAttribute('data-table-window-columns'),'12');assert.ok(Number(table.getAttribute('data-table-window-layout-columns'))<12);assert.ok(cells.length>0&&cells.length<144);assert.equal(rows[1]!.style.height,'30.25px');assert.equal(table.style.tableLayout,'fixed');
     await act(async()=>{viewport.scrollLeft=900;viewport.scrollTop=200;viewport.dispatchEvent(new Event('scroll'));});await flush();assert.equal(cells[0]!.isConnected,false);assert.equal(table.querySelector('thead [data-table-window-column-spacer="left"]')!.getAttribute('colspan'),'8');assert.ok(table.querySelectorAll('tbody [data-table-window-column]').length<144);assert.deepEqual([...table.querySelectorAll('tbody tr[data-table-window-row]')],rows);assert.equal(table.querySelector('[data-table-window-column="11"]')!.getAttribute('aria-colindex'),'12');
     const activeCells=[...table.querySelectorAll('tbody [data-table-window-column]')];await f.render(false);assert.deepEqual([...table.querySelectorAll('tbody [data-table-window-column]')],activeCells);assert.equal(f.requests.length,1,'Local readonly windowing never executes actions');
-    await f.render(true,{...fresh,data:{...fresh.data,editAction:'edit'}});assert.equal(table.getAttribute('data-table-window-ready'),null);assert.equal(table.style.tableLayout,'');assert.equal(table.querySelector('[data-table-window-column-spacer]'),null);assert.equal(table.querySelectorAll('tbody [data-table-window-column]').length,144);assert.ok(rows.every(row=>row.style.height===''));
+    await f.render(true,{...fresh,data:{...fresh.data,editAction:'edit'}});assert.equal(table.getAttribute('data-table-window-ready'),null);assert.equal(table.style.tableLayout,'');assert.equal(table.querySelector('[data-table-window-column-spacer]'),null);assert.equal(table.querySelectorAll('tbody [data-table-window-column]').length,144);assert.ok([...table.querySelectorAll<HTMLTableRowElement>('tbody tr[data-table-window-row]')].every(row=>row.style.height===''));
   }finally{await f.close();assert.equal(observers.size,0);assert.equal(frames.size,0);Object.assign(globalThis,{requestAnimationFrame:previous.raf,cancelAnimationFrame:previous.caf,ResizeObserver:previous.ro});}
 });
 
@@ -341,4 +344,30 @@ test('inline icon actions retain accessible names, typed form input and version-
     assert.equal(submit().disabled,true);assert.equal(submit().getAttribute('aria-busy'),'true');
     await view.respond(1,complete('write'));assert.equal(view.requests.length,2,'one invocation, no automatic retry');
   } finally {await view.close();}
+});
+
+test('readonly windowed query resumes retain row/cell identity, focus, offsets and measured geometry while explicit pages and typography reprobe',async()=>{
+ const frames=new Map<number,FrameRequestCallback>();let frame=0,naturalRowReads=0;const prior={raf:globalThis.requestAnimationFrame,caf:globalThis.cancelAnimationFrame,ro:globalThis.ResizeObserver};
+ const component:ControlComponent={kind:'data-grid',data:{readAction:'rows',pageSize:100,rows:[],columns:Array.from({length:8},(_,i)=>({key:'c'+i,label:'Column '+i}))}};
+ const rows=(prefix:string)=>Array.from({length:100},(_,i)=>Object.fromEntries(Array.from({length:8},(_,c)=>['c'+c,`${prefix}-${i}-${c}`])));
+ const view=await fixture(component,true,config,{},dom=>{
+  class RO{constructor(_callback:ResizeObserverCallback){}observe(){}unobserve(){}disconnect(){}}
+  Object.assign(globalThis,{ResizeObserver:RO,requestAnimationFrame:(fn:FrameRequestCallback)=>{frames.set(++frame,fn);return frame;},cancelAnimationFrame:(id:number)=>frames.delete(id)});
+  const base=dom.getComputedStyle.bind(dom);dom.getComputedStyle=((element:Element)=>{const style=base(element as any);if(element.tagName==='TABLE'||element.classList.contains('control-grid'))return new Proxy(style,{get(target,key){if(key==='width')return element.tagName==='TABLE'?'800px':'300px';if(key==='height')return element.tagName==='TABLE'?'3049px':'120px';if(key==='boxSizing')return'border-box';if(key==='borderCollapse')return'separate';if(key==='borderSpacing')return'0px';if(key==='borderLeftWidth'||key==='borderTopWidth')return'0px';return Reflect.get(target,key);}});return style;}) as unknown as typeof dom.getComputedStyle;
+  const old=dom.HTMLElement.prototype.getBoundingClientRect;dom.HTMLElement.prototype.getBoundingClientRect=function(){const el=this as unknown as HTMLElement,port=el.closest<HTMLElement>('.control-grid');if(!port)return old.call(this);let h=120,w=800,top=0;if(el.tagName==='TABLE'){h=3049;top=-port.scrollTop;}else if(el.tagName==='TBODY'){h=3025;top=24-port.scrollTop;}else if(el.tagName==='THEAD'||el.tagName==='TH'){h=24;if(el.tagName==='TH')w=100;}else if(el.hasAttribute('data-table-window-row')){naturalRowReads++;h=30.25;top=24+Number(el.dataset.tableWindowRow)*h-port.scrollTop;}return new dom.DOMRect(0,top,w,h);};
+  for(const [key,value] of Object.entries({clientHeight:120,clientWidth:300,scrollHeight:3049,scrollWidth:800}))Object.defineProperty(dom.HTMLElement.prototype,key,{configurable:true,get(){return (this as unknown as HTMLElement).classList.contains('control-grid')?value:0;}});
+ });
+ const flush=async()=>act(async()=>{const pending=[...frames.values()];frames.clear();for(const fn of pending)fn(0);});
+ try{
+  await view.respond(1,complete('rows',{rows:rows('first'),nextCursor:'next',totalRows:200}));await flush();const table=view.host.querySelector('table')!,port=view.host.querySelector<HTMLElement>('.control-grid')!;assert.equal(table.dataset.tableWindowReady,'true');
+  await act(async()=>{port.scrollTop=600;port.scrollLeft=100;port.dispatchEvent(new Event('scroll'));});await flush();const all=[...table.querySelectorAll<HTMLTableRowElement>('tbody tr[data-table-window-row]')],target=table.querySelector<HTMLElement>('tr[data-table-window-row="20"] td[data-table-window-column="0"]')!;assert.ok(target);target.tabIndex=-1;await act(async()=>target.focus());await flush();const readBefore=naturalRowReads,layoutBefore=table.dataset.tableWindowLayout;assert.equal(all.length,100);assert.ok(table.querySelectorAll('tbody td[data-table-window-column]').length<400);
+  await view.visibility(true);await view.visibility(false);await view.respond(view.requests.length-1,complete('rows',{rows:rows('second'),nextCursor:'next',totalRows:200}));await flush();assert.deepEqual([...table.querySelectorAll('tbody tr[data-table-window-row]')],all);assert.equal(table.querySelector('tr[data-table-window-row="20"] td[data-table-window-column="0"]'),target);assert.equal(target.textContent,'second-20-0');assert.equal(document.activeElement,target);assert.equal(port.scrollTop,600);assert.equal(port.scrollLeft,100);assert.equal(table.dataset.tableWindowLayout,layoutBefore);assert.equal(naturalRowReads,readBefore,'Same-shape passive response must not naturally remeasure/mount fullpage');
+  await view.click('Next page');await view.respond(view.requests.length-1,complete('rows',{rows:rows('page2'),totalRows:200}));await flush();assert.ok(naturalRowReads>readBefore,'Explicit page response reprobes');const beforeFont=naturalRowReads;await view.appearance({fontSize:18});await flush();assert.ok(naturalRowReads>beforeFont,'Typography invalidates geometry');
+  const localRows=(prefix:string)=>Array.from({length:200},(_,i)=>Object.fromEntries(Array.from({length:8},(_,c)=>['c'+c,`${prefix}-${i}-${c}`])));const local:ControlComponent={kind:'data-grid',data:{...component.data,readAction:undefined,rows:localRows('local')}};await view.render(true,local);await flush();await view.click('Next page');await flush();const localBefore=[...table.querySelectorAll('tbody tr[data-table-window-row]')],localReads=naturalRowReads;assert.match(view.host.textContent!,/Page 2/);await view.render(true,{...local,data:{...local.data,rows:localRows('fresh-local')}});await flush();assert.match(view.host.textContent!,/Page 2/);assert.deepEqual([...table.querySelectorAll('tbody tr[data-table-window-row]')],localBefore);assert.equal(naturalRowReads,localReads,'Passive readonly supplied rows retain page and geometry');
+
+ }finally{await view.close();Object.assign(globalThis,{requestAnimationFrame:prior.raf,cancelAnimationFrame:prior.caf,ResizeObserver:prior.ro});}
+});
+
+test('editable grid passive source telemetry retains prior draft-reset semantics',async()=>{
+ const source:ControlComponent={kind:'data-grid',data:{rows:[{name:'Original'}],editAction:'edit',columns:[{key:'name',label:'Name',editable:true}]}};const view=await fixture(source);try{await view.click('Edit');await view.input('Name for row 1','Draft');const old=view.host.querySelector('tbody tr');await view.render(true,{...source,data:{...source.data,rows:[{name:'Incoming'}]}});assert.notEqual(view.host.querySelector('tbody tr'),old);assert.equal(view.host.querySelector('input[aria-label="Name for row 1"]'),null);assert.equal(view.host.querySelector('tbody')!.textContent!.includes('Incoming'),true);}finally{await view.close();}
 });
