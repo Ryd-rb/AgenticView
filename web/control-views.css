@@ -54,3 +54,18 @@
 .control-actions[data-action-layout=inline] :is(input,select,textarea){max-width:100%}
 .control-view button[data-control-appearance=icon]{min-width:28px;justify-content:center}
 .control-view button[data-control-variant=bare]:hover:enabled{background:#ffffff0a;border-color:transparent}
+
+/* Retained row gaps have no cell chrome; their measured height owns spacing. */
+.control-grid tr[data-table-window-spacer],.control-grid tr[data-table-window-spacer]>td{padding:0!important;border:0!important;min-height:0!important;line-height:0!important;font-size:0!important;background:transparent!important;box-shadow:none!important}
+
+.control-grid [data-table-window-column-spacer]{padding:0!important;border:0!important;min-height:0!important;line-height:0!important;font-size:0!important;background:transparent!important;box-shadow:none!important}
+
+.component :is(.control-grid,.table-scroll,.linked-grid-shell)>table[data-native-table-header=translated]>thead>tr>th{position:static;top:auto;z-index:auto}
+
+
+.component button[data-authority-disabled=true]:disabled{opacity:1}
+
+.table-scroll tr[data-table-window-spacer],.table-scroll tr[data-table-window-spacer]>td,.table-scroll [data-table-window-column-spacer]{padding:0!important;border:0!important;min-height:0!important;line-height:0!important;font-size:0!important;background:transparent!important;box-shadow:none!important}
+
+/* Reserve the same native gutter as the external accessible rail. */
+[data-native-scrollport]::-webkit-scrollbar{width:12px;height:12px}

@@ -411,3 +411,12 @@ test('an ongoing canvas drag keeps moving when a selected card grid passes under
   await act(()=>pointer(table,'pointerup',120,120));
  }finally{document.elementFromPoint=previous;await view.close();}
 });
+
+test('inactive card surfaces register no blocking wheel handler and release it when deactivated',async()=>{
+ const add=prototype.addEventListener,remove=prototype.removeEventListener,handlers=new Set<EventListenerOrEventListenerObject>();
+ prototype.addEventListener=function(type:any,handler:any,options:any){if(type==='wheel'&&this.classList.contains('card-surface'))handlers.add(handler);return add.call(this,type,handler,options);};
+ prototype.removeEventListener=function(type:any,handler:any,options?:any){if(type==='wheel'&&this.classList.contains('card-surface'))handlers.delete(handler);return remove.call(this,type,handler);};
+ let view:Awaited<ReturnType<typeof mount>>|undefined;
+ try{view=await mount(grid(),false);assert.equal(handlers.size,0);await view.active(true);assert.equal(handlers.size,1);await view.active(false);assert.equal(handlers.size,0);assert.equal(wheel(view.viewport,{deltaY:30}).defaultPrevented,false);}
+ finally{await view?.close();prototype.addEventListener=add;prototype.removeEventListener=remove;assert.equal(handlers.size,0);}
+});

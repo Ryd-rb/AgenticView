@@ -143,9 +143,17 @@ table{font-size:12px;line-height:1.25}th{font-size:11px;line-height:1.25;color:#
 
 /* Retained small views keep their contents and scroll offsets without a forest of composited scrollports. */
 .component-configured,.table-scroll,.logs,.linked-grid-shell,.linked-associations,.linked-prices,.control-grid,.control-log{scrollbar-gutter:stable}
-:is(.card-surface[data-preview=true],.world[data-camera-gesture=true] .card-surface) :is(.card-content-scroll,.component-configured,.table-scroll,.logs,.linked-grid-shell,.linked-associations,.linked-prices,.control-grid,.control-log,pre):not([data-scroll-retained=true]){overflow:clip!important}
-:is(.card-surface[data-preview=true],.world[data-camera-gesture=true] .card-surface) [data-scroll-retained=true]{overflow:hidden!important}
-:is(.card-surface[data-preview=true],.world[data-camera-gesture=true] .card-surface) :is(.table-scroll,.control-grid,.linked-grid-shell):not([data-scroll-retained=true]) th{position:static}
 
 /* Keep complete native views painted at every zoom; the viewport clips offscreen geometry. */
 .world-card.agent-card{content-visibility:visible}
+
+/* The inner content viewport owns scrolling; the outer surface only clips. */
+.card-surface{overflow:clip}
+
+.world-y,.world-scale{position:absolute;left:0;top:0;transform-origin:0 0;will-change:transform}
+
+/* A fixed decorative grid never invalidates the retained world during input. */
+.canvas-grid{left:0;top:0;width:100%;height:100%;will-change:auto;transform:none}
+
+/* Card scrolling belongs to its inner viewport; preserve the rounded outer clip without a scroll node. */
+.world-card{overflow:clip}

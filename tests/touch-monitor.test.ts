@@ -8,8 +8,16 @@ import type { AgentView, Snapshot, Patch } from '../shared/protocol.ts';
 import type { MonitoringSnapshot } from '../shared/monitoring.ts';
 import { fitToViewport, type Rect } from '../shared/canvas.ts';
 
+function renderedCamera(host:HTMLElement){
+ const value=(selector:string,operation:string)=>parseFloat(host.querySelector<HTMLElement>(selector)!.style.transform.match(new RegExp(operation+'\\(([^)]+)\\)'))![1]);
+ return {x:value('.world','translateX'),y:value('.world-y','translateY'),zoom:value('.world-scale','scale')};
+}
+
 // Actual App event/lifecycle contracts in memory; no browser or physical touch claims.
 const dom = new Window({ url: 'http://localhost/', settings: { disableIframePageLoading: true, enableJavaScriptEvaluation: false } });
+// This in-memory DOM does not apply Web Animation effects to computed style.
+// Exercise the immediate CSS backend here; camera timeline contracts are separate.
+Object.defineProperty(dom.Element.prototype,'animate',{configurable:true,value:undefined});
 for (const key of ['window', 'document', 'HTMLElement', 'Element', 'Node', 'DOMRect', 'Event', 'CustomEvent', 'MouseEvent', 'PointerEvent', 'KeyboardEvent', 'MessageEvent'] as const)
   Object.defineProperty(globalThis, key, { configurable: true, value: key === 'window' ? dom : dom[key] });
 for (const key of ['addEventListener', 'removeEventListener', 'dispatchEvent', 'getComputedStyle'] as const)
@@ -167,11 +175,11 @@ test('explicit fit content defers selected fixed-card geometry until deselection
 
 test('manual archive offers acknowledged Undo without moving the camera or stealing focus',async()=>{
  const view=await mount();try{
-  const camera=view.host.querySelector<HTMLElement>('.world')!.style.transform;const active=document.activeElement;
+  const camera=renderedCamera(view.host);const active=document.activeElement;
   await act(async()=>{view.host.querySelector<HTMLButtonElement>('[title="Archive agent"]')!.click();await new Promise<void>(done=>setImmediate(done));});
   const notice=document.querySelector<HTMLElement>('.archive-undo')!;assert.ok(notice);assert.match(notice.textContent!,/Synthetic agent.*archived/);assert.equal(notice.getAttribute('aria-live'),'polite');assert.equal(document.activeElement,active);
   await act(async()=>{[...notice.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent==='Undo')!.click();await new Promise<void>(done=>setImmediate(done));});
-  assert.ok(requestPaths.includes('/api/archives/agent/restore'));assert.equal(document.querySelector('.archive-undo'),null);assert.equal(view.host.querySelector<HTMLElement>('.world')!.style.transform,camera);
+  assert.ok(requestPaths.includes('/api/archives/agent/restore'));assert.equal(document.querySelector('.archive-undo'),null);assert.deepEqual(renderedCamera(view.host),camera);
  }finally{await view.close();}
 });
 
@@ -268,12 +276,12 @@ test('arrival preserves selected geometry and camera, appears without confirmati
   }) as typeof setTimeout;
   try {
     const selected = view.host.querySelector<HTMLElement>('[data-card-id="agent"]')!, world = view.host.querySelector<HTMLElement>('.world')!;
-    const original = { left: selected.style.left, top: selected.style.top, width: selected.style.width, height: selected.style.height, camera: world.style.transform };
+    const original = { left: selected.style.left, top: selected.style.top, width: selected.style.width, height: selected.style.height, camera: renderedCamera(view.host) };
     assert.equal(selected.querySelector('.arrival-halo'), null, 'initial snapshot cards are not newly arrived');
     const update = snapshot({ ...agent.layout, x: 200, height: 550 }); update.revision = 2;
     update.agents.push({ ...agent, id: 'new-agent', agentId: 'new-synthetic', name: 'New synthetic arrival', createdAt: Date.now(), layout: { ...agent.layout, x: 700 } });
     await act(() => { Stream.current.snapshot(update); });
-    assert.deepEqual({ left: selected.style.left, top: selected.style.top, width: selected.style.width, height: selected.style.height, camera: world.style.transform }, original, 'arrival and remote update preserve selection geometry and camera');
+    assert.deepEqual({ left: selected.style.left, top: selected.style.top, width: selected.style.width, height: selected.style.height, camera: renderedCamera(view.host) }, original, 'arrival and remote update preserve selection geometry and camera');
     const arrived = view.host.querySelector<HTMLElement>('[data-card-id="new-agent"]')!; assert.ok(arrived, 'new unlocked card appears immediately');
     assert.equal(document.querySelector('.arrival-notice'), null, 'arrival does not require Show card confirmation');
     assert.equal([...document.querySelectorAll('button')].some(button => button.textContent?.includes('Show card')), false);
@@ -288,7 +296,7 @@ test('arrival preserves selected geometry and camera, appears without confirmati
     assert.equal(fadeCallbacks.length, 1, 'one fade interval starts after visibility');
     await act(() => { fadeCallbacks[0]!(); });
     assert.equal(arrived.querySelector('.arrival-halo'), null, 'arrival highlight ends after its fade interval');
-    assert.equal(world.style.transform, original.camera, 'visibility and fade do not navigate camera');
+    assert.deepEqual(renderedCamera(view.host), original.camera, 'visibility and fade do not navigate camera');
   } finally { await view.close(); globalThis.setTimeout = setTimer; }
 });
 
@@ -339,7 +347,7 @@ test('Arrange all leaves standalone mode and frames acknowledged packed bounds b
   await act(async()=>{document.querySelector<HTMLButtonElement>('[aria-label="Arrange all cards"]')!.click();await new Promise<void>(resolve=>setImmediate(resolve));});
   assert.equal(view.host.querySelector('.world')!.classList.contains('has-maximized'),false);
   const expected=fitToViewport([packBounds],{width:1200,height:800});
-  assert.equal(view.host.querySelector<HTMLElement>('.world')!.style.transform.replace(' translateZ(0)',''),`translate(${expected.x}px, ${expected.y}px) scale(${expected.zoom})`);
+  assert.deepEqual(renderedCamera(view.host),expected);
  }finally{packBounds=undefined;await view.close();}
 });
 
@@ -347,7 +355,7 @@ test('selected-card zoom reaches 200 percent in the main view before content zoo
   const view = await mount();
   try {
     const outer = view.host.querySelector<HTMLElement>('.world')!, inner = view.host.querySelector<HTMLElement>('.card-content-plane')!;
-    const scale = (element: HTMLElement) => element.style.transform==='none'?1:Number(/scale\(([^)]+)\)/.exec(element.style.transform)![1]);
+    const scale = (element: HTMLElement) => element===outer?renderedCamera(view.host).zoom:element.style.transform==='none'?1:Number(/scale\(([^)]+)\)/.exec(element.style.transform)![1]);
     const zoom = (factor: number) => { const event = new MouseEvent('wheel', { bubbles: true, cancelable: true, ctrlKey: true, clientX: 100, clientY: 100 }); for (const [key, value] of Object.entries({ deltaY: -Math.log(factor) / .0015, deltaX: 0, deltaMode: 0 })) Object.defineProperty(event, key, { value }); view.target.dispatchEvent(event); };
     assert.ok(scale(outer) < 2);
     await act(() => { zoom(2 / scale(outer)); });
@@ -394,9 +402,9 @@ test('monitoring is a movable utility world card with isolated polling and globa
     const content = utility('monitoring').querySelector<HTMLElement>('.monitoring-heading h2')!;
     await act(() => { pointer(content, 'pointerdown', 200); }); assert.equal(captures.has(11), true);
     await act(() => { document.querySelector<HTMLButtonElement>('button[aria-label="Fit all cards"]')!.click(); }); assert.equal(captures.has(11), false, 'global Fit all cancels local monitoring gesture');
-    const world = view.host.querySelector<HTMLElement>('.world')!, beforeCanvas = world.style.transform;
+    const world = view.host.querySelector<HTMLElement>('.world')!, beforeCanvas = renderedCamera(view.host);
     await act(() => { key(view.host.querySelector('.canvas')!, 'ArrowLeft'); });
-    assert.notEqual(world.style.transform, beforeCanvas, 'canvas keyboard retains navigation authority');
+    assert.notDeepEqual(renderedCamera(view.host), beforeCanvas, 'canvas keyboard retains navigation authority');
     assert.equal(requestPaths.some(path => /^\/api\/agents\/(monitoring|settings)\//.test(path)), false, 'utility IDs never use producer layout or interaction APIs');
     const received = requestPaths.filter(path => path === '/api/monitoring').length;
     elapsed += 1000; // Advance past deliberate post-drag ghost-click suppression without sleeping.
@@ -416,7 +424,7 @@ test('live memoized descendants update and promote without interrupting selected
   try {
     const parent=view.host.querySelector<HTMLElement>('[data-card-id="agent"]')!;
     const geometry=()=>({left:parent.style.left,top:parent.style.top,width:parent.style.width,height:parent.style.height});
-    const original=geometry(),world=view.host.querySelector<HTMLElement>('.world')!,camera=world.style.transform;
+    const original=geometry(),world=view.host.querySelector<HTMLElement>('.world')!,camera=renderedCamera(view.host);
     assert.ok(parent.textContent?.includes('Original grandchild evidence'));
     await act(()=>{pointer(view.target,'pointerdown',200);pointer(view.target,'pointermove',180);});
     const owner=captures.get(11); assert.equal(Boolean(owner),true,'parent local content owns capture');
@@ -444,7 +452,7 @@ test('live memoized descendants update and promote without interrupting selected
     assert.equal(parent.querySelector('.child-card'),null,'removed child and promoted descendant leave parent subtree');
     assert.equal(parent.textContent?.includes('Updated grandchild evidence'),false);
     assert.deepEqual(geometry(),original,'selected parent geometry survives subtree removal and new root layout');
-    assert.equal(world.style.transform,camera,'live nested changes cannot navigate camera');
+    assert.deepEqual(renderedCamera(view.host),camera,'live nested changes cannot navigate camera');
     assert.equal(captures.get(11)===owner,true,'promotion preserves original parent capture');
     const scroller=parent.querySelector<HTMLElement>('.card-content-scroll')!,before=scroller.scrollTop;
     await act(()=>{pointer(document.body,'pointermove',140);});
@@ -457,14 +465,14 @@ test('live memoized descendants update and promote without interrupting selected
 test('archived cards auto-open as a draggable world card without stealing selection or camera', async () => {
   const view = await mount();
   try {
-    const camera = view.host.querySelector<HTMLElement>('.world')!.style.transform;
+    const camera = renderedCamera(view.host);
     const next = snapshot(); next.stats.archived = 1;
     await act(async () => { Stream.current.snapshot(next); await new Promise<void>(resolve => setImmediate(resolve)); });
     const archives = view.host.querySelector<HTMLElement>('[data-card-id="archives"]')!;
     assert.ok(archives, 'existing archives create a visible world utility');
     assert.match(archives.querySelector('.card-header')!.textContent!, /Archived cards/);
     assert.equal(view.host.querySelector<HTMLElement>('[data-card-id="agent"]')!.classList.contains('is-active'), true);
-    assert.equal(view.host.querySelector<HTMLElement>('.world')!.style.transform, camera);
+    assert.deepEqual(renderedCamera(view.host), camera);
     const header = archives.querySelector<HTMLElement>('.card-header')!, left = Number.parseFloat(archives.style.left);
     await act(() => { header.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); });
     await act(() => { header.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })); });
@@ -525,8 +533,8 @@ test('far canvas zoom preserves native views and their local nodes without summa
   assert.equal(card.querySelector('[data-card-surface]'),surface);assert.equal(card.querySelector('[data-debug-component="content"]'),content);
   assert.ok(content?.textContent?.includes('Scrollable evidence'));assert.equal(card.getAttribute('data-card-detail'),'full');
   assert.equal(view.host.querySelectorAll('[data-debug-component="content"]').length,2,'Far visible cards keep their native contents');
-  assert.equal(view.host.querySelectorAll('.render-boundary[data-render-updates="false"]').length,0,'Visible full views keep readers live at distant zoom');
-  const world=view.host.querySelector<HTMLElement>('.world')!,zoom=()=>Number(world.style.transform.match(/scale\(([^)]+)\)/)![1]);
+  assert.equal(view.host.querySelectorAll('.render-boundary[data-render-updates=\"false\"]').length,0,'Visible full views keep readers live at distant zoom');
+  const zoom=()=>renderedCamera(view.host).zoom;
   await act(()=>document.querySelector<HTMLButtonElement>('[aria-label="Workspace settings"]')!.click());
   assert.equal(zoom(),.8,'Opening settings must update the imperative camera and rendered transform together');
   await act(()=>document.querySelector<HTMLButtonElement>('[aria-label="Zoom in"]')!.click());

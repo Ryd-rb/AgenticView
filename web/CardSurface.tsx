@@ -157,9 +157,9 @@ export function CardSurface({ chrome, id, active, preview=false, deactivate, can
     };
     const canvasNavigation = (event: Event) => { const own = (event as CustomEvent<{ card?: string }>).detail?.card === id; if (contacts.current.size || drag.current) traceInput('navigation', [Number(own), contacts.current.size]); if (!own) clear(); };
     const blurred = () => { if (contacts.current.size || drag.current) traceInput('blur', [contacts.current.size]); clear(); };
-    body.addEventListener('wheel', wheel, { passive: false, capture: true }); window.addEventListener('agenticview:canvas-navigation', canvasNavigation); window.addEventListener('blur', blurred);
+    if(active)body.addEventListener('wheel', wheel, { passive: false, capture: true }); window.addEventListener('agenticview:canvas-navigation', canvasNavigation); window.addEventListener('blur', blurred);
     return () => { if (contacts.current.size || drag.current) traceInput('unmount', [contacts.current.size]); body.removeEventListener('wheel', wheel, true); window.removeEventListener('agenticview:canvas-navigation', canvasNavigation); window.removeEventListener('blur', blurred); clear(); };
-  }, []);
+  }, [active]);
   useEffect(() => { if (!active) { if (contacts.current.size || drag.current) traceInput('inactive', [contacts.current.size]); clear(); } }, [active]);
   function down(event: React.PointerEvent<HTMLDivElement>) {
     traceInput('down', [event.pointerId, Number(active), Number(forceCanvas()), Number(canvasOwnsPointer(event.pointerId)), inputRegion(event.target)]);

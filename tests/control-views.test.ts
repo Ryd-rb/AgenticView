@@ -250,6 +250,31 @@ test('local supplied rows stay bounded, page and sort locally without command ex
   } finally { await view.close(); }
 });
 
+test('wide readonly grids bound mounted cells while retaining row state and restore editable views',async()=>{
+  const previous={raf:globalThis.requestAnimationFrame,caf:globalThis.cancelAnimationFrame,ro:globalThis.ResizeObserver};let frame=0;const frames=new Map<number,FrameRequestCallback>(),observers=new Set<object>();
+  class RO{constructor(_callback:ResizeObserverCallback){observers.add(this);}observe(){}unobserve(){}disconnect(){observers.delete(this);}}
+  Object.assign(globalThis,{ResizeObserver:RO,requestAnimationFrame:(callback:FrameRequestCallback)=>{frames.set(++frame,callback);return frame;},cancelAnimationFrame:(id:number)=>frames.delete(id)});
+  const component:ControlComponent={kind:'data-grid',data:{rows:Array.from({length:12},(_,row)=>Object.fromEntries(Array.from({length:12},(_,column)=>[`c${column}`,`r${row}c${column}`]))),pageSize:20,columns:Array.from({length:12},(_,index)=>({key:`c${index}`,label:`Column ${index}`}))}};
+  const f=await fixture(component),dom=window as unknown as Window,originalRect=HTMLElement.prototype.getBoundingClientRect,computed=dom.getComputedStyle.bind(dom);
+  HTMLElement.prototype.getBoundingClientRect=function(){
+    const table=this.closest('table'),viewport=this.closest<HTMLElement>('.control-grid');if(this.classList.contains('control-grid'))return new dom.DOMRect(0,0,125,60) as unknown as DOMRect;if(!table||!viewport)return originalRect.call(this);
+    const height=30.25,count=table.querySelectorAll('tbody tr[data-table-window-row]').length;let width=1200,top=0,left=0,size=24.5+count*height;
+    if(this.tagName==='TABLE'){left=-viewport.scrollLeft;top=-viewport.scrollTop;}else if(this.tagName==='THEAD'){size=24.5;top=-viewport.scrollTop;}else if(this.tagName==='TBODY'){size=count*height;top=24.5-viewport.scrollTop;}else if(this.tagName==='TH'){width=100;size=24.5;}else if(this.hasAttribute('data-table-window-row')){size=this.style.display==='none'?0:height;top=24.5+Number(this.dataset.tableWindowRow)*height-viewport.scrollTop;}
+    return new dom.DOMRect(left*.5,top*.5,width*.5,size*.5) as unknown as DOMRect;
+  };
+  dom.getComputedStyle=((element:Element)=>{const style=computed(element as any);if(element.tagName==='TABLE'&&element.closest('.control-grid'))return new Proxy(style,{get(target,key){if(key==='width')return '1200px';if(key==='height')return `${24.5+element.querySelectorAll('tbody tr[data-table-window-row]').length*30.25}px`;if(key==='boxSizing')return 'border-box';if(key==='borderCollapse')return 'collapse';return Reflect.get(target,key);}});if(element.classList.contains('control-grid'))return new Proxy(style,{get(target,key){return key==='borderTopWidth'||key==='borderLeftWidth'?'0px':Reflect.get(target,key);}});return style;}) as unknown as typeof dom.getComputedStyle;
+  Object.defineProperty(HTMLElement.prototype,'clientHeight',{configurable:true,get(){return this.classList.contains('control-grid')?120:0;}});Object.defineProperty(HTMLElement.prototype,'clientWidth',{configurable:true,get(){return this.classList.contains('control-grid')?250:0;}});
+  const flush=async()=>act(async()=>{const pending=[...frames.values()];frames.clear();for(const callback of pending)callback(0);});
+  try{
+    const fresh:ControlComponent={...component,data:{...component.data,rows:component.data.rows!.map(row=>({...row}))}};await f.render(true,fresh);
+    const table=f.host.querySelector('table')!,viewport=f.host.querySelector<HTMLElement>('.control-grid')!,cells=[...table.querySelectorAll<HTMLElement>('tbody [data-table-window-column]')],rows=[...table.querySelectorAll<HTMLElement>('tbody tr[data-table-window-row]')];
+    assert.equal(table.getAttribute('data-table-window-ready'),'true');assert.equal(table.getAttribute('data-table-window-columns'),'12');assert.ok(Number(table.getAttribute('data-table-window-layout-columns'))<12);assert.ok(cells.length>0&&cells.length<144);assert.equal(rows[1]!.style.height,'30.25px');assert.equal(table.style.tableLayout,'fixed');
+    await act(async()=>{viewport.scrollLeft=900;viewport.scrollTop=200;viewport.dispatchEvent(new Event('scroll'));});await flush();assert.equal(cells[0]!.isConnected,false);assert.equal(table.querySelector('thead [data-table-window-column-spacer="left"]')!.getAttribute('colspan'),'8');assert.ok(table.querySelectorAll('tbody [data-table-window-column]').length<144);assert.deepEqual([...table.querySelectorAll('tbody tr[data-table-window-row]')],rows);assert.equal(table.querySelector('[data-table-window-column="11"]')!.getAttribute('aria-colindex'),'12');
+    const activeCells=[...table.querySelectorAll('tbody [data-table-window-column]')];await f.render(false);assert.deepEqual([...table.querySelectorAll('tbody [data-table-window-column]')],activeCells);assert.equal(f.requests.length,1,'Local readonly windowing never executes actions');
+    await f.render(true,{...fresh,data:{...fresh.data,editAction:'edit'}});assert.equal(table.getAttribute('data-table-window-ready'),null);assert.equal(table.style.tableLayout,'');assert.equal(table.querySelector('[data-table-window-column-spacer]'),null);assert.equal(table.querySelectorAll('tbody [data-table-window-column]').length,144);assert.ok(rows.every(row=>row.style.height===''));
+  }finally{await f.close();assert.equal(observers.size,0);assert.equal(frames.size,0);Object.assign(globalThis,{requestAnimationFrame:previous.raf,cancelAnimationFrame:previous.caf,ResizeObserver:previous.ro});}
+});
+
 test('remote totals of millions remain metadata across hundreds of bounded windows and forward filter and sorting', async () => {
   const view = await fixture({ kind: 'data-grid', data: { readAction: 'rows', pageSize: 3, columns: [{ key: 'name', label: 'Name' }, { key: 'count', label: 'Count', type: 'number' }] } });
   try {

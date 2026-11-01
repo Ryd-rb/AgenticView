@@ -1,3 +1,5 @@
+import {LogicalLogs as Logs} from './LogicalLogs.js';
+import {NativeScrollBox} from './NativeScrollBox.js';
 import { memo, useContext, useEffect, useRef, useState } from 'react';
 import { ChartView } from './ChartView.js';
 import { AdditionalView } from './AdditionalViews.js';
@@ -12,7 +14,7 @@ import { DataTable } from './DataTable.js';
 import { NativeView } from './NativeViews.js';
 import { ControlView } from './ControlViews.js';
 import { configureCollection, resolveConfiguration } from '../shared/component-config.js';
-import { ComponentSettings, presentationStyle,presentationFlags,NativePresentation,useNativeRowMetrics } from './ComponentSettings.js';
+import { ComponentSettings, presentationStyle,presentationFlags,NativePresentation } from './ComponentSettings.js';
 import { SessionView } from './SessionViews.js';
 import { ExecutionWorkbench } from './ExecutionWorkbench.js';
 import { LinkedWorkbench } from './LinkedWorkbench.js';
@@ -28,10 +30,7 @@ function Sparkline({ values }: { values: number[] }) {
   const min = Math.min(...values), span = Math.max(...values) - min || 1;
   return <svg className="sparkline" viewBox="0 0 200 44" role="img" aria-label={`${values.length} historical values`}><polyline points={values.map((v, i) => `${i / Math.max(values.length - 1, 1) * 200},${40 - (v - min) / span * 36}`).join(' ')} fill="none" stroke="currentColor" strokeWidth="2" vectorEffect="non-scaling-stroke" /></svg>;
 }
-function Logs({ entries }: { entries: Extract<Component, { kind: 'logs' }>['data']['entries'] }) {
-  const [scroll, setScroll] = useState(0),metrics=useNativeRowMetrics(30,9,2); const row = metrics.height, height = 210, start = Math.max(0, Math.floor(scroll / row) - 3), end = Math.min(entries.length, start + 16);
-  return <div className="logs" style={{ height }} onScroll={e => setScroll(e.currentTarget.scrollTop)} tabIndex={0} aria-label={`${entries.length} log entries`}><div style={{ height: entries.length * row, position: 'relative' }}><div style={{ position: 'absolute', top: start * row, left: 0, right: 0 }}>{entries.slice(start, end).map((e, i) => <div className={`log-row ${e.level}`} style={{...metrics.style, height: row }} key={start + i} title={e.message}><time style={{lineHeight:metrics.style.lineHeight}}>{e.time || '·'}</time><b style={{lineHeight:metrics.style.lineHeight}}>{e.level}</b><span style={{lineHeight:metrics.style.lineHeight}}>{e.message}</span></div>)}</div></div></div>;
-}
+
 function Embed({ data, enabled, runId, componentId }: { data: Extract<Component, { kind: 'embed' }>['data']; enabled: boolean; runId: string; componentId: string }) {
   const frame = useRef<HTMLIFrameElement>(null), port = useRef<MessagePort | null>(null), loads = useRef(0);
   const [navigated, setNavigated] = useState(false), [interacting, setInteracting] = useState(false);
@@ -97,11 +96,11 @@ const ComponentBody = memo(function ComponentBody({ component: original, embeds,
   const origin=plain&&header.visible===false?<span className="component-origin-mark" role="img" aria-label="Built-in component" title="Built-in component"><LayoutGrid size={9} aria-hidden="true"/></span>:<span className={`component-origin ${custom ? 'custom' : 'native'}`} title={custom ? 'Agent-authored HTML and scripts in an isolated document' : 'Built-in typed component rendered by AgenticView'}>{custom ? 'Custom view' : 'Built-in'}</span>;
   const configureAbove=configure.placement==='header'||configure.placement?.startsWith('top-'), configureAllowed=!!original.configuration?.manualFields?.length&&configure.visible!==false&&(configureAbove||footer.visible!==false);
   const settings=configureAllowed?<ControlContainer spec={configure}><ComponentSettings component={original} runId={runId}/></ControlContainer>:null;
-  const nativeStyle=presentationStyle(configuration.presentation);
+  const nativeStyle=presentationStyle(configuration.presentation),ContentViewport=configuration.presentation.maxHeight!==undefined||configuration.presentation.maxWidth!==undefined?NativeScrollBox:'div';
   return <ComponentControls value={controls}><section data-debug-run={runId} data-debug-component={c.id} data-debug-kind={c.kind} className={`component component-${c.kind} ${custom ? 'is-custom' : isTaskList(c) ? 'is-plan' : ''}`} data-component-animation={custom?'none':configuration.presentation.animation??'none'} style={{'--component-motion-duration':(configuration.presentation.animationDurationMs??120)+'ms'} as React.CSSProperties} data-origin={custom ? 'custom' : 'native'} data-surface={plain?'plain':undefined} data-density={!custom?configuration.presentation.density:undefined} aria-label={title.label||configuration.label||c.title||c.kind} title={configuration.tooltip}>
     {header.visible!==false?<h3 data-control="header" title={header.tooltip}><Icon size={12}/>{title.visible!==false&&<span className="component-title" data-control="title" title={title.tooltip}>{title.label??configuration.label??(c.title||c.kind)}</span>}{origin}{times.visible!==false&&updatedAt!==undefined&&<time className="component-time" data-control="times" dateTime={new Date(updatedAt).toISOString()} title={times.tooltip??`Updated: ${exactTime(updatedAt)}`}>{compactTime(updatedAt)}</time>}</h3>:plain?origin:<div className="component-origin-line" data-header-hidden="true">{origin}</div>}
     {configureAbove&&settings}{configuration.description&&<p className="component-description">{configuration.description}</p>}
     {configuration.collapsed!==undefined&&collapse.visible!==false&&<button type="button" data-control="collapse" data-control-variant={collapse.variant} disabled={!active} aria-label={collapse.label??(expanded?'Collapse component':'Expand component')} title={collapse.tooltip} style={controlStyle(collapse)} aria-expanded={expanded} onClick={()=>setCollapsed(!expanded)}><ControlContent spec={collapse} label={expanded?'Collapse component':'Expand component'} icon={<ChevronDown size={14}/>}/></button>}
-    {expanded&&<div className="component-configured" data-presentation={presentationFlags(nativeStyle)} style={nativeStyle}><NativePresentation.Provider value={configuration.presentation}>{body}</NativePresentation.Provider></div>}{!configureAbove&&settings}
+    {expanded&&<ContentViewport className="component-configured" role={ContentViewport===NativeScrollBox?'region':undefined} aria-label={ContentViewport===NativeScrollBox?`${title.label||configuration.label||c.title||c.kind} content`:undefined} data-presentation={presentationFlags(nativeStyle)} style={nativeStyle}><NativePresentation.Provider value={configuration.presentation}>{body}</NativePresentation.Provider></ContentViewport>}{!configureAbove&&settings}
   </section></ComponentControls>;
 });

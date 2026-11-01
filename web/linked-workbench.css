@@ -31,3 +31,6 @@
 .standalone-card-heading{display:flex;align-items:center;gap:8px;min-height:54px;padding:10px 155px 10px 15px;flex-wrap:wrap;border-bottom:1px solid #ffffff15}.standalone-card-heading>svg{color:#b5a2fa}.standalone-card-heading>strong{font-size:13px}.standalone-card-heading>span{font-size:10px;color:#a5b3c5}.standalone-card-content{flex:1;min-height:0;overflow:auto;padding:8px}.standalone-card-content>.component{margin:0}.standalone-card-content .linked-price-plot{max-height:none}
 
 .linked-workbench .linked-grid-shell table{width:max-content}.linked-chart-legend i{border-top-color:var(--linked-accent)}
+.linked-grid-shell tr[data-table-window-spacer],.linked-grid-shell tr[data-table-window-spacer]>td{padding:0!important;border:0!important;min-height:0!important;line-height:0!important;font-size:0!important;background:transparent!important;box-shadow:none!important}
+
+.linked-grid-shell [data-table-window-column-spacer]{padding:0!important;border:0!important;min-height:0!important;line-height:0!important;font-size:0!important;background:transparent!important;box-shadow:none!important}

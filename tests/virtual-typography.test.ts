@@ -1,3 +1,5 @@
+import {CardInteraction} from '../web/CardInteraction.ts';
+import {seekScrollAxis} from '../web/logicalScroll.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -14,6 +16,7 @@ async function fixture(kind:'logs'|'log-stream'){
   Object.assign(globalThis,{IS_REACT_ACT_ENVIRONMENT:true});
   const previous={fetch:globalThis.fetch,io:globalThis.IntersectionObserver};
   Object.assign(globalThis,{IntersectionObserver:undefined});
+  for(const [key,value] of Object.entries({clientHeight:210,clientWidth:300,offsetHeight:210,offsetWidth:300,scrollWidth:300,scrollHeight:210}))Object.defineProperty(dom.HTMLElement.prototype,key,{configurable:true,get(){return this.classList.contains('logs')?value:0;}});
   globalThis.fetch=async(_url,init)=>new Response(JSON.stringify(init?.method==='POST'?{id:'read-1',actionId:'tail',state:'succeeded',createdAt:1,result:{entries}}:{version:'v1',actions:[{id:'tail',label:'Tail',kind:'logs'}]}),{headers:{'Content-Type':'application/json'}});
   for(const path of ['web/control-views.css','web/component-config.css','web/component-presentation.css']){
     const style=document.createElement('style');style.textContent=readFileSync(path,'utf8');document.head.append(style);
@@ -22,9 +25,9 @@ async function fixture(kind:'logs'|'log-stream'){
   const settle=()=>new Promise<void>(resolve=>setImmediate(resolve));
   return {host,render:async(presentation:Presentation)=>act(async()=>{
     const component=componentSchema.parse({id:'logs',title:'Synthetic logs',kind,data:kind==='logs'?{entries}:{actionId:'tail',pollMs:60000,maxRows:100},configuration:{presentation}});
-    root.render(createElement(ComponentView,{component,embeds:false,runId:'synthetic'}));
+    root.render(createElement(CardInteraction.Provider,{value:true},createElement(ComponentView,{component,embeds:false,runId:'synthetic'})));
     await settle();await settle();
-  }),scroll:async(view:HTMLElement,top:number)=>act(async()=>{view.scrollTop=top;view.dispatchEvent(new Event('scroll',{bubbles:true}));await settle();}),close:async()=>{
+  }),scroll:async(view:HTMLElement,top:number)=>act(async()=>{if(kind==='logs')seekScrollAxis(view,'y',top);else{view.scrollTop=top;view.dispatchEvent(new Event('scroll',{bubbles:true}));}await settle();}),close:async()=>{
     await act(async()=>{root.unmount();await settle();});globalThis.fetch=previous.fetch;Object.assign(globalThis,{IntersectionObserver:previous.io});await dom.happyDOM.close();
   }};
 }
@@ -54,10 +57,10 @@ for(const kind of ['logs','log-stream'] as const)test(`${kind} typography keeps 
       assert.ok(height>=Math.ceil(line)+inset,'Row includes the full line box and vertical inset');
     }
     const spacer=view.firstElementChild as HTMLElement,positioner=spacer.firstElementChild as HTMLElement;
-    assert.equal(spacer.style.height,`${entries.length*height}px`);
-    assert.equal(view.querySelectorAll(live?'.control-log-row':'.log-row').length,16,'Virtualized rows remain bounded');
+    assert.equal(spacer.style.height,`${live?entries.length*height:210}px`);
+    const rendered=view.querySelectorAll(live?'.control-log-row':'.log-row').length;assert.ok(rendered<=16&&rendered>=Math.ceil(210/height),'Virtualized paint rows remain bounded and cover the viewport');
     await f.scroll(view,height*10);
-    assert.equal(positioner.style.top,`${height*7}px`,'Virtual start and offset use the same derived row height');
+    assert.equal(positioner.style.top,`${height*(live?7:-3)}px`,'Virtual start and offset use the same derived row height');
     assert.match(positioner.firstElementChild!.textContent!,/row-7$/);
   }}finally{await f.close();}
 });

@@ -57,10 +57,10 @@ test('native inspection exposes dropdown choices and safe bounded grid scrolling
  const f=await fixture();try{
   const root=document.querySelector<HTMLElement>('[data-debug-run=one]')!;root.dataset.debugKind='data-grid';
   root.innerHTML='<div class="control-grid" style="overflow-x:auto;overflow-y:auto"><table><tr><td>Observation</td></tr></table></div><button data-control="place">Place order</button>';
-  const grid=root.querySelector<HTMLElement>('.control-grid')!;Object.defineProperties(grid,{scrollHeight:{value:900},clientHeight:{value:100}});let y=0;grid.scrollBy=options=>{y+=(options as ScrollToOptions).top??0;};
+  const grid=root.querySelector<HTMLElement>('.control-grid')!;Object.defineProperties(grid,{scrollHeight:{value:900},clientHeight:{value:100}});
   const inspect=await f.run({operation:'inspect'}) as any,entries=inspect.components[0].targets;
   assert.ok(entries.find((e:any)=>e.target&&e.actions.includes('scroll')));assert.equal(entries.find((e:any)=>e.name==='Place order'),undefined);
-  await f.run({operation:'scroll',componentId:'chart',target:entries.find((e:any)=>e.actions.includes('scroll')).target,x:0,y:200});assert.equal(y,200);
+  const scrolled=await f.run({operation:'scroll',componentId:'chart',target:entries.find((e:any)=>e.actions.includes('scroll')).target,x:0,y:200}) as any;assert.equal(grid.scrollTop,200);assert.equal(scrolled.scroll.y,200);
   root.dataset.debugKind='chart';root.innerHTML='<select aria-label="Interval"><option value="s">Seconds</option><option value="h" disabled>Hours</option></select>';
   const field=(await f.run({operation:'inspect'}) as any).components[0].targets[0];assert.ok(field.actions.includes('input'));assert.deepEqual(field.field.options,[{value:'s',label:'Seconds',disabled:false},{value:'h',label:'Hours',disabled:true}]);
  }finally{await f.close();}
@@ -92,8 +92,9 @@ test('stopping a viewport during its timed wait cancels pending movement and rel
 
 test('metrics distinguish live provider receipts from paused/loading/fallback charts without exposing data',async()=>{
  const f=await fixture();try{
-  const now=Date.now();for(const state of ['ready','paused','loading','error','fallback','unexpected']){const chart=document.createElement('div');chart.className='source-chart';chart.dataset.sourceState=state;chart.textContent='private series label';if(state==='ready'||state==='paused')chart.dataset.sourceReceivedAt=String(now-500);document.body.append(chart);}
+  const now=Date.now();for(const state of ['ready','paused','loading','error','fallback','unexpected']){const chart=document.createElement('div');chart.className='source-chart';chart.dataset.sourceState=state;chart.textContent='private series label';if(state==='ready'||state==='paused'){chart.dataset.sourceReceivedAt=String(now-500);chart.dataset.sourcePoints=state==='ready'?'512':'0';}if(state==='error')chart.dataset.sourcePoints='NaN';document.body.append(chart);}
   const result=f.measurements.snapshot().sourceCharts;assert.equal(result.total,6);assert.equal(result.received,2);assert.deepEqual(result.states,{ready:1,paused:1,loading:1,error:1,fallback:1,unknown:1});assert.ok(result.oldestReceiptAgeMs!>=500);assert.equal(JSON.stringify(result).includes('private series label'),false);
+  assert.deepEqual(result.displayedPoints,{known:2,total:512,min:0,max:512,invalid:1});
  }finally{await f.close();}
 });
 

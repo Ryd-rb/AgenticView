@@ -40,7 +40,7 @@ async function ui(component:Component,view=false){
   for(const path of ['web/control-views.css','web/linked-workbench.css','web/component-config.css','web/component-presentation.css']){try{const style=document.createElement('style');style.textContent=readFileSync(path,'utf8');document.head.append(style);}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}}
   const {createRoot}=await import('react-dom/client'),host=document.createElement('div');document.body.append(host);const root=createRoot(host),settle=()=>new Promise<void>(resolve=>setImmediate(resolve));
   const render=async(component:Component)=>act(async()=>{root.render(createElement(CardInteraction.Provider,{value:true},view?createElement(ComponentView,{component,runId:'synthetic',embeds:false}):createElement(ComponentSettings,{component,runId:'synthetic'})));await settle();});
-  await render(component);
+  await render(component);if(!view)await act(async()=>{const details=host.querySelector<HTMLDetailsElement>('details.component-settings');if(details){details.open=true;details.dispatchEvent(new Event('toggle'));await settle();}});
   const change=async(label:string,value:string)=>act(async()=>{const input=host.querySelector<HTMLInputElement|HTMLSelectElement>(`[aria-label="${label}"]`);assert.ok(input,label);Object.getOwnPropertyDescriptor(input.tagName==='SELECT'?dom.HTMLSelectElement.prototype:dom.HTMLInputElement.prototype,'value')!.set!.call(input,value);input.dispatchEvent(new Event(input.tagName==='SELECT'?'change':'input',{bubbles:true}));await settle();});
   const click=async(label:string)=>act(async()=>{const button=[...host.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.getAttribute('aria-label')===label||button.textContent===label);assert.ok(button,label);button.click();await settle();});
   return {host,calls,dom,render,change,click,close:async()=>{await act(async()=>{root.unmount();await settle();});globalThis.fetch=original;await dom.happyDOM.close();}};
@@ -57,6 +57,17 @@ test('explicit native presentation metrics reach linked controls and table cells
   const component=componentSchema.parse({id:'linked',kind:'linked-workbench',title:'Native controls',configuration:{presentation:{fontSize:30,controlPadding:0,controlHeight:40,cellPadding:{left:0,right:2},rowHeight:48,gap:0}},data:{entities:[{id:'node',label:'Node'}],columns:[{key:'value',label:'Value'}],rows:[{id:'root',kind:'node',values:{value:1}}],series:[],associations:[]}}),before=JSON.stringify(component),f=await ui(component,true);try{
     const configured=f.host.querySelector<HTMLElement>('.component-configured')!,input=f.host.querySelector<HTMLInputElement>('[aria-label="Find linked rows"]')!,cell=f.host.querySelector<HTMLElement>('tbody td')!;
     assert.equal(configured.style.getPropertyValue('--component-control-padding'),'0px');assert.equal(window.getComputedStyle(input).fontSize,'30px');assert.equal(window.getComputedStyle(input).paddingLeft,'0px');assert.equal(window.getComputedStyle(input).minHeight,'40px');assert.equal(window.getComputedStyle(cell).paddingLeft,'0px');assert.equal(window.getComputedStyle(cell).height,'48px');assert.equal(JSON.stringify(component),before);
+  }finally{await f.close();}
+});
+
+test('constrained native viewports preserve authored text, control and cell metrics through their scroll frame',async()=>{
+  const component=componentSchema.parse({id:'bounded',kind:'linked-workbench',title:'Bounded view',configuration:{presentation:{maxWidth:600,maxHeight:300,density:'compact',fontSize:30,controlPadding:0,controlHeight:40,cellPadding:{left:0,right:2},rowHeight:48}},data:{entities:[{id:'node',label:'Node'}],columns:[{key:'value',label:'Value'}],rows:[{id:'root',kind:'node',values:{value:1}}],series:[],associations:[]}}),f=await ui(component,true);
+  try{
+    const configured=f.host.querySelector<HTMLElement>('.component-configured')!,input=f.host.querySelector<HTMLInputElement>('[aria-label="Find linked rows"]')!,cell=f.host.querySelector<HTMLElement>('tbody td')!;
+    assert.equal(configured.parentElement?.dataset.nativeScrollFrame,'true');
+    assert.equal(window.getComputedStyle(configured).paddingLeft,'0px');
+    assert.equal(window.getComputedStyle(input).fontSize,'30px');assert.equal(window.getComputedStyle(input).paddingLeft,'0px');assert.equal(window.getComputedStyle(input).minHeight,'40px');
+    assert.equal(window.getComputedStyle(cell).paddingLeft,'0px');assert.equal(window.getComputedStyle(cell).height,'48px');
   }finally{await f.close();}
 });
 

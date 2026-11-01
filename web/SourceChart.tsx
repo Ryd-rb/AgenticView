@@ -35,8 +35,9 @@ export function SourceChart({data,runId,manual}:{data:ChartData;runId:string;man
     return()=>{disposed=true;if(timer!==undefined)clearTimeout(timer);if(deadline!==undefined)clearTimeout(deadline);controls.cancel();};
   },[visible,sourceKey,fallback,controls.config,controls.invoke,controls.cancel,refresh]);
   // A frozen plot retains local series/table inspection state while a query is pending or hidden.
-  const shown=useRef<ChartData>(fallback);if(visible)shown.current=last?{...fallback,series:last.data.series}:fallback;
-  return <div ref={frame} className="source-chart" data-source-state={!visible?'paused':error||controls.error?'error':last?'ready':controls.busy?'loading':'fallback'} data-source-received-at={last?.receivedAt} aria-busy={visible&&controls.busy}>
+  const latest=useMemo(()=>last?{...fallback,series:last.data.series}:fallback,[fallback,last]);
+  const shown=useRef<ChartData>(fallback);if(visible)shown.current=latest;
+  return <div ref={frame} className="source-chart" data-source-state={!visible?'paused':error||controls.error?'error':last?'ready':controls.busy?'loading':'fallback'} data-source-received-at={last?.receivedAt} data-source-points={last?.count} aria-busy={visible&&controls.busy}>
     <div className="control-toolbar"><span role="status">{!visible?'Chart queries paused':last?`${last.rawPoints===undefined?'Provider':last.rawPoints.toLocaleString('en-US')+' raw'} points · ${last.count.toLocaleString('en-US')} displayed`:controls.busy?'Loading chart query…':'Static chart fallback'}</span><button type="button" disabled={!manual||!visible||controls.busy} onClick={()=>setRefresh(value=>value+1)}>Refresh chart</button></div>
     {(error||controls.error)&&<p role="alert">{error||controls.error}</p>}
     <Plot data={shown.current} manual={manual} sampledByProvider={!!last}/>

@@ -50,9 +50,10 @@ test('visible source queries are bounded, retain successful data on invalid resp
   const f=await fixture();try{
     assert.equal(f.requests.length,1);await f.respond(0,f.configuration);assert.equal(f.requests.length,2);assert.equal(f.host.querySelector<HTMLElement>('.source-chart')!.dataset.sourceState,'loading');assert.deepEqual(f.requests[1]!.body.input,{from:0,to:1000,maxPoints:32});assert.equal(f.requests[1]!.body.actionId,'range');assert.equal(f.requests[1]!.body.definitionVersion,'v1');
     await f.respond(1,completed({series:[{name:'Provider',points:[{x:0,y:-10},{x:500,y:100}]}],rawPoints:1_000_000}));assert.match(f.host.textContent!,/1,000,000 raw points · 2 displayed/);assert.match(f.host.textContent!,/Provider/);assert.equal(f.host.querySelector<HTMLElement>('.source-chart')!.dataset.sourceState,'ready');assert.ok(Number(f.host.querySelector<HTMLElement>('.source-chart')!.dataset.sourceReceivedAt)>0);
+    assert.equal(f.host.querySelector<HTMLElement>('.source-chart')!.dataset.sourcePoints,'2');
     await f.tick();assert.equal(f.requests.length,3);assert.match(f.host.textContent!,/Provider/,'Last success remains available while next query is pending');
     await f.respond(2,completed({series:[{name:'Oversized',points:Array.from({length:33},(_,i)=>({x:i,y:i}))}],rawPoints:1000}));assert.match(f.host.querySelector('[role="alert"]')!.textContent!,/requested point limit/);assert.match(f.host.textContent!,/Provider/);assert.doesNotMatch(f.host.textContent!,/Oversized/);
-    await f.tick();const pending=f.requests.at(-1)!;assert.equal(pending.signal.aborted,false);await f.visibility(true);assert.equal(pending.signal.aborted,true);assert.equal(f.timers.size,0);assert.match(f.host.textContent!,/Chart queries paused/);assert.equal(f.host.querySelector<HTMLElement>('.source-chart')!.dataset.sourceState,'paused');
+    await f.tick();const pending=f.requests.at(-1)!;assert.equal(pending.signal.aborted,false);await f.visibility(true);assert.equal(pending.signal.aborted,true);assert.equal(f.timers.size,0);assert.match(f.host.textContent!,/Chart queries paused/);assert.equal(f.host.querySelector<HTMLElement>('.source-chart')!.dataset.sourceState,'paused');assert.equal(f.host.querySelector<HTMLElement>('.source-chart')!.dataset.sourcePoints,'2');
   }finally{await f.close();}
 });
 

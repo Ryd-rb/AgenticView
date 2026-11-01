@@ -30,7 +30,7 @@ test('configure presentation cannot create editing permission and can hide an en
   assert.doesNotMatch(absent, /data-control="configure"|control-presentation-slot/);
   const hidden = render(component({ configure: { visible: false } }));
   assert.doesNotMatch(hidden, /data-control="configure"/); assert.match(hidden, /42/);
-  const shown = render(component()); assert.match(shown, /Configure component/); assert.match(shown, /disabled=""/);
+  const shown = render(component()); assert.match(shown, /Configure component/); assert.match(shown, /data-details-materialized="false"/); assert.doesNotMatch(shown,/aria-label="Configure data.unit"/);
 });
 
 test('settings presentation supports accessible icons, literal labels, primary controls and initial disclosure state', () => {
