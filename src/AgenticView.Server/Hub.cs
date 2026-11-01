@@ -73,7 +73,16 @@ public sealed partial class Hub : IDisposable
         foreach (var row in stored)
         {
             var view = Parse(row.Payload); var components = new JsonObject();
-            using (var reader = Command("SELECT id,payload FROM components WHERE run_id=$p0", row.Id).ExecuteReader()) while (reader.Read()) { var component = Parse(reader.GetString(1)); ComponentValidator.Validate(component); components[reader.GetString(0)] = component; }
+            using (var reader = Command("SELECT id,payload FROM components WHERE run_id=$p0", row.Id).ExecuteReader()) while (reader.Read())
+            {
+                var payload = reader.GetString(1);
+                var validated = Parse(payload);
+                ComponentValidator.Validate(validated);
+                // Validation expands every supplied row/point into mutable nodes.
+                // Retain an independently parsed lazy tree after validation so
+                // untouched heavy data stays compact until an actual edit.
+                components[reader.GetString(0)] = Parse(Serialize(validated));
+            }
             view["components"] = components; var bytes = Size(view); runs[row.Id] = new Run(view, row.Token, bytes); totalBytes += bytes;
         }
         archiveCount = Convert.ToInt64(Scalar("SELECT COUNT(*) FROM archives"));
