@@ -33,14 +33,15 @@ function Sparkline({ values }: { values: number[] }) {
 
 function Embed({ data, enabled, runId, componentId }: { data: Extract<Component, { kind: 'embed' }>['data']; enabled: boolean; runId: string; componentId: string }) {
   const frame = useRef<HTMLIFrameElement>(null), port = useRef<MessagePort | null>(null), loads = useRef(0);
-  const [navigated, setNavigated] = useState(false), [interacting, setInteracting] = useState(false);
-  const active = useContext(CardInteraction), input = active && interacting;
+  const active = useContext(CardInteraction);
+  const [navigated, setNavigated] = useState(false), [interacting, setInteracting] = useState(active);
+  const input = active && interacting;
   const src = `/api/embeds/${encodeURIComponent(runId)}/${encodeURIComponent(componentId)}`;
   useEffect(() => { port.current?.postMessage(data.state ?? null); }, [data.state]);
   useEffect(() => { loads.current = 0; setNavigated(false); return () => { port.current?.close(); port.current = null; }; }, [src, enabled]);
-  useEffect(() => { if (!active) setInteracting(false); }, [active]);
-  useEffect(() => { const reset = () => setInteracting(false); window.addEventListener('agenticview:canvas-navigation', reset); return () => window.removeEventListener('agenticview:canvas-navigation', reset); }, []);
-  useEffect(() => { setInteracting(false); }, [src, enabled]);
+  // Card activation grants input to its content, including isolated documents.
+  // The toolbar can still pause frame input when local card navigation is needed.
+  useEffect(() => { setInteracting(active); }, [active, src, enabled]);
   if (!enabled || navigated) return <div className="embed-paused"><Pause size={18} /><span>{navigated ? 'View navigated. Reload the component to reconnect.' : 'Embedded views are paused in settings.'}</span></div>;
   return <><div className="embed-label"><ShieldCheck size={12} /> Trusted view <span>isolated document · network enabled</span><button className="embed-interact" disabled={!active} aria-pressed={input} onClick={() => setInteracting(!input)}>{input ? 'Return to card navigation' : 'Interact with view'}</button></div><div className={`embed-frame ${input ? 'embed-interacting' : ''}`}><iframe ref={frame} title="Agent generated view" inert={!input} tabIndex={input ? 0 : -1} sandbox="allow-scripts allow-forms allow-popups allow-downloads" referrerPolicy="no-referrer" src={src} style={{ height: data.height, pointerEvents: input ? 'auto' : 'none' }} onLoad={() => {
     loads.current++;

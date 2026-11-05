@@ -342,17 +342,25 @@ test('pinch starts on controls without breaking stationary clicks, and navigatio
   } finally { await view.close(); }
 });
 
-test('embed requires explicit interaction and resets when the card or canvas takes navigation', async () => {
-  const view = await mount(createElement(ComponentView, { component: { id: 'embed', title: 'View', kind: 'embed', data: { html: '<p>Synthetic view</p>', height: 200 } }, embeds: true, runId: 'synthetic' }));
+test('activating a card enables its isolated view controls and preserves optional navigation pause', async () => {
+  const view = await mount(createElement(ComponentView, { component: { id: 'embed', title: 'View', kind: 'embed', data: { html: '<input type="range"><button>Apply</button>', height: 200 } }, embeds: true, runId: 'synthetic' }), false);
   try {
     const frame = view.host.querySelector('iframe')!, button = view.host.querySelector<HTMLElement>('.embed-interact')!;
     assert.equal(frame.tabIndex, -1); assert.equal(frame.style.pointerEvents, 'none'); assert.equal(frame.hasAttribute('inert'), true);
     assert.doesNotMatch(frame.getAttribute('sandbox')!, /allow-same-origin/);
     assert.ok(view.host.querySelector('.embed-navigation-shield'));
-    await act(() => { button.click(); }); assert.equal(frame.tabIndex, 0); assert.equal(frame.style.pointerEvents, 'auto');
-    await act(() => { window.dispatchEvent(new Event('agenticview:canvas-navigation')); }); assert.equal(frame.tabIndex, -1);
-    await act(() => { button.click(); }); await view.active(false); await view.active(true);
-    assert.equal(frame.style.pointerEvents, 'none'); assert.equal(frame.tabIndex, -1);
+    await view.active(true);
+    assert.equal(frame.tabIndex, 0); assert.equal(frame.style.pointerEvents, 'auto'); assert.equal(frame.hasAttribute('inert'), false);
+    assert.equal(button.getAttribute('aria-pressed'), 'true'); assert.equal(view.host.querySelector('.embed-navigation-shield'), null);
+    await act(() => { window.dispatchEvent(new Event('agenticview:canvas-navigation')); });
+    assert.equal(frame.style.pointerEvents, 'auto', 'Global navigation does not silently disable controls in the selected card');
+    await act(() => { button.click(); });
+    assert.equal(frame.style.pointerEvents, 'none'); assert.equal(frame.tabIndex, -1); assert.equal(frame.hasAttribute('inert'), true);
+    assert.ok(view.host.querySelector('.embed-navigation-shield'));
+    await act(() => { button.click(); }); assert.equal(frame.style.pointerEvents, 'auto');
+    await view.active(false); assert.equal(frame.style.pointerEvents, 'none'); assert.equal(frame.hasAttribute('inert'), true);
+    await view.active(true); assert.equal(frame.style.pointerEvents, 'auto');
+    assert.equal(view.host.querySelector('iframe'), frame, 'Authority changes retain the same document and its local controls');
   } finally { await view.close(); }
 });
 

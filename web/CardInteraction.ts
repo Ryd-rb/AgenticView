@@ -1,4 +1,4 @@
 import { createContext } from 'react';
 
-/** Embedded documents explicitly opt into input after their containing card is active. */
+/** Manual input authority for the active card's native and isolated content. */
 export const CardInteraction = createContext(false);

@@ -117,7 +117,7 @@ removes its saved password and invalidates all bindings that referenced it.
 The console has follow-tail, pause-output, search, bounded pages and selectable
 rich details. Pausing output polling does not pause the agent. Markdown is rendered
 safely; executable HTML has a persistent **Custom view** label, opaque sandbox and
-explicit interaction mode. Trusted-embed settings can disable HTML completely.
+input enabled by card activation. Trusted-embed settings can disable HTML completely.
 
 **Pause** interrupts the owned CLI process. **Resume** starts another turn using
 its explicit native session ID when available. This is checkpointed provider

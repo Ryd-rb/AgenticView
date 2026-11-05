@@ -25,10 +25,11 @@ Mouse, keyboard, and touchscreen input share the same camera transforms. Pinch
 zoom preserves the world anchor under the fingers while midpoint motion pans.
 Fit all has no fixed zoom floor. Visible cards retain their content at every zoom
 level; double-click or double-tap focuses a card. Editing controls retain their
-normal key and tap behavior. Embedded documents start behind a navigation surface;
-choose **Interact with view** in an active card to use their own controls. Return to
-card navigation with the same button. Deactivation or canvas navigation resets this
-mode. The document remains isolated and never receives dashboard credentials.
+normal key and tap behavior. Activating a card also enables its embedded document's
+controls. Choose **Return to card navigation** to pause document input, then
+**Interact with view** to resume it. Reactivating the card enables input again;
+global canvas navigation does not silently disable its controls. The document
+remains isolated and never receives dashboard credentials.
 New cards appear immediately. Arrivals leave the camera and selected card in place;
 Fit all is an explicit one-time action. A cyan arrival border begins fading only
 when the card first enters the viewport, including nested cards.
